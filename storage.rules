@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // All uploads/downloads go through the Express backend using the Admin
+    // SDK, which bypasses these rules. Direct client access is denied.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
