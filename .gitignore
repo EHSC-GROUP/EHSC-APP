@@ -10,3 +10,5 @@ ui-debug.log
 storage-emulator-data/
 firestore-emulator-data/
 emulator-data/
+*firebase-adminsdk*.json
+*serviceAccountKey*.json
