@@ -9,3 +9,4 @@ ui-debug.log
 .firebase/
 storage-emulator-data/
 firestore-emulator-data/
+emulator-data/
