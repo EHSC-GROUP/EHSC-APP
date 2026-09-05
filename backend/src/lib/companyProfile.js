@@ -32,6 +32,30 @@ export function emptyPhase3() {
   };
 }
 
+// Phase III(b) — Project Plan: just a numbered action list (who's doing
+// what, by when) for executing the work order. Same shape as the Business
+// Development action log, managed by its own add/edit/delete endpoints —
+// `actions` is never touched by the general PUT /:id update.
+export function emptyPhase3b() {
+  return { actions: [] };
+}
+
+// Phase IV — Project Completion: the template only names two checkpoints
+// (Delivery Report, Invoice) with no sub-fields of its own, so these are a
+// reasonable elaboration of what each actually needs to track.
+export function emptyPhase4() {
+  return {
+    deliveryReportSubmitted: false,
+    deliveryReportDate: null,
+    deliveryReportNotes: "",
+    invoiceNumber: "",
+    invoiceDate: null,
+    invoiceAmount: null,
+    paymentReceived: false,
+    paymentReceivedDate: null,
+  };
+}
+
 // A Company Profile created alongside (or backfilled for) an enquiry:
 // basic company/contact info is a one-time copy from the enquiry at
 // creation time, not a live sync — editing one afterward doesn't touch
@@ -50,6 +74,8 @@ export function linkedCompanyProfileDoc(enquiry, sourceEnquiryId, sourceEnquiryN
     sourceEnquiryNo,
     phase2: emptyPhase2(),
     phase3: emptyPhase3(),
+    phase3b: emptyPhase3b(),
+    phase4: emptyPhase4(),
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     createdBy: userId,
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
