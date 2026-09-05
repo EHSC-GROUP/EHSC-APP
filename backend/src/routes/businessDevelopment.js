@@ -4,6 +4,7 @@ import { v4 as uuid } from "uuid";
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, BD_RESULT, APPROACH_MODE } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { linkedCompanyProfileDoc } from "../lib/companyProfile.js";
 
 const router = Router();
 
@@ -88,8 +89,38 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: req.user.userId,
     };
-    await db.collection(COLLECTIONS.BD_ENQUIRIES).doc(id).set(doc);
+    // A Company Profile is created alongside every enquiry, at the same
+    // moment — not gated on a later "won" result. Its basic fields are a
+    // one-time copy from the enquiry; the rest fills in as the enquiry
+    // moves through Phase II (proposal/negotiation) and Phase III
+    // (work order execution).
+    const profileDoc = linkedCompanyProfileDoc(doc, id, enquiryNo, req.user.userId);
+    const batch = db.batch();
+    batch.set(db.collection(COLLECTIONS.BD_ENQUIRIES).doc(id), doc);
+    batch.set(db.collection(COLLECTIONS.COMPANY_PROFILES).doc(id), profileDoc);
+    await batch.commit();
+
     res.status(201).json({ id, ...doc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Backfill for enquiries created before Company Profiles auto-created —
+// same shape, but only runs if one doesn't already exist for this enquiry.
+router.post("/:id/create-profile", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const enquirySnap = await db.collection(COLLECTIONS.BD_ENQUIRIES).doc(req.params.id).get();
+    if (!enquirySnap.exists) return res.status(404).json({ error: "Enquiry not found" });
+
+    const profileRef = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
+    const existing = await profileRef.get();
+    if (existing.exists) return res.status(400).json({ error: "A Company Profile already exists for this enquiry" });
+
+    const enquiry = enquirySnap.data();
+    const profileDoc = linkedCompanyProfileDoc(enquiry, req.params.id, enquiry.enquiryNo, req.user.userId);
+    await profileRef.set(profileDoc);
+    res.status(201).json({ id: req.params.id, ...profileDoc });
   } catch (err) {
     next(err);
   }
