@@ -62,6 +62,10 @@ Open **http://localhost:5173** and sign in.
 
 To point at a real Firebase project instead of the emulator: create a service account key, remove the `FIRESTORE_EMULATOR_HOST` / `FIREBASE_STORAGE_EMULATOR_HOST` vars from `backend/.env`, set `FIREBASE_PROJECT_ID`/`FIREBASE_STORAGE_BUCKET` to the real project, and set `GOOGLE_APPLICATION_CREDENTIALS` to the key file path (or use Application Default Credentials). No code changes needed — `firebase-admin` picks up the emulator vars automatically when present and talks to the real project when they're absent.
 
+## Business Development module
+
+A lead/enquiry tracker for the firm's consulting pipeline, separate from the HR/payroll features — it's the first item in the Super Admin nav. One enquiry record holds the client, how they were approached, and the discussion outcome; a running **action log** (not a single flat field) tracks follow-ups over time — each entry has a description, an employee assignment, a start date, a due date, and a completed checkbox, so progress on an enquiry is visible as a timeline rather than a single overwritten status. `result` covers the four outcomes requested (Purchase Order Received / Contract Accepted / Enquiry On Hold / Enquiry Dropped) plus an "In Progress" default. Enquiry numbers (`ENQ-0001`, ...) are generated server-side from a transactional counter. Backend: `backend/src/routes/businessDevelopment.js`. Frontend: `frontend/src/pages/Admin/BusinessDevelopment.jsx`.
+
 ## Notable design decisions (see spec gaps this rebuild resolved)
 
 - **Employee delete = archive, not hard delete.** `DELETE /api/profiles/:userId` disables login but keeps all HR/payroll/leave history for audit purposes, rather than cascading deletes or leaving orphaned records.
