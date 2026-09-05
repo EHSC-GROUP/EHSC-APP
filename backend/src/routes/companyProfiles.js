@@ -4,7 +4,7 @@ import { v4 as uuid } from "uuid";
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
-import { emptyPhase2, emptyPhase3 } from "../lib/companyProfile.js";
+import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4 } from "../lib/companyProfile.js";
 
 const router = Router();
 
@@ -60,6 +60,8 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       sourceEnquiryNo: sourceEnquiryNo || null,
       phase2: emptyPhase2(),
       phase3: emptyPhase3(),
+      phase3b: emptyPhase3b(),
+      phase4: emptyPhase4(),
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       createdBy: req.user.userId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -78,6 +80,10 @@ const PHASE2_FIELDS = [
   "finalProposalAfterNegotiation", "workOrderDate", "workOrderNumber",
 ];
 const PHASE3_FIELDS = ["workOrderDate", "workOrderNumber", "workOrderDescription", "deliveryConditions", "paymentTerms"];
+const PHASE4_FIELDS = [
+  "deliveryReportSubmitted", "deliveryReportDate", "deliveryReportNotes",
+  "invoiceNumber", "invoiceDate", "invoiceAmount", "paymentReceived", "paymentReceivedDate",
+];
 
 router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
   try {
@@ -89,7 +95,7 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     const {
       clientName, address, contactPersonName, contactPhone,
       poNumber, poValue, deliveryDueDate, termsAndConditions,
-      phase2, phase3,
+      phase2, phase3, phase4,
     } = req.body;
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
@@ -114,6 +120,11 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
       const merged = { ...(existing.phase3 || emptyPhase3()) };
       for (const f of PHASE3_FIELDS) if (phase3[f] !== undefined) merged[f] = phase3[f];
       updates.phase3 = merged;
+    }
+    if (phase4 !== undefined) {
+      const merged = { ...(existing.phase4 || emptyPhase4()) };
+      for (const f of PHASE4_FIELDS) if (phase4[f] !== undefined) merged[f] = phase4[f];
+      updates.phase4 = merged;
     }
 
     await ref.update(updates);
@@ -164,6 +175,92 @@ router.delete("/:id/conversations/:convId", authenticate, requireAdmin, async (r
       const phase2 = snap.data().phase2 || emptyPhase2();
       const conversations = (phase2.conversations || []).filter((c) => c.id !== req.params.convId);
       tx.update(ref, { phase2: { ...phase2, conversations }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---- Phase III(b) project plan: a numbered action list --------------------
+router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const { description, assignedTo, assignedToName, startDate, dueDate } = req.body;
+    if (!description || !assignedTo || !dueDate) {
+      return res.status(400).json({ error: "description, assignedTo and dueDate are required" });
+    }
+
+    const ref = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
+    const action = {
+      id: uuid(),
+      description,
+      assignedTo: assignedTo.toUpperCase(),
+      assignedToName: assignedToName || assignedTo,
+      startDate: startDate || null,
+      dueDate,
+      completed: false,
+      completedAt: null,
+      addedAt: new Date().toISOString(),
+      addedBy: req.user.userId,
+    };
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const phase3b = snap.data().phase3b || emptyPhase3b();
+      const actions = [...(phase3b.actions || []), action];
+      tx.update(ref, { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    });
+
+    res.status(201).json(action);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const { description, assignedTo, assignedToName, startDate, dueDate, completed } = req.body;
+    const ref = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const phase3b = snap.data().phase3b || emptyPhase3b();
+      const actions = phase3b.actions || [];
+      const idx = actions.findIndex((a) => a.id === req.params.actionId);
+      if (idx === -1) throw Object.assign(new Error("Action not found"), { status: 404 });
+
+      const updated = { ...actions[idx] };
+      if (description !== undefined) updated.description = description;
+      if (assignedTo !== undefined) updated.assignedTo = assignedTo.toUpperCase();
+      if (assignedToName !== undefined) updated.assignedToName = assignedToName;
+      if (startDate !== undefined) updated.startDate = startDate;
+      if (dueDate !== undefined) updated.dueDate = dueDate;
+      if (completed !== undefined) {
+        updated.completed = !!completed;
+        updated.completedAt = completed ? new Date().toISOString() : null;
+      }
+      actions[idx] = updated;
+
+      tx.update(ref, { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const ref = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const phase3b = snap.data().phase3b || emptyPhase3b();
+      const actions = (phase3b.actions || []).filter((a) => a.id !== req.params.actionId);
+      tx.update(ref, { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
     });
     res.json({ ok: true });
   } catch (err) {
