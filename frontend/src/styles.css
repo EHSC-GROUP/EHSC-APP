@@ -10,6 +10,15 @@
   --success: #16a34a;
   --warning: #d97706;
   --radius: 8px;
+  /* Validated data-viz status palette (dataviz skill) — used only by chart
+     marks (Gantt bars), kept distinct from the app's general UI badge colors
+     above so the chart's colorblind-safety guarantees aren't diluted. */
+  --gantt-good: #0ca30c;
+  --gantt-critical: #d03b3b;
+  --gantt-pending: #2a78d6;
+  --gantt-surface: #fcfcfb;
+  --gantt-grid: #e1e0d9;
+  --gantt-muted: #898781;
   font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -128,3 +137,28 @@ label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom
 .text-muted { color: var(--text-muted); }
 .mt-0 { margin-top: 0; }
 
+/* Gantt chart (Project Tracker) */
+.gantt-legend { display: flex; gap: 18px; align-items: center; margin-bottom: 12px; font-size: 12px; color: var(--text-muted); }
+.gantt-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+
+.gantt-scroll { overflow-x: auto; background: var(--gantt-surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.gantt-chart { min-width: 900px; }
+
+.gantt-header-row { display: flex; border-bottom: 1px solid var(--gantt-grid); position: sticky; top: 0; background: var(--gantt-surface); z-index: 1; }
+.gantt-label-col { flex: 0 0 260px; padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--gantt-muted); text-transform: uppercase; border-right: 1px solid var(--gantt-grid); }
+.gantt-ticks { flex: 1; position: relative; height: 30px; }
+.gantt-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--gantt-grid); font-size: 10px; color: var(--gantt-muted); padding-left: 4px; padding-top: 6px; white-space: nowrap; }
+
+.gantt-group-header { padding: 6px 12px; font-size: 12px; font-weight: 700; background: var(--bg); border-bottom: 1px solid var(--gantt-grid); }
+
+.gantt-row { display: flex; border-bottom: 1px solid var(--gantt-grid); min-height: 40px; }
+.gantt-row:hover { background: rgba(0,0,0,0.015); }
+.gantt-row-label { flex: 0 0 260px; padding: 8px 12px; font-size: 12px; border-right: 1px solid var(--gantt-grid); display: flex; flex-direction: column; justify-content: center; }
+.gantt-row-label .desc { font-weight: 500; }
+.gantt-row-label .meta { font-size: 11px; color: var(--gantt-muted); }
+.gantt-track { flex: 1; position: relative; }
+.gantt-today-line { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--gantt-muted); z-index: 1; }
+.gantt-bar { position: absolute; top: 9px; height: 22px; border-radius: 4px; cursor: default; min-width: 6px; }
+.gantt-bar-good { background: var(--gantt-good); }
+.gantt-bar-critical { background: var(--gantt-critical); }
+.gantt-bar-pending { background: var(--gantt-pending); }
