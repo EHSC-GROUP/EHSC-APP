@@ -24,6 +24,7 @@ export const COLLECTIONS = Object.freeze({
   HR_REIMBURSEMENTS: "hr_reimbursements",
   HR_PAYSLIPS: "hr_payslips",
   ATTENDANCE_LOGS: "attendance_logs",
+  BD_ENQUIRIES: "bd_enquiries",
 });
 
 // Synthetic, non-configurable leave types. Never stored in HR_LEAVE_TYPES,
@@ -50,6 +51,23 @@ export const PAYSLIP_STATUS = Object.freeze({
   DRAFT: "DRAFT",
   FINALIZED: "FINALIZED",
   PUBLISHED: "PUBLISHED",
+});
+
+export const APPROACH_MODE = Object.freeze({
+  EMAIL: "EMAIL",
+  PHONE: "PHONE",
+  ON_SITE: "ON_SITE",
+});
+
+// "Result" is the enquiry's current outcome/stage. IN_PROGRESS is the
+// default for a freshly logged enquiry; the other four are exactly the
+// terminal outcomes the business asked to track.
+export const BD_RESULT = Object.freeze({
+  IN_PROGRESS: "IN_PROGRESS",
+  PURCHASE_ORDER_RECEIVED: "PURCHASE_ORDER_RECEIVED",
+  CONTRACT_ACCEPTED: "CONTRACT_ACCEPTED",
+  ENQUIRY_ON_HOLD: "ENQUIRY_ON_HOLD",
+  ENQUIRY_DROPPED: "ENQUIRY_DROPPED",
 });
 
 export const MEDICAL_CERT_THRESHOLD_DAYS = 3;
