@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
 
 import AdminLayout from "./layouts/AdminLayout";
+import BusinessDevelopment from "./pages/Admin/BusinessDevelopment";
 import EmployeeProfiles from "./pages/Admin/EmployeeProfiles";
 import Payslips from "./pages/Admin/Payslips";
 import Leave from "./pages/Admin/Leave";
@@ -53,6 +54,7 @@ export default function App() {
         }
       >
         <Route index element={<Navigate to="profiles" replace />} />
+        <Route path="business-development" element={<BusinessDevelopment />} />
         <Route path="profiles" element={<EmployeeProfiles />} />
         <Route path="payslips" element={<Payslips />} />
         <Route path="leave" element={<Leave />} />
