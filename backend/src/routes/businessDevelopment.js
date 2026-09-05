@@ -54,7 +54,7 @@ router.get("/:id", authenticate, requireAdmin, async (req, res, next) => {
 router.post("/", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const {
-      clientName, marketingSource, approachedByName, approachDate, approachMode,
+      clientName, address, marketingSource, approachedByName, approachDate, approachMode,
       contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, remarks,
     } = req.body;
 
@@ -70,6 +70,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
     const doc = {
       enquiryNo,
       clientName,
+      address: address || "",
       marketingSource: marketingSource || "",
       approachedByName,
       approachDate,
@@ -101,7 +102,7 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (!snap.exists) return res.status(404).json({ error: "Not found" });
 
     const {
-      clientName, marketingSource, approachedByName, approachDate, approachMode,
+      clientName, address, marketingSource, approachedByName, approachDate, approachMode,
       contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, result, remarks,
     } = req.body;
 
@@ -114,6 +115,7 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
     if (clientName !== undefined) updates.clientName = clientName;
+    if (address !== undefined) updates.address = address;
     if (marketingSource !== undefined) updates.marketingSource = marketingSource;
     if (approachedByName !== undefined) updates.approachedByName = approachedByName;
     if (approachDate !== undefined) updates.approachDate = approachDate;
