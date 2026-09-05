@@ -25,6 +25,7 @@ export const COLLECTIONS = Object.freeze({
   HR_PAYSLIPS: "hr_payslips",
   ATTENDANCE_LOGS: "attendance_logs",
   BD_ENQUIRIES: "bd_enquiries",
+  COMPANY_PROFILES: "company_profiles",
 });
 
 // Synthetic, non-configurable leave types. Never stored in HR_LEAVE_TYPES,
