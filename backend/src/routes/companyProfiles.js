@@ -182,6 +182,45 @@ router.delete("/:id/conversations/:convId", authenticate, requireAdmin, async (r
   }
 });
 
+// ---- Client replies received during the Conversation Stage ----------------
+router.post("/:id/client-replies", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const { date, reply } = req.body;
+    if (!reply) return res.status(400).json({ error: "reply is required" });
+
+    const ref = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
+    const entry = { id: uuid(), date: date || null, reply, addedAt: new Date().toISOString(), addedBy: req.user.userId };
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const phase2 = snap.data().phase2 || emptyPhase2();
+      const clientReplies = [...(phase2.clientReplies || []), entry];
+      tx.update(ref, { phase2: { ...phase2, clientReplies }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    });
+
+    res.status(201).json(entry);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete("/:id/client-replies/:replyId", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const ref = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const phase2 = snap.data().phase2 || emptyPhase2();
+      const clientReplies = (phase2.clientReplies || []).filter((c) => c.id !== req.params.replyId);
+      tx.update(ref, { phase2: { ...phase2, clientReplies }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ---- Phase III(b) project plan: a numbered action list --------------------
 router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, next) => {
   try {
