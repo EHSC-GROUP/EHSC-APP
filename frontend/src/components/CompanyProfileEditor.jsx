@@ -43,21 +43,29 @@ function toFormShape(profile) {
   };
 }
 
-const SECTIONS = ["Company Details", "Phase II", "Phase III", "Project Plan", "Project Completion"];
-
 // Shared by the Company Profiles page's drawer and the Business
 // Development enquiry drawer's "Company Profile" tab — same record, same
-// editing UI, whichever screen it's opened from. `showPhases` scopes the
-// enquiry drawer down to the basic contact fields only — no Phase II/III/
-// Project Plan/Completion sub-tabs, no PO/contract summary — since that
-// level of detail belongs to the standalone Company Profiles page, not a
-// quick look from the enquiry.
-export default function CompanyProfileEditor({ profile, onChanged, showPhases = true }) {
+// editing UI, whichever screen it's opened from. `showPhases` gates
+// Phase III/Project Plan/Project Completion plus the PO/contract summary —
+// that level of detail belongs to the standalone Company Profiles page, not
+// a quick look from the enquiry. `showPhase2` is independent: Conversation
+// Stage (the proposal/follow-up tracking, internally still "phase2") lives
+// only in the BD enquiry drawer, not on the standalone page — defaults to
+// following `showPhases` so any other caller keeps the old all-or-nothing
+// behavior.
+export default function CompanyProfileEditor({ profile, onChanged, showPhases = true, showPhase2 = showPhases }) {
   const [section, setSection] = useState("Company Details");
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(() => toFormShape(profile));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const sections = [
+    "Company Details",
+    ...(showPhase2 ? ["Conversation Stage"] : []),
+    ...(showPhases ? ["Phase III", "Project Plan", "Project Completion"] : []),
+  ];
+  const hasTabs = sections.length > 1;
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
   function setPhase2(k, v) { setForm((f) => ({ ...f, phase2: { ...f.phase2, [k]: v } })); }
@@ -97,16 +105,35 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
     }
   }
 
+  async function addClientReply(date, reply) {
+    try {
+      await client.post(`/company-profiles/${profile.id}/client-replies`, { date, reply });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function removeClientReply(replyId) {
+    try {
+      await client.delete(`/company-profiles/${profile.id}/client-replies/${replyId}`);
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
   const conversations = profile.phase2?.conversations || [];
+  const clientReplies = profile.phase2?.clientReplies || [];
   const ORDINALS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"];
   const isProjectPlan = showPhases && section === "Project Plan";
 
   return (
     <div>
       <div className="toolbar">
-        {showPhases && (
+        {hasTabs && (
           <div className="drawer-tabs" style={{ marginBottom: 0, borderBottom: "none" }}>
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button key={s} className={section === s ? "active" : ""} onClick={() => setSection(s)}>{s}</button>
             ))}
           </div>
@@ -119,7 +146,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
         <PlanActionsSection profileId={profile.id} actions={profile.phase3b?.actions || []} onChanged={onChanged} />
       ) : !editing ? (
         <div>
-          {(!showPhases || section === "Company Details") && (
+          {(!hasTabs || section === "Company Details") && (
             <table>
               <tbody>
                 <tr><td>Client / Company</td><td>{profile.clientName}</td></tr>
@@ -135,7 +162,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
             </table>
           )}
 
-          {showPhases && section === "Phase II" && (
+          {showPhase2 && section === "Conversation Stage" && (
             <div>
               <table>
                 <tbody>
@@ -163,6 +190,22 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
                 ))}
                 {conversations.length === 0 && <p className="hint-text mt-0">No conversations logged yet.</p>}
                 <AddConversationInline onAdd={addConversation} />
+              </div>
+
+              <div className="card">
+                <div className="toolbar" style={{ marginBottom: 8 }}>
+                  <strong>Client Replies</strong>
+                  <div className="spacer" />
+                </div>
+                {clientReplies.map((r, i) => (
+                  <div key={r.id} className="toolbar" style={{ alignItems: "flex-start" }}>
+                    <strong style={{ width: 40 }}>{ORDINALS[i] || `${i + 1}th`}</strong>
+                    <div style={{ flex: 1, whiteSpace: "pre-wrap" }}>{r.reply} {r.date && <span className="hint-text">({r.date})</span>}</div>
+                    <button className="btn-sm btn-danger" onClick={() => removeClientReply(r.id)}>Delete</button>
+                  </div>
+                ))}
+                {clientReplies.length === 0 && <p className="hint-text mt-0">No replies received yet.</p>}
+                <AddClientReplyInline onAdd={addClientReply} />
               </div>
 
               <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16 }}>
@@ -220,7 +263,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
         </div>
       ) : (
         <form onSubmit={save}>
-          {(!showPhases || section === "Company Details") && (
+          {(!hasTabs || section === "Company Details") && (
             <div>
               <div className="form-row">
                 <div><label>Client / Company Name</label><input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} required /></div>
@@ -244,7 +287,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
             </div>
           )}
 
-          {showPhases && section === "Phase II" && (
+          {showPhase2 && section === "Conversation Stage" && (
             <div>
               <div className="form-row">
                 <div><label>Proposal No.</label><input value={form.phase2.proposalNo} onChange={(e) => setPhase2("proposalNo", e.target.value)} /></div>
@@ -274,6 +317,22 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
                 ))}
                 {conversations.length === 0 && <p className="hint-text mt-0">No conversations logged yet.</p>}
                 <AddConversationInline onAdd={addConversation} />
+              </div>
+
+              <div className="card">
+                <div className="toolbar" style={{ marginBottom: 8 }}>
+                  <strong>Client Replies</strong>
+                  <div className="spacer" />
+                </div>
+                {clientReplies.map((r, i) => (
+                  <div key={r.id} className="toolbar" style={{ alignItems: "flex-start" }}>
+                    <strong style={{ width: 40 }}>{ORDINALS[i] || `${i + 1}th`}</strong>
+                    <div style={{ flex: 1, whiteSpace: "pre-wrap" }}>{r.reply} {r.date && <span className="hint-text">({r.date})</span>}</div>
+                    <button type="button" className="btn-sm btn-danger" onClick={() => removeClientReply(r.id)}>Delete</button>
+                  </div>
+                ))}
+                {clientReplies.length === 0 && <p className="hint-text mt-0">No replies received yet.</p>}
+                <AddClientReplyInline onAdd={addClientReply} />
               </div>
 
               <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16 }}>
@@ -349,7 +408,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
 }
 
 // A plain div, not a <form> — this renders inside the outer Company
-// Details/Phase II/III <form> while that's in edit mode, and a <form>
+// Details/Conversation Stage/Phase III <form> while that's in edit mode, and a <form>
 // cannot be nested inside another <form> (the browser would either drop it
 // or route its submit to the outer one instead of this handler).
 function AddConversationInline({ onAdd }) {
