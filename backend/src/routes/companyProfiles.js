@@ -143,7 +143,7 @@ router.delete("/:id", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-// ---- Phase II conversation log --------------------------------------------
+// ---- Conversation Stage: our own outgoing conversation log ----------------
 router.post("/:id/conversations", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const { date, description } = req.body;
