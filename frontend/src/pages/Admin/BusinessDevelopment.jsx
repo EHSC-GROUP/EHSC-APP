@@ -182,7 +182,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
           <div><label>Estimated Value (optional)</label><input type="number" min="0" step="0.01" value={form.estimatedValue} onChange={(e) => set("estimatedValue", e.target.value)} /></div>
         </div>
 
-        <label>Topic</label>
+        <label>Description</label>
         <textarea rows={2} value={form.topic} onChange={(e) => set("topic", e.target.value)} />
 
         <label>Outcome of Discussion</label>
@@ -360,7 +360,7 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
             <tr><td>Contact Phone</td><td>{enquiry.contactPhone || "-"}</td></tr>
             <tr><td>Contact Email</td><td>{enquiry.contactEmail || "-"}</td></tr>
             <tr><td>Estimated Value</td><td>{enquiry.estimatedValue ?? "-"}</td></tr>
-            <tr><td>Topic</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.topic || "-"}</td></tr>
+            <tr><td>Description</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.topic || "-"}</td></tr>
             <tr><td>Outcome of Discussion</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.outcomeOfDiscussion || "-"}</td></tr>
             <tr><td>Remarks</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.remarks || "-"}</td></tr>
           </tbody>
@@ -394,7 +394,7 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
         <div><label>Contact Email</label><input type="email" value={form.contactEmail || ""} onChange={(e) => set("contactEmail", e.target.value)} /></div>
         <div><label>Estimated Value</label><input type="number" min="0" step="0.01" value={form.estimatedValue ?? ""} onChange={(e) => set("estimatedValue", e.target.value)} /></div>
       </div>
-      <label>Topic</label>
+      <label>Description</label>
       <textarea rows={2} value={form.topic || ""} onChange={(e) => set("topic", e.target.value)} />
       <label>Outcome of Discussion</label>
       <textarea rows={3} value={form.outcomeOfDiscussion || ""} onChange={(e) => set("outcomeOfDiscussion", e.target.value)} />
