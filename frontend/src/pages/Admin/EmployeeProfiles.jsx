@@ -35,7 +35,7 @@ export default function EmployeeProfiles() {
     <div>
       <div className="page-header">
         <h2>Employee Profiles</h2>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New Profile</button>
+        <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New Employee Profile</button>
       </div>
 
       <div className="toolbar">
