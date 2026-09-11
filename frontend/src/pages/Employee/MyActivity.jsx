@@ -5,7 +5,8 @@ import { Loading, ErrorText } from "../../components/Misc";
 function formatWhen(at) {
   if (!at) return "";
   if (at._seconds) return new Date(at._seconds * 1000).toLocaleString();
-  return "";
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
 }
 
 export default function MyActivity() {

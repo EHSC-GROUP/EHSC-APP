@@ -59,13 +59,25 @@ router.get("/badges", authenticate, async (req, res, next) => {
   }
 });
 
+function toMillis(at) {
+  if (!at) return 0;
+  if (typeof at.toMillis === "function") return at.toMillis();
+  if (at._seconds) return at._seconds * 1000;
+  const t = new Date(at).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 // Computed on the fly from recent status changes on the employee's own
-// leave/reimbursement records — no separate notifications collection.
+// leave/reimbursement/attendance records — no separate notifications
+// collection. The attendance slice only surfaces entries someone ELSE
+// marked (an admin correcting/setting your status) — self-check-ins don't
+// need to notify you of your own action.
 router.get("/activity", authenticate, async (req, res, next) => {
   try {
-    const [leaveSnap, reimbSnap] = await Promise.all([
+    const [leaveSnap, reimbSnap, attendanceSnap] = await Promise.all([
       db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).where("userId", "==", req.user.userId).get(),
       db.collection(COLLECTIONS.HR_REIMBURSEMENTS).where("userId", "==", req.user.userId).get(),
+      db.collection(COLLECTIONS.ATTENDANCE_STATUS).where("userId", "==", req.user.userId).get(),
     ]);
 
     const events = [];
@@ -91,12 +103,19 @@ router.get("/activity", authenticate, async (req, res, next) => {
         at,
       });
     }
+    for (const d of attendanceSnap.docs) {
+      const r = d.data();
+      if (r.markedBy === req.user.userId) continue;
+      events.push({
+        type: "attendance",
+        id: d.id,
+        status: r.status,
+        summary: `Your attendance for ${r.date} was marked ${r.status} by ${r.markedBy}`,
+        at: r.markedAt,
+      });
+    }
 
-    events.sort((a, b) => {
-      const av = a.at?.toMillis ? a.at.toMillis() : 0;
-      const bv = b.at?.toMillis ? b.at.toMillis() : 0;
-      return bv - av;
-    });
+    events.sort((a, b) => toMillis(b.at) - toMillis(a.at));
 
     res.json(events.slice(0, 20));
   } catch (err) {
