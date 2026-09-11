@@ -44,6 +44,11 @@ a { color: var(--primary); text-decoration: none; }
   color: #d1d5db; padding: 10px 20px; font-size: 13px; cursor: pointer; text-decoration: none;
 }
 .sidebar nav a.active, .sidebar nav a:hover, .sidebar nav button:hover { background: #1f2937; color: #fff; }
+.sidebar .nav-group-label {
+  display: block; padding: 14px 20px 6px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280;
+}
+.sidebar .nav-group:first-child .nav-group-label { padding-top: 0; }
 .sidebar .badge { background: var(--danger); color: #fff; border-radius: 10px; padding: 1px 6px; font-size: 11px; margin-left: 6px; }
 
 .main-content { flex: 1; padding: 24px 32px; overflow-x: auto; }

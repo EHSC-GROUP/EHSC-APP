@@ -8,7 +8,7 @@ export default function EmployeeLayout() {
   return (
     <div>
       <header style={{ display: "flex", alignItems: "center", padding: "14px 24px", background: "#111827", color: "#fff" }}>
-        <Link to="/me" style={{ color: "#fff", fontWeight: 600 }}>HR &amp; Payroll — Self Service</Link>
+        <Link to="/me" style={{ color: "#fff", fontWeight: 600 }}>Project Management App — Self Service</Link>
         <div style={{ flex: 1 }} />
         {location.pathname !== "/me" && (
           <Link to="/me" style={{ color: "#d1d5db", marginRight: 16 }}>&larr; Back to Hub</Link>

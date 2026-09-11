@@ -29,7 +29,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>HR &amp; Payroll</h1>
+        <h1>Project Management App</h1>
         <label>User ID</label>
         <input value={userId} onChange={(e) => setUserId(e.target.value)} autoFocus required />
         <label>Password</label>
