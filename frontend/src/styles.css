@@ -145,20 +145,45 @@ label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom
 .gantt-chart { min-width: 900px; }
 
 .gantt-header-row { display: flex; border-bottom: 1px solid var(--gantt-grid); position: sticky; top: 0; background: var(--gantt-surface); z-index: 1; }
-.gantt-label-col { flex: 0 0 260px; padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--gantt-muted); text-transform: uppercase; border-right: 1px solid var(--gantt-grid); }
-.gantt-ticks { flex: 1; position: relative; height: 30px; }
-.gantt-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--gantt-grid); font-size: 10px; color: var(--gantt-muted); padding-left: 4px; padding-top: 6px; white-space: nowrap; }
+.gantt-month-row { border-bottom-color: transparent; }
+.gantt-label-col { flex: 0 0 300px; padding: 0; font-size: 11px; font-weight: 600; color: var(--gantt-muted); text-transform: uppercase; border-right: 1px solid var(--gantt-grid); display: flex; align-items: center; }
+.gantt-label-col .gantt-col-task { flex: 1 1 auto; padding: 8px 12px; }
+.gantt-label-col .gantt-col-start, .gantt-label-col .gantt-col-end { flex: 0 0 76px; padding: 8px 8px; border-left: 1px solid var(--gantt-grid); }
+.gantt-ticks { flex: 1; position: relative; height: 26px; }
+.gantt-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--gantt-grid); font-size: 10px; color: var(--gantt-muted); padding-left: 3px; padding-top: 6px; white-space: nowrap; text-align: left; }
+.gantt-tick-month-band {
+  position: absolute; top: 0; bottom: 0; left: 0; border-left: 1px solid var(--gantt-grid);
+  font-size: 11px; font-weight: 700; color: var(--text); padding: 5px 0 0 6px; white-space: nowrap; overflow: hidden;
+}
 
 .gantt-group-header { padding: 6px 12px; font-size: 12px; font-weight: 700; background: var(--bg); border-bottom: 1px solid var(--gantt-grid); }
 
 .gantt-row { display: flex; border-bottom: 1px solid var(--gantt-grid); min-height: 40px; }
 .gantt-row:hover { background: rgba(0,0,0,0.015); }
-.gantt-row-label { flex: 0 0 260px; padding: 8px 12px; font-size: 12px; border-right: 1px solid var(--gantt-grid); display: flex; flex-direction: column; justify-content: center; }
+.gantt-row-label { flex: 0 0 300px; padding: 0; font-size: 12px; border-right: 1px solid var(--gantt-grid); display: flex; align-items: center; }
+.gantt-row-label .gantt-col-task { flex: 1 1 auto; padding: 8px 12px; display: flex; flex-direction: column; justify-content: center; }
 .gantt-row-label .desc { font-weight: 500; }
 .gantt-row-label .meta { font-size: 11px; color: var(--gantt-muted); }
+.gantt-row-label .gantt-col-start, .gantt-row-label .gantt-col-end { flex: 0 0 76px; padding: 8px 8px; border-left: 1px solid var(--gantt-grid); font-size: 11px; color: var(--gantt-muted); }
 .gantt-track { flex: 1; position: relative; }
 .gantt-today-line { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--gantt-muted); z-index: 1; }
-.gantt-bar { position: absolute; top: 9px; height: 22px; border-radius: 4px; cursor: default; min-width: 6px; }
+.gantt-bar { position: absolute; top: 9px; height: 22px; border-radius: 4px; cursor: pointer; min-width: 6px; transition: filter 0.1s; }
+.gantt-bar:hover { filter: brightness(1.1); }
+.gantt-bar-pinned { outline: 2px solid var(--text); outline-offset: 1px; }
 .gantt-bar-good { background: var(--gantt-good); }
 .gantt-bar-critical { background: var(--gantt-critical); }
 .gantt-bar-pending { background: var(--gantt-pending); }
+
+.gantt-tooltip {
+  position: fixed; z-index: 200; background: var(--text); color: #fff;
+  border-radius: 6px; padding: 10px 12px; font-size: 12px; min-width: 220px; max-width: 280px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.gantt-tooltip-title { font-weight: 600; margin-bottom: 6px; }
+.gantt-tooltip-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; color: rgba(255,255,255,0.85); }
+.gantt-tooltip-row span:first-child { color: rgba(255,255,255,0.55); }
+.gantt-tooltip-status { font-weight: 600; }
+.gantt-tooltip-status-good { color: #4ade80; }
+.gantt-tooltip-status-critical { color: #f87171; }
+.gantt-tooltip-status-pending { color: #93c5fd; }
+.gantt-tooltip-hint { margin-top: 6px; font-size: 10px; color: rgba(255,255,255,0.5); font-style: italic; }
