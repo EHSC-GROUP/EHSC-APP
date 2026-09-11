@@ -239,6 +239,7 @@ router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, ne
       dueDate,
       completed: false,
       completedAt: null,
+      dependsOn: [],
       addedAt: new Date().toISOString(),
       addedBy: req.user.userId,
     };
@@ -257,9 +258,24 @@ router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, ne
   }
 });
 
+// True if `startId` can reach itself by following `dependsOn` edges in
+// `actions` (with `overrides` layered on top for the node being saved,
+// since that node's new dependsOn isn't committed to the array yet).
+function dependencyCycleExists(actions, startId, overrides) {
+  const dependsOnById = new Map(actions.map((a) => [a.id, a.id in overrides ? overrides[a.id] : (a.dependsOn || [])]));
+  const visited = new Set();
+  function canReach(id, target) {
+    if (id === target) return true;
+    if (visited.has(id)) return false;
+    visited.add(id);
+    return (dependsOnById.get(id) || []).some((depId) => canReach(depId, target));
+  }
+  return (dependsOnById.get(startId) || []).some((depId) => canReach(depId, startId));
+}
+
 router.put("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const { description, assignedTo, assignedToName, startDate, dueDate, completed } = req.body;
+    const { description, assignedTo, assignedToName, startDate, dueDate, completed, dependsOn } = req.body;
     const ref = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
 
     await db.runTransaction(async (tx) => {
@@ -280,6 +296,16 @@ router.put("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (req
         updated.completed = !!completed;
         updated.completedAt = completed ? new Date().toISOString() : null;
       }
+      if (dependsOn !== undefined) {
+        const validIds = new Set(actions.map((a) => a.id));
+        const deduped = [...new Set(dependsOn)].filter((depId) => depId !== req.params.actionId);
+        const unknown = deduped.filter((depId) => !validIds.has(depId));
+        if (unknown.length) throw Object.assign(new Error("dependsOn references an action that doesn't exist"), { status: 400 });
+        if (dependencyCycleExists(actions, req.params.actionId, { [req.params.actionId]: deduped })) {
+          throw Object.assign(new Error("That would create a circular dependency"), { status: 400 });
+        }
+        updated.dependsOn = deduped;
+      }
       actions[idx] = updated;
 
       tx.update(ref, { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
@@ -298,7 +324,9 @@ router.delete("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (
       const snap = await tx.get(ref);
       if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
       const phase3b = snap.data().phase3b || emptyPhase3b();
-      const actions = (phase3b.actions || []).filter((a) => a.id !== req.params.actionId);
+      const actions = (phase3b.actions || [])
+        .filter((a) => a.id !== req.params.actionId)
+        .map((a) => (a.dependsOn?.includes(req.params.actionId) ? { ...a, dependsOn: a.dependsOn.filter((d) => d !== req.params.actionId) } : a));
       tx.update(ref, { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
     });
     res.json({ ok: true });
