@@ -15,6 +15,7 @@ export function emptyPhase2() {
     nextFollowUpDueOn: null,
     nextFollowUpDate: null,
     conversations: [],
+    clientReplies: [],
     respondedInFavour: false,
     finalProposalAfterNegotiation: "",
     workOrderDate: null,

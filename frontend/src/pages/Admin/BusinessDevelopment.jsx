@@ -294,7 +294,7 @@ function CompanyProfileFromEnquiryTab({ enquiry }) {
     );
   }
 
-  return <CompanyProfileEditor profile={profile} onChanged={load} showPhases={false} />;
+  return <CompanyProfileEditor profile={profile} onChanged={load} showPhases={false} showPhase2 />;
 }
 
 function DetailsTab({ enquiry, onSaved, onDeleted }) {

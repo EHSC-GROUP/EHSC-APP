@@ -203,7 +203,7 @@ function CompanyProfileDrawer({ id, onClose, onChanged }) {
             <h3>{profile.clientName}</h3>
             <button className="btn-sm" onClick={onClose}>Close</button>
           </div>
-          <CompanyProfileEditor profile={profile} onChanged={() => { load(); onChanged(); }} />
+          <CompanyProfileEditor profile={profile} onChanged={() => { load(); onChanged(); }} showPhase2={false} />
           <div className="toolbar" style={{ marginTop: 16 }}>
             <ConfirmButton className="btn-sm btn-danger" onConfirm={remove} confirmText="Delete this company profile permanently?">Delete Profile</ConfirmButton>
           </div>
