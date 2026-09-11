@@ -493,12 +493,9 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 function PlanActionsSection({ profileId, actions, onChanged }) {
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
-  const [showDryRun, setShowDryRun] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const sorted = [...actions].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
   const byId = new Map(actions.map((a) => [a.id, a]));
-
-  const assignedEmployees = [...new Map(actions.map((a) => [a.assignedTo, { userId: a.assignedTo, name: a.assignedToName || a.assignedTo }])).values()];
 
   async function toggleComplete(action) {
     try {
@@ -523,9 +520,6 @@ function PlanActionsSection({ profileId, actions, onChanged }) {
     <div>
       <div className="toolbar">
         <div className="spacer" />
-        {assignedEmployees.length > 0 && (
-          <button className="btn-sm" onClick={() => setShowDryRun(true)}>Dry Run Payroll</button>
-        )}
         {actions.length > 1 && (
           <button className="btn-sm" onClick={() => setShowWorkflow(true)}>Define Workflow</button>
         )}
@@ -567,9 +561,6 @@ function PlanActionsSection({ profileId, actions, onChanged }) {
 
       {showAdd && (
         <AddPlanActionModal profileId={profileId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); onChanged(); }} />
-      )}
-      {showDryRun && (
-        <DryRunPayrollModal employees={assignedEmployees} onClose={() => setShowDryRun(false)} />
       )}
       {showWorkflow && (
         <WorkflowModal profileId={profileId} actions={actions} onClose={() => setShowWorkflow(false)} onSaved={() => { setShowWorkflow(false); onChanged(); }} />
@@ -644,90 +635,6 @@ function WorkflowModal({ profileId, actions, onClose, onSaved }) {
         ))}
         <ErrorText>{error}</ErrorText>
         <button className="btn-primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save Workflow"}</button>
-      </div>
-    </div>
-  );
-}
-
-// Previews what "Generate" would produce for each employee assigned to
-// this project's actions, for a chosen period — pure computation, nothing
-// is written to Firestore, so it's safe to run at any time without
-// touching real payslip records.
-function DryRunPayrollModal({ employees, onClose }) {
-  const [period, setPeriod] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-  });
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function run() {
-    setError("");
-    setBusy(true);
-    setResult(null);
-    try {
-      const { data } = await client.post("/payslips/dry-run", { period, userIds: employees.map((e) => e.userId) });
-      setResult(data);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <div className="modal-header">
-          <h3>Dry Run Payroll</h3>
-          <button className="btn-sm" onClick={onClose}>Close</button>
-        </div>
-        <p className="hint-text mt-0">
-          Preview only — this computes what "Generate" would produce for {employees.map((e) => e.name).join(", ")}, for the month below. Nothing is saved or changed.
-        </p>
-        <div className="toolbar">
-          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} />
-          <button className="btn-primary btn-sm" onClick={run} disabled={busy}>{busy ? "Computing…" : "Run"}</button>
-        </div>
-        <ErrorText>{error}</ErrorText>
-
-        {result && (
-          <div style={{ marginTop: 12 }}>
-            {result.previews.map((p) => (
-              <div key={p.userId} className="card" style={{ marginBottom: 10 }}>
-                <div className="toolbar" style={{ marginBottom: 8 }}>
-                  <strong>{p.name}</strong>
-                  <span className="hint-text">({p.userId})</span>
-                  <div className="spacer" />
-                  <span className="hint-text">
-                    {p.existingStatus === "NOT_GENERATED" ? "No payslip generated yet" : `Existing payslip: ${p.existingStatus}`}
-                  </span>
-                </div>
-                <table>
-                  <tbody>
-                    <tr><td>Present Days</td><td>{p.presentDays}</td></tr>
-                    <tr><td>Payable Days / Days in Month</td><td>{p.payableDays} / {p.daysInMonth}</td></tr>
-                    <tr><td>Basic</td><td>{p.basic.toFixed(2)}</td></tr>
-                    <tr><td>HRA</td><td>{p.hra.toFixed(2)}</td></tr>
-                    <tr><td>Others</td><td>{p.others.toFixed(2)}</td></tr>
-                    <tr><td>Incentives</td><td>{p.incentives.toFixed(2)}</td></tr>
-                    <tr><td>Total Earnings</td><td>{p.totalEarnings.toFixed(2)}</td></tr>
-                    <tr><td>PT / Income Tax / ESI / Other Deductions</td><td>{p.pt.toFixed(2)} / {p.incomeTax.toFixed(2)} / {p.esi.toFixed(2)} / {p.othersDeduction.toFixed(2)}</td></tr>
-                    <tr><td>Total Deductions</td><td>{p.totalDeductions.toFixed(2)}</td></tr>
-                    <tr><td><strong>Net Pay</strong></td><td><strong>{p.netPay.toFixed(2)}</strong></td></tr>
-                  </tbody>
-                </table>
-              </div>
-            ))}
-            {result.skipped.map((s) => (
-              <div key={s.userId} className="card" style={{ marginBottom: 10 }}>
-                <strong>{s.name || s.userId}</strong>
-                <p className="hint-text mt-0">Skipped — {s.reason}</p>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

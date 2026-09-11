@@ -112,40 +112,6 @@ router.post("/generate", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-// ---- dry run: compute what generate WOULD produce, without persisting ----
-// Seeds from any existing payslip the same way /generate does (so the
-// preview matches reality), but never writes anything — safe to call
-// against real employees at any time, as often as needed.
-router.post("/dry-run", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    const { period, userIds } = req.body;
-    if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
-    if (!userIds || !userIds.length) return res.status(400).json({ error: "userIds is required" });
-
-    const profiles = await getActiveEmployeeProfiles(userIds);
-    const previews = [];
-    const skipped = [];
-
-    for (const profile of profiles) {
-      const docId = payslipDocId(profile.userId, period);
-      const existingSnap = await db.collection(COLLECTIONS.HR_PAYSLIPS).doc(docId).get();
-      const existing = existingSnap.exists ? existingSnap.data() : null;
-
-      const result = await computeGeneratedPayslip(profile.userId, profile, period, existing);
-      if (result.skipped) {
-        skipped.push({ userId: profile.userId, name: profile.name, reason: result.reason });
-        continue;
-      }
-      delete result.skipped;
-      previews.push({ ...result, existingStatus: existing?.status || "NOT_GENERATED" });
-    }
-
-    res.json({ previews, skipped });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // ---- edit (DRAFT only) ----------------------------------------------------
 router.put("/:userId/:period", authenticate, requireAdmin, async (req, res, next) => {
   try {
