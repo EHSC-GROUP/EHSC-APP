@@ -427,7 +427,7 @@ function AddConversationInline({ onAdd }) {
     setOpen(false);
   }
 
-  if (!open) return <button type="button" className="btn-sm" onClick={() => setOpen(true)}>+ Add Conversation</button>;
+  if (!open) return <button type="button" className="btn-sm" onClick={() => setOpen(true)}>+ Add Question</button>;
 
   return (
     <div className="form-row" style={{ marginTop: 8 }}>
@@ -437,7 +437,46 @@ function AddConversationInline({ onAdd }) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
-          placeholder="Conversation description"
+          placeholder="Question asked to the client"
+        />
+      </div>
+      <button type="button" className="btn-sm btn-primary" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add"}</button>
+      <button type="button" className="btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+    </div>
+  );
+}
+
+// Same shape as AddConversationInline, but for what the client actually
+// says back to us — kept as its own dated log rather than a single
+// overwritable field, since a client may reply more than once before
+// "Responded in favour" is ever ticked.
+function AddClientReplyInline({ onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState("");
+  const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    if (!reply || busy) return;
+    setBusy(true);
+    await onAdd(date, reply);
+    setBusy(false);
+    setDate("");
+    setReply("");
+    setOpen(false);
+  }
+
+  if (!open) return <button type="button" className="btn-sm" onClick={() => setOpen(true)}>+ Add Client Reply</button>;
+
+  return (
+    <div className="form-row" style={{ marginTop: 8 }}>
+      <div style={{ flex: "0 0 150px" }}><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      <div>
+        <input
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } }}
+          placeholder="What the client said"
         />
       </div>
       <button type="button" className="btn-sm btn-primary" onClick={submit} disabled={busy}>{busy ? "Adding…" : "Add"}</button>
