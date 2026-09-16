@@ -29,8 +29,9 @@ export async function pruneOldAttendanceLogs() {
 }
 
 // Runs once a day at 03:00 server time, pruning logs older than the
-// retention window (default 3 months). Attendance is reference-only data
-// (systemLoginDays / muster P-A marks), never a payroll source of truth.
+// retention window (default 3 months). The old login/logout time-clock
+// feature has been removed — nothing writes or reads this collection
+// anymore — so this job just clears out the remaining historical data.
 export function startAttendancePruneJob() {
   cron.schedule("0 3 * * *", () => {
     pruneOldAttendanceLogs().catch((err) => console.error("Attendance prune job failed:", err));

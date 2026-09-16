@@ -207,7 +207,7 @@ function EditPayslipModal({ payslip, period, onClose, onSaved }) {
     <Modal title={`Edit Payslip — ${payslip.name || payslip.userId} (${period})`} onClose={onClose} wide>
       <div className="card" style={{ marginBottom: 12 }}>
         <p className="hint-text mt-0">
-          Days in month: {payslip.daysInMonth} · Working days: {payslip.workingDays} · System login days (reference only): {payslip.systemLoginDays} ·
+          Days in month: {payslip.daysInMonth} · Working days: {payslip.workingDays} · System attendance days (reference only): {payslip.systemPresentDays} ·
           Paid leave days: {payslip.paidLeaveDays} · LOP days: {payslip.lopDays}
         </p>
         {payslip.dayMarks && (

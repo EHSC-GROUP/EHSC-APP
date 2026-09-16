@@ -12,22 +12,34 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY"];
-const STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", LEAVE: "Leave", HALF_DAY: "Half Day" };
-const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk" };
+// Monday–Sunday week containing dateStr.
+function weekBoundsOf(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  const day = d.getDay(); // 0=Sun, 1=Mon, ...
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const iso = (x) => x.toISOString().slice(0, 10);
+  return { from: iso(monday), to: iso(sunday) };
+}
+
+// Calendar month containing dateStr.
+function monthBoundsOf(dateStr) {
+  const [y, m] = dateStr.split("-").map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  return { from: `${dateStr.slice(0, 7)}-01`, to: `${dateStr.slice(0, 7)}-${String(lastDay).padStart(2, "0")}` };
+}
+
+const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY", "OUT_OF_OFFICE"];
+const STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", LEAVE: "Leave", HALF_DAY: "Half Day", OUT_OF_OFFICE: "Out of Office" };
+const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "OOO request approved" };
 
 export default function Attendance() {
-  const [tab, setTab] = useState("Daily Status");
-
   return (
     <div>
       <div className="page-header"><h2>Attendance</h2></div>
-      <div className="drawer-tabs">
-        {["Daily Status", "Time Clock (Reference)"].map((t) => (
-          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>
-        ))}
-      </div>
-      {tab === "Daily Status" ? <DailyStatusTab /> : <TimeClockTab />}
+      <DailyStatusTab />
     </div>
   );
 }
@@ -87,6 +99,21 @@ function DailyStatusTab() {
     }
   }
 
+  async function markPresentRange(fromDate, toDate, label) {
+    setBusy(true);
+    setError("");
+    try {
+      const { data } = await client.post("/attendance/mark-all-present-range", { fromDate, toDate });
+      await loadRoster();
+      await loadSummary();
+      alert(`Marked ${data.count} record(s) present across ${data.days} day(s) (${label}, ${fromDate} to ${toDate}). Days that already had a status were left untouched.`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const unmarkedCount = (roster || []).filter((r) => !r.status).length;
 
   return (
@@ -98,6 +125,8 @@ function DailyStatusTab() {
 
       <GeofenceSettings />
 
+      <OooRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />
+
       <div className="card">
         <div className="toolbar">
           <h3 className="mt-0" style={{ marginRight: 8 }}>Today's Roster</h3>
@@ -108,6 +137,23 @@ function DailyStatusTab() {
               {busy ? "Marking…" : `Mark all present (${unmarkedCount})`}
             </button>
           )}
+        </div>
+        <div className="toolbar" style={{ marginTop: 0 }}>
+          <span className="hint-text" style={{ marginRight: 4 }}>Bulk-mark present (gap-fill only, based on {date}):</span>
+          <button
+            className="btn-sm"
+            disabled={busy}
+            onClick={() => { const { from, to } = weekBoundsOf(date); markPresentRange(from, to, "this week"); }}
+          >
+            This Week
+          </button>
+          <button
+            className="btn-sm"
+            disabled={busy}
+            onClick={() => { const { from, to } = monthBoundsOf(date); markPresentRange(from, to, "this month"); }}
+          >
+            This Month
+          </button>
         </div>
         <ErrorText>{error}</ErrorText>
         {!roster ? <Loading /> : (
@@ -144,7 +190,7 @@ function DailyStatusTab() {
         {!summary ? <Loading /> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Employee</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half Day</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half Day</th><th>Out of Office</th></tr></thead>
               <tbody>
                 {summary.map((s) => (
                   <tr key={s.userId}>
@@ -153,9 +199,10 @@ function DailyStatusTab() {
                     <td>{s.ABSENT}</td>
                     <td>{s.LEAVE}</td>
                     <td>{s.HALF_DAY}</td>
+                    <td>{s.OUT_OF_OFFICE}</td>
                   </tr>
                 ))}
-                {summary.length === 0 && <tr><td colSpan={5} className="empty-state">No active employees.</td></tr>}
+                {summary.length === 0 && <tr><td colSpan={6} className="empty-state">No active employees.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -257,78 +304,68 @@ function GeofenceSettings() {
   );
 }
 
-function TimeClockTab() {
-  const [month, setMonth] = useState(currentMonth());
-  const [summary, setSummary] = useState(null);
+// A short approval queue for Out of Office requests — only PENDING ones,
+// since approving/rejecting are the only actions that ever fire from here.
+function OooRequestsQueue({ onDecided }) {
+  const [requests, setRequests] = useState(null);
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState(null);
-  const [detail, setDetail] = useState(null);
+  const [busyId, setBusyId] = useState(null);
 
   async function load() {
+    try {
+      const { data } = await client.get("/attendance/ooo-requests", { params: { status: "PENDING" } });
+      setRequests(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function decide(id, action) {
+    setBusyId(id);
     setError("");
     try {
-      const { data } = await client.get("/attendance/summary", { params: { month } });
-      setSummary(data);
+      await client.put(`/attendance/ooo-requests/${id}/${action}`);
+      await load();
+      onDecided();
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
     }
   }
-  useEffect(() => { load(); }, [month]);
 
-  async function viewDetail(userId) {
-    setSelected(userId);
-    try {
-      const { data } = await client.get(`/attendance/${userId}`, { params: { month } });
-      setDetail(data);
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-  }
+  if (requests && requests.length === 0) return null;
 
   return (
-    <div>
+    <div className="card">
       <div className="toolbar">
-        <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+        <h3 className="mt-0" style={{ marginRight: 8 }}>Out of Office Requests</h3>
+        {requests && requests.length > 0 && <span className="badge-pill badge-PENDING_OOO">{requests.length} pending</span>}
       </div>
-      <p className="hint-text">Login/logout session hours — reference only, never used to set payslip Present Days.</p>
       <ErrorText>{error}</ErrorText>
-      {!summary ? <Loading /> : (
-        <div className="card table-wrap">
-          <table>
-            <thead><tr><th>Employee</th><th>Days Present</th><th>Total Hours</th><th></th></tr></thead>
-            <tbody>
-              {summary.map((s) => (
-                <tr key={s.userId}>
-                  <td>{s.name || s.userId}</td>
-                  <td>{s.daysPresent}</td>
-                  <td>{(s.totalMinutes / 60).toFixed(1)}</td>
-                  <td><button className="btn-sm" onClick={() => viewDetail(s.userId)}>View</button></td>
-                </tr>
-              ))}
-              {summary.length === 0 && <tr><td colSpan={4} className="empty-state">No attendance data.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {selected && (
-        <div className="card">
-          <h3>{selected} — daily log</h3>
-          {!detail ? <Loading /> : (
-            <table>
-              <thead><tr><th>Date</th><th>Status</th><th>Total Minutes</th><th>Sessions</th></tr></thead>
-              <tbody>
-                {detail.map((d) => (
-                  <tr key={d.date}>
-                    <td>{d.date}</td><td>{d.status}</td><td>{d.totalMinutes}</td>
-                    <td>{(d.sessions || []).map((s, i) => <div key={i}>{s.loginTime?.slice(11, 16)} - {s.logoutTime?.slice(11, 16) || "open"}</div>)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      {!requests ? <Loading /> : (
+        <table>
+          <thead><tr><th>Employee</th><th>Date</th><th>Reason</th><th>Distance from office</th><th></th></tr></thead>
+          <tbody>
+            {requests.map((r) => (
+              <tr key={r.id}>
+                <td>{r.name} <span className="text-muted">({r.userId})</span></td>
+                <td>{r.date}</td>
+                <td>{r.reason}</td>
+                <td className="text-muted">{r.distanceMeters != null ? `${r.distanceMeters}m` : "-"}</td>
+                <td>
+                  <div className="toolbar" style={{ margin: 0 }}>
+                    <button className="btn-sm btn-primary" disabled={busyId === r.id} onClick={() => decide(r.id, "approve")}>Approve</button>
+                    <button className="btn-sm btn-danger" disabled={busyId === r.id} onClick={() => decide(r.id, "reject")}>Reject</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
 }
+

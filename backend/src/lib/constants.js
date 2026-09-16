@@ -25,6 +25,7 @@ export const COLLECTIONS = Object.freeze({
   HR_PAYSLIPS: "hr_payslips",
   ATTENDANCE_LOGS: "attendance_logs",
   ATTENDANCE_STATUS: "attendance_status",
+  ATTENDANCE_OOO_REQUESTS: "attendance_ooo_requests",
   BD_ENQUIRIES: "bd_enquiries",
   COMPANY_PROFILES: "company_profiles",
 });
@@ -73,13 +74,10 @@ export const BD_RESULT = Object.freeze({
 });
 
 export const MEDICAL_CERT_THRESHOLD_DAYS = 3;
-export const EXPECTED_MINUTES_PER_DAY = 480; // 8h
-export const MAX_PING_CREDIT_MINUTES = 2;
 export const ATTENDANCE_RETENTION_MONTHS = 3;
 
-// Daily attendance STATUS (present/absent/leave/half-day) — a distinct,
-// separate concept from the login/logout time-clock above. This is an
-// integrity-controlled ledger of who was actually marked present each day:
+// Daily attendance STATUS (present/absent/leave/half-day/out-of-office) —
+// an integrity-controlled ledger of who was actually marked present each day:
 // an admin sets it directly, or an employee self-check-in sets it, but only
 // when validated server-side against the configured office geofence. Never
 // a free dropdown a user picks for themself. Kept fully decoupled from
@@ -90,13 +88,27 @@ export const ATTENDANCE_STATUS_VALUES = Object.freeze({
   ABSENT: "ABSENT",
   LEAVE: "LEAVE",
   HALF_DAY: "HALF_DAY",
+  OUT_OF_OFFICE: "OUT_OF_OFFICE",
 });
 
 export const ATTENDANCE_SOURCE = Object.freeze({
   ADMIN: "ADMIN",
   SELF_GEOFENCE: "SELF_GEOFENCE",
   BULK: "BULK",
+  SELF_OOO_REQUEST: "SELF_OOO_REQUEST",
 });
 
 export const GEOFENCE_RADIUS_MIN_METERS = 10;
 export const GEOFENCE_RADIUS_MAX_METERS = 5000;
+
+// Out-of-office requests: an employee whose self check-in fails the
+// geofence can ask to be marked Out of Office instead of just being
+// rejected — but it only ever becomes an actual attendance-status record
+// once an admin approves it (mirrors the leave-request PENDING/APPROVED/
+// REJECTED flow), preserving the same "never a free self-picked status"
+// rule the rest of this module enforces.
+export const OOO_REQUEST_STATUS = Object.freeze({
+  PENDING: "PENDING",
+  APPROVED: "APPROVED",
+  REJECTED: "REJECTED",
+});

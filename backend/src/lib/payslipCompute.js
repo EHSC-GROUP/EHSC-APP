@@ -132,7 +132,7 @@ export async function computeMusterAndLeave(userId, period) {
 
   const workingDays = daysInMonthCount - holidayDays - weeklyOffCount;
   const absentDays = dayMarks.filter((d) => d.mark === "A").length;
-  const systemLoginDays = [...attendanceMarks.values()].filter(Boolean).length;
+  const systemPresentDays = [...attendanceMarks.values()].filter(Boolean).length;
 
   return {
     daysInMonth: daysInMonthCount,
@@ -141,7 +141,7 @@ export async function computeMusterAndLeave(userId, period) {
     weeklyOffDays: weeklyOffCount,
     absentDays,
     halfDays,
-    systemLoginDays,
+    systemPresentDays,
     paidLeaveDays: round1(paidLeaveDays),
     lopDays: round1(lopDays),
     leaveBreakdown,
@@ -218,7 +218,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     daysInMonth: muster.daysInMonth,
     workingDays: muster.workingDays,
     presentDays: Number(presentDays),
-    systemLoginDays: muster.systemLoginDays,
+    systemPresentDays: muster.systemPresentDays,
     paidLeaveDays: muster.paidLeaveDays,
     payableDays,
     lopDays: muster.lopDays,
