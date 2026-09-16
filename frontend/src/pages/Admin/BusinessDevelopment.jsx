@@ -4,9 +4,10 @@ import Modal from "../../components/Modal";
 import Drawer from "../../components/Drawer";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
-import CompanyProfileEditor from "../../components/CompanyProfileEditor";
+import ProjectEditor from "../../components/ProjectEditor";
 
 const APPROACH_MODES = ["EMAIL", "PHONE", "ON_SITE"];
+const MARKETING_SOURCES = ["Email Campaign", "Referral", "Website", "Exhibition"];
 const RESULTS = ["IN_PROGRESS", "PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED", "ENQUIRY_ON_HOLD", "ENQUIRY_DROPPED"];
 const RESULT_LABELS = {
   IN_PROGRESS: "In Progress",
@@ -131,21 +132,66 @@ export default function BusinessDevelopment() {
 }
 
 function CreateEnquiryModal({ onClose, onCreated }) {
+  const [companyMode, setCompanyMode] = useState("new"); // "new" | "existing"
+  const [branchMode, setBranchMode] = useState("existing"); // "existing" | "new" — only used when companyMode === "existing"
+  const [companies, setCompanies] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({
-    clientName: "", address: "", marketingSource: "", approachedByName: "", approachDate: todayISO(), approachMode: "EMAIL",
+    companyId: "", branchId: "", clientName: "", address: "",
+    marketingSource: "", referralType: "", referredByEmployeeId: "", referredByExternalName: "", referredByExternalPhone: "",
+    approachedByName: "", approachDate: todayISO(), approachMode: "EMAIL",
     contactPhone: "", contactEmail: "", topic: "", outcomeOfDiscussion: "", estimatedValue: "", remarks: "",
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const selectedCompany = companies.find((c) => c.id === form.companyId);
+  const branches = selectedCompany?.branches || [];
+
+  useEffect(() => {
+    client.get("/company-profiles").then((r) => setCompanies(r.data)).catch(() => {});
+    client.get("/profiles").then((r) => setEmployees(r.data.filter((p) => !p.disabled))).catch(() => {});
+  }, []);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function submit(e) {
     e.preventDefault();
     setError("");
+    if (companyMode === "existing") {
+      if (!form.companyId) return setError("Select an existing company");
+      if (branchMode === "existing" && !form.branchId) return setError("Select a branch");
+      if (branchMode === "new" && !form.address) return setError("Address is required for a new branch");
+    }
+    if (companyMode === "new" && !form.clientName) return setError("Client / Company Name is required");
     setBusy(true);
     try {
-      await client.post("/business-development", form);
+      const payload = { ...form };
+      if (companyMode === "existing") {
+        delete payload.clientName;
+        if (branchMode === "existing") {
+          delete payload.address;
+        } else {
+          delete payload.branchId;
+        }
+      } else {
+        delete payload.companyId;
+        delete payload.branchId;
+      }
+      if (payload.marketingSource !== "Referral") {
+        delete payload.referralType;
+        delete payload.referredByEmployeeId;
+        delete payload.referredByExternalName;
+        delete payload.referredByExternalPhone;
+      } else if (payload.referralType === "EMPLOYEE") {
+        delete payload.referredByExternalName;
+        delete payload.referredByExternalPhone;
+      } else if (payload.referralType === "EXTERNAL") {
+        delete payload.referredByEmployeeId;
+      }
+      const employee = employees.find((emp) => emp.userId === form.referredByEmployeeId);
+      if (employee) payload.referredByEmployeeName = employee.name;
+      await client.post("/business-development", payload);
       onCreated();
     } catch (err) {
       setError(errorMessage(err));
@@ -154,16 +200,85 @@ function CreateEnquiryModal({ onClose, onCreated }) {
     }
   }
 
+  const emailRequired = form.approachMode === "EMAIL";
+  const phoneRequired = form.approachMode === "PHONE";
+
   return (
     <Modal title="New Enquiry" onClose={onClose} wide>
       <form onSubmit={submit}>
-        <div className="form-row">
-          <div><label>Client / Company Name</label><input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} required /></div>
-          <div><label>Marketing Source (how the enquiry was generated)</label><input value={form.marketingSource} onChange={(e) => set("marketingSource", e.target.value)} placeholder="e.g. Email campaign, Referral, Website, Exhibition" /></div>
+        <div className="drawer-tabs" style={{ marginBottom: 12, borderBottom: "none" }}>
+          <button type="button" className={companyMode === "new" ? "active" : ""} onClick={() => setCompanyMode("new")}>New Company</button>
+          <button type="button" className={companyMode === "existing" ? "active" : ""} onClick={() => setCompanyMode("existing")}>Existing Company</button>
         </div>
 
-        <label>Address of the Company</label>
-        <input value={form.address} onChange={(e) => set("address", e.target.value)} />
+        {companyMode === "existing" ? (
+          <div>
+            <label>Company</label>
+            <select value={form.companyId} onChange={(e) => { set("companyId", e.target.value); set("branchId", ""); setBranchMode("existing"); }} required>
+              <option value="">Select a company…</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>#{c.parentNumber} — {c.clientName}</option>)}
+            </select>
+
+            {form.companyId && (
+              <>
+                <div className="drawer-tabs" style={{ marginBottom: 8, marginTop: 8, borderBottom: "none" }}>
+                  <button type="button" className={branchMode === "existing" ? "active" : ""} onClick={() => setBranchMode("existing")}>Existing Branch</button>
+                  <button type="button" className={branchMode === "new" ? "active" : ""} onClick={() => setBranchMode("new")}>New Branch</button>
+                </div>
+                {branchMode === "existing" ? (
+                  <select value={form.branchId} onChange={(e) => set("branchId", e.target.value)} required>
+                    <option value="">Select a branch…</option>
+                    {branches.map((b) => <option key={b.id} value={b.id}>{b.companyCode} — {b.address || "no address"}</option>)}
+                  </select>
+                ) : (
+                  <input value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="Address of the new branch" required />
+                )}
+                <p className="hint-text mt-0">
+                  A new project (PRJ{selectedCompany?.parentNumber}{String((selectedCompany?.projectSeq || 0) + 1).padStart(3, "0")}) will be added under this company.
+                </p>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="form-row">
+            <div><label>Client / Company Name</label><input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} required /></div>
+            <div><label>Address of the Company</label><input value={form.address} onChange={(e) => set("address", e.target.value)} /></div>
+          </div>
+        )}
+
+        <label>Marketing Source (how the enquiry was generated)</label>
+        <select value={form.marketingSource} onChange={(e) => set("marketingSource", e.target.value)}>
+          <option value="">Select…</option>
+          {MARKETING_SOURCES.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+
+        {form.marketingSource === "Referral" && (
+          <div className="card" style={{ marginTop: 8 }}>
+            <label>Referred by</label>
+            <div className="toolbar" style={{ marginTop: 0 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+                <input type="radio" style={{ width: "auto" }} checked={form.referralType === "EMPLOYEE"} onChange={() => set("referralType", "EMPLOYEE")} />
+                An employee
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+                <input type="radio" style={{ width: "auto" }} checked={form.referralType === "EXTERNAL"} onChange={() => set("referralType", "EXTERNAL")} />
+                An external person
+              </label>
+            </div>
+            {form.referralType === "EMPLOYEE" && (
+              <select value={form.referredByEmployeeId} onChange={(e) => set("referredByEmployeeId", e.target.value)} required>
+                <option value="">Select employee…</option>
+                {employees.map((emp) => <option key={emp.userId} value={emp.userId}>{emp.name} ({emp.userId})</option>)}
+              </select>
+            )}
+            {form.referralType === "EXTERNAL" && (
+              <div className="form-row">
+                <div><label>Person's Name</label><input value={form.referredByExternalName} onChange={(e) => set("referredByExternalName", e.target.value)} required /></div>
+                <div><label>Contact Number</label><input value={form.referredByExternalPhone} onChange={(e) => set("referredByExternalPhone", e.target.value)} required /></div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="form-row">
           <div><label>Approached By (contact person name)</label><input value={form.approachedByName} onChange={(e) => set("approachedByName", e.target.value)} required /></div>
@@ -177,8 +292,8 @@ function CreateEnquiryModal({ onClose, onCreated }) {
         </div>
 
         <div className="form-row">
-          <div><label>Contact Phone (optional)</label><input value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
-          <div><label>Contact Email (optional)</label><input type="email" value={form.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} /></div>
+          <div><label>Contact Phone{!phoneRequired && " (optional)"}</label><input value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} required={phoneRequired} /></div>
+          <div><label>Contact Email{!emailRequired && " (optional)"}</label><input type="email" value={form.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} required={emailRequired} /></div>
           <div><label>Estimated Value (optional)</label><input type="number" min="0" step="0.01" value={form.estimatedValue} onChange={(e) => set("estimatedValue", e.target.value)} /></div>
         </div>
 
@@ -198,7 +313,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
   );
 }
 
-const TABS = ["Details", "Actions", "Company Profile"];
+const TABS = ["Details", "Actions", "Conversation Stage"];
 
 function EnquiryDrawer({ id, onClose, onChanged }) {
   const [enquiry, setEnquiry] = useState(null);
@@ -240,7 +355,7 @@ function EnquiryDrawer({ id, onClose, onChanged }) {
           {tab === "Actions" && (
             <ActionsTab enquiryId={enquiry.id} actions={enquiry.actions || []} onChanged={() => { load(); onChanged(); }} />
           )}
-          {tab === "Company Profile" && (
+          {tab === "Conversation Stage" && (
             <CompanyProfileFromEnquiryTab enquiry={enquiry} />
           )}
         </>
@@ -249,52 +364,34 @@ function EnquiryDrawer({ id, onClose, onChanged }) {
   );
 }
 
-// A Company Profile is created automatically alongside every enquiry (see
-// backend routes/businessDevelopment.js) — this tab just shows/edits it.
-// Older enquiries created before that existed won't have one yet; offer a
-// one-click backfill for those instead of the create form.
+// A Project (and its parent Company, if new) is created automatically
+// alongside every enquiry (see backend routes/businessDevelopment.js) —
+// this tab just shows/edits that project.
 function CompanyProfileFromEnquiryTab({ enquiry }) {
-  const [profile, setProfile] = useState(undefined); // undefined = loading, null = none yet
+  const [project, setProject] = useState(undefined); // undefined = loading, null = none found
+  const [company, setCompany] = useState(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
 
   async function load() {
     try {
-      const { data } = await client.get(`/company-profiles/${enquiry.id}`);
-      setProfile(data);
+      const { data } = await client.get("/projects", { params: { sourceEnquiryId: enquiry.id } });
+      const found = data[0] || null;
+      setProject(found);
+      if (found?.companyId) {
+        const { data: companyData } = await client.get(`/company-profiles/${found.companyId}`);
+        setCompany(companyData);
+      }
     } catch (err) {
-      if (err.response?.status === 404) setProfile(null);
-      else setError(errorMessage(err));
+      setError(errorMessage(err));
     }
   }
   useEffect(() => { load(); }, [enquiry.id]);
 
-  async function backfill() {
-    setError("");
-    setBusy(true);
-    try {
-      await client.post(`/business-development/${enquiry.id}/create-profile`);
-      load();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
+  if (project === undefined) return <Loading />;
+  if (project === null) return <div className="card empty-state">No project linked to this enquiry.</div>;
+  if (error) return <ErrorText>{error}</ErrorText>;
 
-  if (profile === undefined) return <Loading />;
-
-  if (profile === null) {
-    return (
-      <div className="card">
-        <p className="mt-0">This enquiry was created before Company Profiles were auto-created. Create one now, pre-filled from this enquiry's details.</p>
-        <ErrorText>{error}</ErrorText>
-        <button className="btn-primary" onClick={backfill} disabled={busy}>{busy ? "Creating…" : "Create Company Profile"}</button>
-      </div>
-    );
-  }
-
-  return <CompanyProfileEditor profile={profile} onChanged={load} showPhases={false} showPhase2 />;
+  return <ProjectEditor project={project} company={company} onChanged={load} showPhases={false} showPhase2 />;
 }
 
 function DetailsTab({ enquiry, onSaved, onDeleted }) {
@@ -354,6 +451,16 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
             <tr><td>Client / Company</td><td>{enquiry.clientName}</td></tr>
             <tr><td>Address</td><td>{enquiry.address || "-"}</td></tr>
             <tr><td>Marketing Source</td><td>{enquiry.marketingSource || "-"}</td></tr>
+            {enquiry.marketingSource === "Referral" && (
+              <tr>
+                <td>Referred By</td>
+                <td>
+                  {enquiry.referralType === "EMPLOYEE"
+                    ? `${enquiry.referredByEmployeeName || enquiry.referredByEmployeeId} (employee)`
+                    : `${enquiry.referredByExternalName} — ${enquiry.referredByExternalPhone} (external)`}
+                </td>
+              </tr>
+            )}
             <tr><td>Approached By</td><td>{enquiry.approachedByName}</td></tr>
             <tr><td>Approach Date</td><td>{enquiry.approachDate}</td></tr>
             <tr><td>Mode of Approach</td><td>{MODE_LABELS[enquiry.approachMode] || enquiry.approachMode}</td></tr>
@@ -380,7 +487,10 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
       <label>Address</label>
       <input value={form.address || ""} onChange={(e) => set("address", e.target.value)} />
       <label>Marketing Source</label>
-      <input value={form.marketingSource || ""} onChange={(e) => set("marketingSource", e.target.value)} />
+      <select value={form.marketingSource || ""} onChange={(e) => set("marketingSource", e.target.value)}>
+        <option value="">Select…</option>
+        {MARKETING_SOURCES.map((m) => <option key={m} value={m}>{m}</option>)}
+      </select>
       <div className="form-row">
         <div><label>Approached By</label><input value={form.approachedByName || ""} onChange={(e) => set("approachedByName", e.target.value)} required /></div>
         <div><label>Approach Date</label><input type="date" value={form.approachDate || ""} onChange={(e) => set("approachDate", e.target.value)} required /></div>
