@@ -28,6 +28,23 @@ export const COLLECTIONS = Object.freeze({
   ATTENDANCE_OOO_REQUESTS: "attendance_ooo_requests",
   BD_ENQUIRIES: "bd_enquiries",
   COMPANY_PROFILES: "company_profiles",
+  PROJECTS: "projects",
+});
+
+// Fixed set shown in the New Enquiry marketing-source dropdown.
+export const MARKETING_SOURCE_OPTIONS = Object.freeze([
+  "Email Campaign",
+  "Referral",
+  "Website",
+  "Exhibition",
+]);
+
+// Who referred the enquiry, when marketingSource is "Referral" — either one
+// of our own employees, or a named external person (with contact number)
+// who isn't in the system.
+export const REFERRAL_TYPE = Object.freeze({
+  EMPLOYEE: "EMPLOYEE",
+  EXTERNAL: "EXTERNAL",
 });
 
 // Synthetic, non-configurable leave types. Never stored in HR_LEAVE_TYPES,

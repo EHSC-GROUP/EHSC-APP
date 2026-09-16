@@ -1,10 +1,11 @@
 import { admin } from "../config/firebase.js";
 
-// Empty defaults for the two extended workflow phases every Company
-// Profile carries: Phase II (turning the enquiry into a work order) and
-// Phase III (executing that work order). Shared so every creation path
-// (auto-created alongside a new enquiry, backfilled for an older one, or
-// created standalone) starts from the same shape.
+// Empty defaults for the extended workflow phases every Project carries:
+// Phase II (turning the enquiry into a work order), Phase III (executing
+// that work order), Phase III(b) (the project plan action list) and
+// Phase IV (delivery/invoice). Shared so every creation path (auto-created
+// alongside a new enquiry, or a second project added under an existing
+// company) starts from the same shape.
 export function emptyPhase2() {
   return {
     proposalNo: "",
@@ -57,16 +58,17 @@ export function emptyPhase4() {
   };
 }
 
-// A Company Profile created alongside (or backfilled for) an enquiry:
-// basic company/contact info is a one-time copy from the enquiry at
-// creation time, not a live sync — editing one afterward doesn't touch
-// the other.
-export function linkedCompanyProfileDoc(enquiry, sourceEnquiryId, sourceEnquiryNo, userId) {
+// A Project created alongside (or added under an existing company for) an
+// enquiry: `clientName` is denormalized from the company at creation time
+// (so the Project Tracker and lists don't need an extra join per row) —
+// a one-time copy, not a live sync.
+export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId }) {
   return {
-    clientName: enquiry.clientName,
-    address: enquiry.address || "",
-    contactPersonName: enquiry.approachedByName || "",
-    contactPhone: enquiry.contactPhone || "",
+    projectId,
+    companyId,
+    branchId,
+    companyCode,
+    clientName,
     poNumber: "",
     poValue: null,
     deliveryDueDate: null,

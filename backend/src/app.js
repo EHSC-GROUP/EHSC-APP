@@ -17,6 +17,7 @@ import form22Routes from "./routes/form22.js";
 import selfServiceRoutes from "./routes/selfService.js";
 import businessDevelopmentRoutes from "./routes/businessDevelopment.js";
 import companyProfileRoutes from "./routes/companyProfiles.js";
+import projectRoutes from "./routes/projects.js";
 
 const app = express();
 
@@ -41,6 +42,7 @@ app.use("/api/form22", form22Routes);
 app.use("/api/me", selfServiceRoutes);
 app.use("/api/business-development", businessDevelopmentRoutes);
 app.use("/api/company-profiles", companyProfileRoutes);
+app.use("/api/projects", projectRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
