@@ -2,7 +2,7 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS } from "../lib/constants.js";
+import { COLLECTIONS, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4 } from "../lib/companyProfile.js";
 
@@ -278,9 +278,17 @@ function dependencyCycleExists(actions, startId, overrides) {
   return (dependsOnById.get(startId) || []).some((depId) => canReach(depId, startId));
 }
 
-router.put("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (req, res, next) => {
+// Admins can edit every field; an assignee who isn't an admin may only flip
+// their own action's `completed` flag (checking off their own work) — every
+// other field stays admin-only.
+router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) => {
   try {
+    const isAdmin = ADMIN_ROLES.includes(req.user.role);
     const { description, assignedTo, assignedToName, startDate, dueDate, completed, dependsOn } = req.body;
+    if (!isAdmin) {
+      const onlyCompleted = Object.keys(req.body).every((k) => k === "completed");
+      if (!onlyCompleted) return res.status(403).json({ error: "Admin access required" });
+    }
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
 
     await db.runTransaction(async (tx) => {
@@ -290,6 +298,9 @@ router.put("/:id/plan-actions/:actionId", authenticate, requireAdmin, async (req
       const actions = phase3b.actions || [];
       const idx = actions.findIndex((a) => a.id === req.params.actionId);
       if (idx === -1) throw Object.assign(new Error("Action not found"), { status: 404 });
+      if (!isAdmin && actions[idx].assignedTo !== req.user.userId) {
+        throw Object.assign(new Error("You can only update your own assigned actions"), { status: 403 });
+      }
 
       const updated = { ...actions[idx] };
       if (description !== undefined) updated.description = description;

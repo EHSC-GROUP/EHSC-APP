@@ -2,7 +2,7 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE } from "../lib/constants.js";
+import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { newProjectDoc } from "../lib/companyProfile.js";
 import { emptyBranch } from "./companyProfiles.js";
@@ -316,10 +316,17 @@ router.post("/:id/actions", authenticate, requireAdmin, async (req, res, next) =
   }
 });
 
-router.put("/:id/actions/:actionId", authenticate, requireAdmin, async (req, res, next) => {
+// Same self-service carve-out as the Project Plan actions: a non-admin
+// assignee may only flip `completed` on their own action.
+router.put("/:id/actions/:actionId", authenticate, async (req, res, next) => {
   try {
-    const ref = db.collection(COLLECTIONS.BD_ENQUIRIES).doc(req.params.id);
+    const isAdmin = ADMIN_ROLES.includes(req.user.role);
     const { description, assignedTo, assignedToName, dueDate, startDate, completed } = req.body;
+    if (!isAdmin) {
+      const onlyCompleted = Object.keys(req.body).every((k) => k === "completed");
+      if (!onlyCompleted) return res.status(403).json({ error: "Admin access required" });
+    }
+    const ref = db.collection(COLLECTIONS.BD_ENQUIRIES).doc(req.params.id);
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
@@ -327,6 +334,9 @@ router.put("/:id/actions/:actionId", authenticate, requireAdmin, async (req, res
       const actions = snap.data().actions || [];
       const idx = actions.findIndex((a) => a.id === req.params.actionId);
       if (idx === -1) throw Object.assign(new Error("Action not found"), { status: 404 });
+      if (!isAdmin && actions[idx].assignedTo !== req.user.userId) {
+        throw Object.assign(new Error("You can only update your own assigned actions"), { status: 403 });
+      }
 
       const existing = actions[idx];
       const updated = { ...existing };
