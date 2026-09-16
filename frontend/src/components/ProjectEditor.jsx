@@ -27,45 +27,46 @@ function withEmptyFallback(defaults, stored) {
   return out;
 }
 
-function toFormShape(profile) {
+function toFormShape(project) {
   return {
-    clientName: profile.clientName || "",
-    address: profile.address || "",
-    contactPersonName: profile.contactPersonName || "",
-    contactPhone: profile.contactPhone || "",
-    poNumber: profile.poNumber || "",
-    poValue: profile.poValue ?? "",
-    deliveryDueDate: profile.deliveryDueDate || "",
-    termsAndConditions: profile.termsAndConditions || "",
-    phase2: withEmptyFallback(emptyPhase2(), profile.phase2),
-    phase3: withEmptyFallback(emptyPhase3(), profile.phase3),
-    phase4: withEmptyFallback(emptyPhase4(), profile.phase4),
+    poNumber: project.poNumber || "",
+    poValue: project.poValue ?? "",
+    deliveryDueDate: project.deliveryDueDate || "",
+    termsAndConditions: project.termsAndConditions || "",
+    phase2: withEmptyFallback(emptyPhase2(), project.phase2),
+    phase3: withEmptyFallback(emptyPhase3(), project.phase3),
+    phase4: withEmptyFallback(emptyPhase4(), project.phase4),
   };
 }
 
-// Shared by the Company Profiles page's drawer and the Business
-// Development enquiry drawer's "Company Profile" tab — same record, same
-// editing UI, whichever screen it's opened from. `showPhases` gates
-// Phase III/Project Plan/Project Completion plus the PO/contract summary —
-// that level of detail belongs to the standalone Company Profiles page, not
-// a quick look from the enquiry. `showPhase2` is independent: Conversation
-// Stage (the proposal/follow-up tracking, internally still "phase2") lives
-// only in the BD enquiry drawer, not on the standalone page — defaults to
+// Edits one Project (PO/contract, Phase II "Conversation Stage",
+// Implementation Phase work order, Project Plan, Project Completion) — the
+// company itself (name/address/contact/company code) is a separate,
+// lightweight record shown here read-only via `company`, since a company
+// can have several projects and editing its identity shouldn't happen from
+// inside one of them. `showPhases` gates Company Details (the read-only
+// company/PO/contract summary) plus Implementation Phase/Project
+// Plan/Project Completion — that level of detail belongs to the standalone
+// Company Profiles page, not a quick look from the enquiry. `showPhase2` is
+// independent: Conversation Stage (the proposal/follow-up tracking,
+// internally still "phase2") is the *only* thing the BD enquiry drawer
+// shows (no tab bar, since it's the single section) — defaults to
 // following `showPhases` so any other caller keeps the old all-or-nothing
 // behavior.
-export default function CompanyProfileEditor({ profile, onChanged, showPhases = true, showPhase2 = showPhases }) {
-  const [section, setSection] = useState("Company Details");
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(() => toFormShape(profile));
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
+export default function ProjectEditor({ project, company, onChanged, showPhases = true, showPhase2 = showPhases }) {
   const sections = [
-    "Company Details",
+    ...(showPhases ? ["Company Details"] : []),
     ...(showPhase2 ? ["Conversation Stage"] : []),
-    ...(showPhases ? ["Phase III", "Project Plan", "Project Completion"] : []),
+    ...(showPhases ? ["Implementation Phase", "Project Plan", "Project Completion"] : []),
   ];
   const hasTabs = sections.length > 1;
+
+  const [section, setSection] = useState(sections[0]);
+  const branch = (company?.branches || []).find((b) => b.id === project.branchId);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(() => toFormShape(project));
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
   function setPhase2(k, v) { setForm((f) => ({ ...f, phase2: { ...f.phase2, [k]: v } })); }
@@ -77,7 +78,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
     setError("");
     setBusy(true);
     try {
-      await client.put(`/company-profiles/${profile.id}`, form);
+      await client.put(`/projects/${project.id}`, form);
       setEditing(false);
       onChanged();
     } catch (err) {
@@ -89,7 +90,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
 
   async function addConversation(date, description) {
     try {
-      await client.post(`/company-profiles/${profile.id}/conversations`, { date, description });
+      await client.post(`/projects/${project.id}/conversations`, { date, description });
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -98,7 +99,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
 
   async function removeConversation(convId) {
     try {
-      await client.delete(`/company-profiles/${profile.id}/conversations/${convId}`);
+      await client.delete(`/projects/${project.id}/conversations/${convId}`);
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -107,7 +108,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
 
   async function addClientReply(date, reply) {
     try {
-      await client.post(`/company-profiles/${profile.id}/client-replies`, { date, reply });
+      await client.post(`/projects/${project.id}/client-replies`, { date, reply });
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -116,15 +117,15 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
 
   async function removeClientReply(replyId) {
     try {
-      await client.delete(`/company-profiles/${profile.id}/client-replies/${replyId}`);
+      await client.delete(`/projects/${project.id}/client-replies/${replyId}`);
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
     }
   }
 
-  const conversations = profile.phase2?.conversations || [];
-  const clientReplies = profile.phase2?.clientReplies || [];
+  const conversations = project.phase2?.conversations || [];
+  const clientReplies = project.phase2?.clientReplies || [];
   const ORDINALS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"];
   const isProjectPlan = showPhases && section === "Project Plan";
 
@@ -139,25 +140,26 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
           </div>
         )}
         <div className="spacer" />
-        {!editing && !isProjectPlan && <button className="btn-sm" onClick={() => { setForm(toFormShape(profile)); setEditing(true); }}>Edit</button>}
+        {!editing && !isProjectPlan && <button className="btn-sm" onClick={() => { setForm(toFormShape(project)); setEditing(true); }}>Edit</button>}
       </div>
 
       {isProjectPlan ? (
-        <PlanActionsSection profileId={profile.id} actions={profile.phase3b?.actions || []} onChanged={onChanged} />
+        <PlanActionsSection projectId={project.id} actions={project.phase3b?.actions || []} onChanged={onChanged} />
       ) : !editing ? (
         <div>
-          {(!hasTabs || section === "Company Details") && (
+          {showPhases && section === "Company Details" && (
             <table>
               <tbody>
-                <tr><td>Client / Company</td><td>{profile.clientName}</td></tr>
-                <tr><td>Address</td><td>{profile.address || "-"}</td></tr>
-                <tr><td>Contact Person</td><td>{profile.contactPersonName || "-"}</td></tr>
-                <tr><td>Contact Phone</td><td>{profile.contactPhone || "-"}</td></tr>
-                {showPhases && <tr><td>PO Number</td><td>{profile.poNumber || "-"}</td></tr>}
-                {showPhases && <tr><td>PO Value</td><td>{profile.poValue ?? "-"}</td></tr>}
-                {showPhases && <tr><td>Delivery Due Date</td><td>{profile.deliveryDueDate || "-"}</td></tr>}
-                {showPhases && <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.termsAndConditions || "-"}</td></tr>}
-                {showPhases && profile.sourceEnquiryNo && <tr><td>Source Enquiry</td><td>{profile.sourceEnquiryNo}</td></tr>}
+                <tr><td>Project ID</td><td>{project.projectId}</td></tr>
+                <tr><td>Company</td><td>{branch?.companyCode} — {company?.clientName}</td></tr>
+                <tr><td>Address</td><td>{branch?.address || "-"}</td></tr>
+                <tr><td>Contact Person</td><td>{branch?.contactPersonName || "-"}</td></tr>
+                <tr><td>Contact Phone</td><td>{branch?.contactPhone || "-"}</td></tr>
+                {showPhases && <tr><td>PO Number</td><td>{project.poNumber || "-"}</td></tr>}
+                {showPhases && <tr><td>PO Value</td><td>{project.poValue ?? "-"}</td></tr>}
+                {showPhases && <tr><td>Delivery Due Date</td><td>{project.deliveryDueDate || "-"}</td></tr>}
+                {showPhases && <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{project.termsAndConditions || "-"}</td></tr>}
+                {showPhases && project.sourceEnquiryNo && <tr><td>Source Enquiry</td><td>{project.sourceEnquiryNo}</td></tr>}
               </tbody>
             </table>
           )}
@@ -166,13 +168,13 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
             <div>
               <table>
                 <tbody>
-                  <tr><td>Proposal No.</td><td>{profile.phase2?.proposalNo || "-"}</td></tr>
-                  <tr><td>Proposal Date</td><td>{profile.phase2?.proposalDate || "-"}</td></tr>
-                  <tr><td>Mode of Submission</td><td>{profile.phase2?.modeOfSubmission || "-"}</td></tr>
-                  <tr><td>Whom It Has Been Submitted</td><td>{profile.phase2?.submittedTo || "-"}</td></tr>
-                  <tr><td>Who Has Submitted</td><td>{profile.phase2?.submittedBy || "-"}</td></tr>
-                  <tr><td>Next Follow-up Due On</td><td>{profile.phase2?.nextFollowUpDueOn || "-"}</td></tr>
-                  <tr><td>Next Follow-up Date</td><td>{profile.phase2?.nextFollowUpDate || "-"}</td></tr>
+                  <tr><td>Proposal No.</td><td>{project.phase2?.proposalNo || "-"}</td></tr>
+                  <tr><td>Proposal Date</td><td>{project.phase2?.proposalDate || "-"}</td></tr>
+                  <tr><td>Mode of Submission</td><td>{project.phase2?.modeOfSubmission || "-"}</td></tr>
+                  <tr><td>Whom It Has Been Submitted</td><td>{project.phase2?.submittedTo || "-"}</td></tr>
+                  <tr><td>Who Has Submitted</td><td>{project.phase2?.submittedBy || "-"}</td></tr>
+                  <tr><td>Next Follow-up Due On</td><td>{project.phase2?.nextFollowUpDueOn || "-"}</td></tr>
+                  <tr><td>Next Follow-up Date</td><td>{project.phase2?.nextFollowUpDate || "-"}</td></tr>
                 </tbody>
               </table>
 
@@ -209,29 +211,29 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
               </div>
 
               <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 16 }}>
-                <input type="checkbox" style={{ width: "auto" }} checked={!!profile.phase2?.respondedInFavour} disabled />
+                <input type="checkbox" style={{ width: "auto" }} checked={!!project.phase2?.respondedInFavour} disabled />
                 Responded in favour
               </label>
-              {profile.phase2?.respondedInFavour && (
+              {project.phase2?.respondedInFavour && (
                 <table>
                   <tbody>
-                    <tr><td>Final Proposal After Negotiation</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.phase2?.finalProposalAfterNegotiation || "-"}</td></tr>
-                    <tr><td>Work Order Date</td><td>{profile.phase2?.workOrderDate || "-"}</td></tr>
-                    <tr><td>Work Order Number</td><td>{profile.phase2?.workOrderNumber || "-"}</td></tr>
+                    <tr><td>Final Proposal After Negotiation</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase2?.finalProposalAfterNegotiation || "-"}</td></tr>
+                    <tr><td>Work Order Date</td><td>{project.phase2?.workOrderDate || "-"}</td></tr>
+                    <tr><td>Work Order Number</td><td>{project.phase2?.workOrderNumber || "-"}</td></tr>
                   </tbody>
                 </table>
               )}
             </div>
           )}
 
-          {showPhases && section === "Phase III" && (
+          {showPhases && section === "Implementation Phase" && (
             <table>
               <tbody>
-                <tr><td>Work Order Date</td><td>{profile.phase3?.workOrderDate || "-"}</td></tr>
-                <tr><td>Work Order Number</td><td>{profile.phase3?.workOrderNumber || "-"}</td></tr>
-                <tr><td>Work Order Description</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.phase3?.workOrderDescription || "-"}</td></tr>
-                <tr><td>Delivery Conditions / Scope of Work</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.phase3?.deliveryConditions || "-"}</td></tr>
-                <tr><td>Payment Terms</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.phase3?.paymentTerms || "-"}</td></tr>
+                <tr><td>Work Order Date</td><td>{project.phase3?.workOrderDate || "-"}</td></tr>
+                <tr><td>Work Order Number</td><td>{project.phase3?.workOrderNumber || "-"}</td></tr>
+                <tr><td>Work Order Description</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.workOrderDescription || "-"}</td></tr>
+                <tr><td>Delivery Conditions / Scope of Work</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.deliveryConditions || "-"}</td></tr>
+                <tr><td>Payment Terms</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.paymentTerms || "-"}</td></tr>
               </tbody>
             </table>
           )}
@@ -241,19 +243,19 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
               <h3 className="mt-0">Delivery Report</h3>
               <table>
                 <tbody>
-                  <tr><td>Submitted</td><td>{profile.phase4?.deliveryReportSubmitted ? "Yes" : "No"}</td></tr>
-                  <tr><td>Date</td><td>{profile.phase4?.deliveryReportDate || "-"}</td></tr>
-                  <tr><td>Notes</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.phase4?.deliveryReportNotes || "-"}</td></tr>
+                  <tr><td>Submitted</td><td>{project.phase4?.deliveryReportSubmitted ? "Yes" : "No"}</td></tr>
+                  <tr><td>Date</td><td>{project.phase4?.deliveryReportDate || "-"}</td></tr>
+                  <tr><td>Notes</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase4?.deliveryReportNotes || "-"}</td></tr>
                 </tbody>
               </table>
               <h3>Invoice</h3>
               <table>
                 <tbody>
-                  <tr><td>Invoice Number</td><td>{profile.phase4?.invoiceNumber || "-"}</td></tr>
-                  <tr><td>Invoice Date</td><td>{profile.phase4?.invoiceDate || "-"}</td></tr>
-                  <tr><td>Invoice Amount</td><td>{profile.phase4?.invoiceAmount ?? "-"}</td></tr>
-                  <tr><td>Payment Received</td><td>{profile.phase4?.paymentReceived ? "Yes" : "No"}</td></tr>
-                  <tr><td>Payment Received Date</td><td>{profile.phase4?.paymentReceivedDate || "-"}</td></tr>
+                  <tr><td>Invoice Number</td><td>{project.phase4?.invoiceNumber || "-"}</td></tr>
+                  <tr><td>Invoice Date</td><td>{project.phase4?.invoiceDate || "-"}</td></tr>
+                  <tr><td>Invoice Amount</td><td>{project.phase4?.invoiceAmount ?? "-"}</td></tr>
+                  <tr><td>Payment Received</td><td>{project.phase4?.paymentReceived ? "Yes" : "No"}</td></tr>
+                  <tr><td>Payment Received Date</td><td>{project.phase4?.paymentReceivedDate || "-"}</td></tr>
                 </tbody>
               </table>
             </div>
@@ -263,16 +265,11 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
         </div>
       ) : (
         <form onSubmit={save}>
-          {(!hasTabs || section === "Company Details") && (
+          {showPhases && section === "Company Details" && (
             <div>
-              <div className="form-row">
-                <div><label>Client / Company Name</label><input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} required /></div>
-                <div><label>Address</label><input value={form.address} onChange={(e) => set("address", e.target.value)} /></div>
-              </div>
-              <div className="form-row">
-                <div><label>Contact Person Name</label><input value={form.contactPersonName} onChange={(e) => set("contactPersonName", e.target.value)} /></div>
-                <div><label>Contact Phone</label><input value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
-              </div>
+              <p className="hint-text mt-0">
+                Company name, address and contact are edited from the company itself (Company Profiles), not per-project.
+              </p>
               {showPhases && (
                 <>
                   <div className="form-row">
@@ -352,7 +349,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
             </div>
           )}
 
-          {showPhases && section === "Phase III" && (
+          {showPhases && section === "Implementation Phase" && (
             <div>
               <div className="form-row">
                 <div><label>Work Order Date</label><input type="date" value={form.phase3.workOrderDate} onChange={(e) => setPhase3("workOrderDate", e.target.value)} /></div>
@@ -399,7 +396,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
           <ErrorText>{error}</ErrorText>
           <div className="toolbar" style={{ marginTop: 16 }}>
             <button className="btn-primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
-            <button type="button" onClick={() => { setForm(toFormShape(profile)); setEditing(false); }}>Cancel</button>
+            <button type="button" onClick={() => { setForm(toFormShape(project)); setEditing(false); }}>Cancel</button>
           </div>
         </form>
       )}
@@ -408,7 +405,7 @@ export default function CompanyProfileEditor({ profile, onChanged, showPhases = 
 }
 
 // A plain div, not a <form> — this renders inside the outer Company
-// Details/Conversation Stage/Phase III <form> while that's in edit mode, and a <form>
+// Details/Conversation Stage/Implementation Phase <form> while that's in edit mode, and a <form>
 // cannot be nested inside another <form> (the browser would either drop it
 // or route its submit to the outer one instead of this handler).
 function AddConversationInline({ onAdd }) {
@@ -488,9 +485,9 @@ function AddClientReplyInline({ onAdd }) {
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
 // Phase III(b) — Project Plan: a numbered action list, independent of the
-// rest of the profile's Edit/Save toggle (same pattern as the Business
+// rest of the project's Edit/Save toggle (same pattern as the Business
 // Development action log — each add/toggle/delete saves immediately).
-function PlanActionsSection({ profileId, actions, onChanged }) {
+function PlanActionsSection({ projectId, actions, onChanged }) {
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
@@ -499,7 +496,7 @@ function PlanActionsSection({ profileId, actions, onChanged }) {
 
   async function toggleComplete(action) {
     try {
-      await client.put(`/company-profiles/${profileId}/plan-actions/${action.id}`, { completed: !action.completed });
+      await client.put(`/projects/${projectId}/plan-actions/${action.id}`, { completed: !action.completed });
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -509,7 +506,7 @@ function PlanActionsSection({ profileId, actions, onChanged }) {
   async function remove(actionId) {
     if (!window.confirm("Delete this action?")) return;
     try {
-      await client.delete(`/company-profiles/${profileId}/plan-actions/${actionId}`);
+      await client.delete(`/projects/${projectId}/plan-actions/${actionId}`);
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -560,10 +557,10 @@ function PlanActionsSection({ profileId, actions, onChanged }) {
       })}
 
       {showAdd && (
-        <AddPlanActionModal profileId={profileId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); onChanged(); }} />
+        <AddPlanActionModal projectId={projectId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); onChanged(); }} />
       )}
       {showWorkflow && (
-        <WorkflowModal profileId={profileId} actions={actions} onClose={() => setShowWorkflow(false)} onSaved={() => { setShowWorkflow(false); onChanged(); }} />
+        <WorkflowModal projectId={projectId} actions={actions} onClose={() => setShowWorkflow(false)} onSaved={() => { setShowWorkflow(false); onChanged(); }} />
       )}
     </div>
   );
@@ -575,16 +572,56 @@ function PlanActionsSection({ profileId, actions, onChanged }) {
 // Saved per-action (only ones that actually changed) via the same PUT the
 // rest of plan-actions editing uses; the backend rejects unknown ids and
 // circular dependencies.
-function WorkflowModal({ profileId, actions, onClose, onSaved }) {
-  const [deps, setDeps] = useState(() => Object.fromEntries(actions.map((a) => [a.id, a.dependsOn || []])));
+// Reconstructs a 1st/2nd/3rd... order from existing single-predecessor
+// dependsOn chains, if they cleanly form one straight line. Anything messier
+// (branches, multiple predecessors from earlier testing, no chain at all)
+// just falls back to due-date order as a sensible starting point.
+function deriveInitialOrder(actions) {
+  const byId = new Map(actions.map((a) => [a.id, a]));
+  const parentOf = new Map(actions.map((a) => [a.id, (a.dependsOn || [])[0] || null]));
+  const isSingleChain = actions.every((a) => (a.dependsOn || []).length <= 1);
+  if (isSingleChain) {
+    const childOf = new Map();
+    let branched = false;
+    for (const a of actions) {
+      const parent = parentOf.get(a.id);
+      if (parent) {
+        if (childOf.has(parent)) branched = true;
+        childOf.set(parent, a.id);
+      }
+    }
+    const roots = actions.filter((a) => !parentOf.get(a.id));
+    if (!branched && roots.length === 1) {
+      const order = [];
+      const seen = new Set();
+      let cur = roots[0];
+      while (cur && !seen.has(cur.id)) {
+        order.push(cur);
+        seen.add(cur.id);
+        const nextId = childOf.get(cur.id);
+        cur = nextId ? byId.get(nextId) : null;
+      }
+      if (order.length === actions.length) return order;
+    }
+  }
+  return [...actions].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
+}
+
+// A straight numbered sequence — action 2 waits on action 1, action 3 waits
+// on action 2, and so on. Reordered with Up/Down rather than drag-and-drop
+// to avoid a DnD dependency for a short list.
+function WorkflowModal({ projectId, actions, onClose, onSaved }) {
+  const [order, setOrder] = useState(() => deriveInitialOrder(actions));
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  function toggle(actionId, depId) {
-    setDeps((d) => {
-      const current = d[actionId] || [];
-      const next = current.includes(depId) ? current.filter((x) => x !== depId) : [...current, depId];
-      return { ...d, [actionId]: next };
+  function move(index, dir) {
+    setOrder((cur) => {
+      const target = index + dir;
+      if (target < 0 || target >= cur.length) return cur;
+      const next = [...cur];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
     });
   }
 
@@ -592,13 +629,14 @@ function WorkflowModal({ profileId, actions, onClose, onSaved }) {
     setError("");
     setBusy(true);
     try {
-      const changed = actions.filter((a) => {
+      for (let i = 0; i < order.length; i++) {
+        const a = order[i];
+        const newDeps = i === 0 ? [] : [order[i - 1].id];
         const before = [...(a.dependsOn || [])].sort().join(",");
-        const after = [...(deps[a.id] || [])].sort().join(",");
-        return before !== after;
-      });
-      for (const a of changed) {
-        await client.put(`/company-profiles/${profileId}/plan-actions/${a.id}`, { dependsOn: deps[a.id] });
+        const after = [...newDeps].sort().join(",");
+        if (before !== after) {
+          await client.put(`/projects/${projectId}/plan-actions/${a.id}`, { dependsOn: newDeps });
+        }
       }
       onSaved();
     } catch (err) {
@@ -615,32 +653,28 @@ function WorkflowModal({ profileId, actions, onClose, onSaved }) {
           <h3>Define Workflow</h3>
           <button className="btn-sm" onClick={onClose}>Close</button>
         </div>
-        <p className="hint-text mt-0">For each action, tick which other actions have to be finished first.</p>
-        {actions.map((a) => (
-          <div key={a.id} className="card" style={{ marginBottom: 10 }}>
-            <strong>{a.description}</strong>
-            <p className="hint-text mt-0" style={{ marginBottom: 4 }}>Must happen after:</p>
-            {actions.filter((other) => other.id !== a.id).map((other) => (
-              <label key={other.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: "auto" }}
-                  checked={(deps[a.id] || []).includes(other.id)}
-                  onChange={() => toggle(a.id, other.id)}
-                />
-                {other.description}
-              </label>
-            ))}
+        <p className="hint-text mt-0">Set the order these actions happen in — each one waits on the one right before it.</p>
+        {order.map((a, i) => (
+          <div key={a.id} className="card" style={{ marginBottom: 8 }}>
+            <div className="toolbar" style={{ margin: 0 }}>
+              <strong style={{ width: 24 }}>{i + 1}.</strong>
+              <div style={{ flex: 1 }}>
+                <div>{a.description}</div>
+                <div className="hint-text">{a.assignedToName || a.assignedTo}</div>
+              </div>
+              <button type="button" className="btn-sm" onClick={() => move(i, -1)} disabled={i === 0}>Move up</button>
+              <button type="button" className="btn-sm" onClick={() => move(i, 1)} disabled={i === order.length - 1}>Move down</button>
+            </div>
           </div>
         ))}
         <ErrorText>{error}</ErrorText>
-        <button className="btn-primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save Workflow"}</button>
+        <button className="btn-primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save Order"}</button>
       </div>
     </div>
   );
 }
 
-function AddPlanActionModal({ profileId, onClose, onAdded }) {
+function AddPlanActionModal({ projectId, onClose, onAdded }) {
   const [employees, setEmployees] = useState([]);
   const [form, setForm] = useState({ description: "", assignedTo: "", startDate: todayISO(), dueDate: "" });
   const [error, setError] = useState("");
@@ -659,7 +693,7 @@ function AddPlanActionModal({ profileId, onClose, onAdded }) {
     setBusy(true);
     try {
       const employee = employees.find((emp) => emp.userId === form.assignedTo);
-      await client.post(`/company-profiles/${profileId}/plan-actions`, { ...form, assignedToName: employee?.name });
+      await client.post(`/projects/${projectId}/plan-actions`, { ...form, assignedToName: employee?.name });
       onAdded();
     } catch (err) {
       setError(errorMessage(err));

@@ -3,7 +3,7 @@ import client, { errorMessage } from "../../api/client";
 import Modal from "../../components/Modal";
 import Drawer from "../../components/Drawer";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
-import CompanyProfileEditor from "../../components/CompanyProfileEditor";
+import ProjectEditor from "../../components/ProjectEditor";
 
 export default function CompanyProfiles() {
   const [list, setList] = useState(null);
@@ -25,23 +25,25 @@ export default function CompanyProfiles() {
 
   const filtered = (list || []).filter((p) => {
     const q = search.toLowerCase();
-    return !q || [p.clientName, p.poNumber, p.contactPersonName].some((v) => (v || "").toLowerCase().includes(q));
+    if (!q) return true;
+    const branchText = (p.branches || []).map((b) => `${b.companyCode} ${b.contactPersonName}`).join(" ");
+    return [p.clientName, String(p.parentNumber), branchText].some((v) => (v || "").toLowerCase().includes(q));
   });
 
   return (
     <div>
       <div className="page-header">
         <h2>Company Profiles</h2>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New Company Profile</button>
+        <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New Company</button>
       </div>
       <p className="hint-text">
-        Created automatically alongside every Business Development enquiry — tracks the client through proposal,
-        work order, and execution. Use "New Company Profile" here only for a client with no enquiry history, or to
-        backfill an older enquiry.
+        One record per client company — a company can have several branches and carry several projects over time.
+        New enquiries usually create a company (and its first branch/project) automatically; use "New Company" here
+        only for a client with no enquiry yet.
       </p>
 
       <div className="toolbar">
-        <input style={{ maxWidth: 280 }} placeholder="Search client, PO number, contact…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <input style={{ maxWidth: 280 }} placeholder="Search company #, name, branch, contact…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
       <ErrorText>{error}</ErrorText>
@@ -49,79 +51,45 @@ export default function CompanyProfiles() {
         <div className="card table-wrap">
           <table>
             <thead>
-              <tr><th>Client / Company</th><th>PO Number</th><th>PO Value</th><th>Delivery Due Date</th><th>Contact Person</th><th>Source Enquiry</th></tr>
+              <tr><th>#</th><th>Client / Company</th><th>Branches</th><th>Primary Contact</th></tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
-                <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelected(p.id)}>
-                  <td>{p.clientName}</td>
-                  <td>{p.poNumber || "-"}</td>
-                  <td>{p.poValue ?? "-"}</td>
-                  <td>{p.deliveryDueDate || "-"}</td>
-                  <td>{p.contactPersonName || "-"}</td>
-                  <td>{p.sourceEnquiryNo || "-"}</td>
-                </tr>
-              ))}
-              {filtered.length === 0 && <tr><td colSpan={6} className="empty-state">No company profiles yet.</td></tr>}
+              {filtered.map((p) => {
+                const primary = (p.branches || [])[0];
+                return (
+                  <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelected(p.id)}>
+                    <td>{p.parentNumber}</td>
+                    <td>{p.clientName}</td>
+                    <td>{(p.branches || []).length}</td>
+                    <td>{primary?.contactPersonName || "-"}</td>
+                  </tr>
+                );
+              })}
+              {filtered.length === 0 && <tr><td colSpan={4} className="empty-state">No companies yet.</td></tr>}
             </tbody>
           </table>
         </div>
       )}
 
-      {showCreate && <CreateCompanyProfileModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
-      {selected && <CompanyProfileDrawer id={selected} onClose={() => setSelected(null)} onChanged={load} />}
+      {showCreate && <CreateCompanyModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
+      {selected && <CompanyDrawer id={selected} onClose={() => setSelected(null)} onChanged={load} />}
     </div>
   );
 }
 
-const emptyForm = {
-  clientName: "", address: "", contactPersonName: "", contactPhone: "",
-  poNumber: "", poValue: "", deliveryDueDate: "", termsAndConditions: "",
-};
-
-function CreateCompanyProfileModal({ onClose, onCreated }) {
-  const [enquiriesWithoutProfile, setEnquiriesWithoutProfile] = useState([]);
-  const [selectedEnquiryId, setSelectedEnquiryId] = useState("");
-  const [form, setForm] = useState(emptyForm);
+function CreateCompanyModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({ clientName: "", address: "", contactPersonName: "", contactPhone: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    // Every enquiry gets a profile automatically now, so this dropdown only
-    // needs to offer enquiries that predate that (i.e. don't have one yet).
-    Promise.all([client.get("/business-development"), client.get("/company-profiles")]).then(([e, p]) => {
-      const linkedIds = new Set(p.data.map((x) => x.sourceEnquiryId).filter(Boolean));
-      setEnquiriesWithoutProfile(e.data.filter((x) => !linkedIds.has(x.id)));
-    }).catch(() => {});
-  }, []);
-
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
-
-  function importFrom(enquiryId) {
-    setSelectedEnquiryId(enquiryId);
-    if (!enquiryId) return;
-    const e = enquiriesWithoutProfile.find((x) => x.id === enquiryId);
-    if (!e) return;
-    setForm((f) => ({
-      ...f,
-      clientName: e.clientName || "",
-      address: e.address || "",
-      contactPersonName: e.approachedByName || "",
-      contactPhone: e.contactPhone || "",
-    }));
-  }
 
   async function submit(e) {
     e.preventDefault();
     setError("");
     setBusy(true);
     try {
-      const enquiry = enquiriesWithoutProfile.find((x) => x.id === selectedEnquiryId);
-      await client.post("/company-profiles", {
-        ...form,
-        sourceEnquiryId: enquiry?.id || null,
-        sourceEnquiryNo: enquiry?.enquiryNo || null,
-      });
+      await client.post("/company-profiles", form);
       onCreated();
     } catch (err) {
       setError(errorMessage(err));
@@ -131,59 +99,75 @@ function CreateCompanyProfileModal({ onClose, onCreated }) {
   }
 
   return (
-    <Modal title="New Company Profile" onClose={onClose} wide>
-      {enquiriesWithoutProfile.length > 0 && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <label>Import from an older Enquiry (optional)</label>
-          <select value={selectedEnquiryId} onChange={(e) => importFrom(e.target.value)}>
-            <option value="">Select an enquiry to auto-fill company/contact details…</option>
-            {enquiriesWithoutProfile.map((e) => (
-              <option key={e.id} value={e.id}>{e.enquiryNo} — {e.clientName} ({e.approachedByName})</option>
-            ))}
-          </select>
-          <p className="hint-text mt-0">Fills Client Name, Address, Contact Person and Contact Phone below — all remain editable.</p>
-        </div>
-      )}
-
+    <Modal title="New Company" onClose={onClose} wide>
       <form onSubmit={submit}>
         <div className="form-row">
           <div><label>Client / Company Name</label><input value={form.clientName} onChange={(e) => set("clientName", e.target.value)} required /></div>
-          <div><label>Address</label><input value={form.address} onChange={(e) => set("address", e.target.value)} /></div>
+          <div><label>Address (first branch)</label><input value={form.address} onChange={(e) => set("address", e.target.value)} /></div>
         </div>
         <div className="form-row">
           <div><label>Contact Person Name</label><input value={form.contactPersonName} onChange={(e) => set("contactPersonName", e.target.value)} /></div>
           <div><label>Contact Phone</label><input value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
         </div>
-        <div className="form-row">
-          <div><label>PO Number</label><input value={form.poNumber} onChange={(e) => set("poNumber", e.target.value)} /></div>
-          <div><label>PO Value</label><input type="number" min="0" step="0.01" value={form.poValue} onChange={(e) => set("poValue", e.target.value)} /></div>
-          <div><label>Delivery Due Date</label><input type="date" value={form.deliveryDueDate} onChange={(e) => set("deliveryDueDate", e.target.value)} /></div>
-        </div>
-        <label>Terms and Conditions</label>
-        <textarea rows={4} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
-
+        <p className="hint-text mt-0">
+          A company number (150, 151, ...) is assigned automatically, and its first branch (01) is created with the
+          details above. Add more branches or projects from the company's page after creating it.
+        </p>
         <ErrorText>{error}</ErrorText>
-        <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy}>{busy ? "Saving…" : "Create Company Profile"}</button>
+        <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy}>{busy ? "Saving…" : "Create Company"}</button>
       </form>
     </Modal>
   );
 }
 
-function CompanyProfileDrawer({ id, onClose, onChanged }) {
-  const [profile, setProfile] = useState(null);
+function CompanyDrawer({ id, onClose, onChanged }) {
+  const [company, setCompany] = useState(null);
+  const [projects, setProjects] = useState(null);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [clientNameForm, setClientNameForm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showAddBranch, setShowAddBranch] = useState(false);
+  const [showAddProject, setShowAddProject] = useState(false);
+  const [newProjectBranchId, setNewProjectBranchId] = useState("");
 
-  async function load() {
+  async function loadCompany() {
     try {
       const { data } = await client.get(`/company-profiles/${id}`);
-      setProfile(data);
+      setCompany(data);
+      setClientNameForm(data.clientName);
     } catch (err) {
       setError(errorMessage(err));
     }
   }
-  useEffect(() => { load(); }, [id]);
+  async function loadProjects() {
+    try {
+      const { data } = await client.get("/projects", { params: { companyId: id } });
+      setProjects(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { loadCompany(); loadProjects(); }, [id]);
 
-  async function remove() {
+  async function saveCompany(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      await client.put(`/company-profiles/${id}`, { clientName: clientNameForm });
+      setEditing(false);
+      loadCompany();
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeCompany() {
     try {
       await client.delete(`/company-profiles/${id}`);
       onClose();
@@ -193,22 +177,240 @@ function CompanyProfileDrawer({ id, onClose, onChanged }) {
     }
   }
 
+  async function removeBranch(branchId) {
+    setError("");
+    try {
+      await client.delete(`/company-profiles/${id}/branches/${branchId}`);
+      loadCompany();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  async function addProject() {
+    if (!newProjectBranchId) return setError("Select which branch this project belongs to");
+    setBusy(true);
+    setError("");
+    try {
+      const { data } = await client.post("/projects", { companyId: id, branchId: newProjectBranchId });
+      setShowAddProject(false);
+      await loadProjects();
+      setSelectedProjectId(data.id);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (selectedProjectId) {
+    return (
+      <Drawer onClose={onClose}>
+        <ProjectDrawerContent
+          projectId={selectedProjectId}
+          company={company}
+          onBack={() => { setSelectedProjectId(null); loadProjects(); }}
+          onChanged={loadProjects}
+        />
+      </Drawer>
+    );
+  }
+
+  const branches = company?.branches || [];
+
   return (
     <Drawer onClose={onClose}>
-      {!profile ? (
+      {!company ? (
         error ? <ErrorText>{error}</ErrorText> : <Loading />
       ) : (
         <>
           <div className="modal-header">
-            <h3>{profile.clientName}</h3>
+            <h3>#{company.parentNumber} — {company.clientName}</h3>
             <button className="btn-sm" onClick={onClose}>Close</button>
           </div>
-          <CompanyProfileEditor profile={profile} onChanged={() => { load(); onChanged(); }} showPhase2={false} />
+
+          {!editing ? (
+            <button className="btn-sm" onClick={() => setEditing(true)}>Edit Company Name</button>
+          ) : (
+            <form onSubmit={saveCompany}>
+              <label>Client / Company Name</label>
+              <input value={clientNameForm} onChange={(e) => setClientNameForm(e.target.value)} required />
+              <ErrorText>{error}</ErrorText>
+              <div className="toolbar">
+                <button className="btn-primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+                <button type="button" onClick={() => { setClientNameForm(company.clientName); setEditing(false); }}>Cancel</button>
+              </div>
+            </form>
+          )}
+
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="toolbar">
+              <h3 className="mt-0" style={{ marginRight: 8 }}>Branches</h3>
+              <div className="spacer" />
+              <button className="btn-sm" onClick={() => setShowAddBranch(true)}>+ Add Branch</button>
+            </div>
+            <ErrorText>{error}</ErrorText>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Code</th><th>Address</th><th>Contact Person</th><th>Contact Phone</th><th></th></tr></thead>
+                <tbody>
+                  {branches.map((b) => (
+                    <tr key={b.id}>
+                      <td>{b.companyCode}</td>
+                      <td>{b.address || "-"}</td>
+                      <td>{b.contactPersonName || "-"}</td>
+                      <td>{b.contactPhone || "-"}</td>
+                      <td>
+                        {branches.length > 1 && (
+                          <ConfirmButton className="btn-sm btn-danger" onConfirm={() => removeBranch(b.id)} confirmText="Delete this branch?">Delete</ConfirmButton>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="toolbar">
+              <h3 className="mt-0" style={{ marginRight: 8 }}>Projects</h3>
+              <div className="spacer" />
+              <button className="btn-sm" onClick={() => { setNewProjectBranchId(branches[0]?.id || ""); setShowAddProject(true); }}>+ Add Project</button>
+            </div>
+            <ErrorText>{error}</ErrorText>
+            {!projects ? <Loading /> : (
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Project ID</th><th>Branch</th><th>PO Number</th><th>PO Value</th><th>Source Enquiry</th></tr></thead>
+                  <tbody>
+                    {projects.map((p) => (
+                      <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelectedProjectId(p.id)}>
+                        <td>{p.projectId}</td>
+                        <td>{p.companyCode}</td>
+                        <td>{p.poNumber || "-"}</td>
+                        <td>{p.poValue ?? "-"}</td>
+                        <td>{p.sourceEnquiryNo || "-"}</td>
+                      </tr>
+                    ))}
+                    {projects.length === 0 && <tr><td colSpan={5} className="empty-state">No projects yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {showAddBranch && (
+            <AddBranchModal companyId={id} onClose={() => setShowAddBranch(false)} onAdded={() => { setShowAddBranch(false); loadCompany(); }} />
+          )}
+
+          {showAddProject && (
+            <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowAddProject(false)}>
+              <div className="modal">
+                <div className="modal-header">
+                  <h3>Add Project</h3>
+                  <button className="btn-sm" onClick={() => setShowAddProject(false)}>Close</button>
+                </div>
+                <label>Branch</label>
+                <select value={newProjectBranchId} onChange={(e) => setNewProjectBranchId(e.target.value)}>
+                  {branches.map((b) => <option key={b.id} value={b.id}>{b.companyCode} — {b.address || "no address"}</option>)}
+                </select>
+                <p className="hint-text mt-0">
+                  Creates a new project under {company.clientName} with the next project ID (PRJ{company.parentNumber}
+                  {String((company.projectSeq || 0) + 1).padStart(3, "0")}). You'll fill in PO details and phases after.
+                </p>
+                <ErrorText>{error}</ErrorText>
+                <button className="btn-primary" onClick={addProject} disabled={busy}>{busy ? "Creating…" : "Create Project"}</button>
+              </div>
+            </div>
+          )}
+
           <div className="toolbar" style={{ marginTop: 16 }}>
-            <ConfirmButton className="btn-sm btn-danger" onConfirm={remove} confirmText="Delete this company profile permanently?">Delete Profile</ConfirmButton>
+            <ConfirmButton className="btn-sm btn-danger" onConfirm={removeCompany} confirmText="Delete this company, all its branches and projects permanently?">Delete Company</ConfirmButton>
           </div>
         </>
       )}
     </Drawer>
+  );
+}
+
+function AddBranchModal({ companyId, onClose, onAdded }) {
+  const [form, setForm] = useState({ address: "", contactPersonName: "", contactPhone: "" });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  async function submit(e) {
+    e.preventDefault();
+    setError("");
+    setBusy(true);
+    try {
+      await client.post(`/company-profiles/${companyId}/branches`, form);
+      onAdded();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Add Branch" onClose={onClose}>
+      <form onSubmit={submit}>
+        <label>Address</label>
+        <input value={form.address} onChange={(e) => set("address", e.target.value)} required />
+        <div className="form-row">
+          <div><label>Contact Person Name</label><input value={form.contactPersonName} onChange={(e) => set("contactPersonName", e.target.value)} /></div>
+          <div><label>Contact Phone</label><input value={form.contactPhone} onChange={(e) => set("contactPhone", e.target.value)} /></div>
+        </div>
+        <ErrorText>{error}</ErrorText>
+        <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Branch"}</button>
+      </form>
+    </Modal>
+  );
+}
+
+function ProjectDrawerContent({ projectId, company, onBack, onChanged }) {
+  const [project, setProject] = useState(null);
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      const { data } = await client.get(`/projects/${projectId}`);
+      setProject(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { load(); }, [projectId]);
+
+  async function remove() {
+    try {
+      await client.delete(`/projects/${projectId}`);
+      onChanged();
+      onBack();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  return (
+    <>
+      <div className="modal-header">
+        <h3>{project?.projectId || "Project"}</h3>
+        <button className="btn-sm" onClick={onBack}>← Back to Company</button>
+      </div>
+      {!project ? (
+        error ? <ErrorText>{error}</ErrorText> : <Loading />
+      ) : (
+        <>
+          <ProjectEditor project={project} company={company} onChanged={() => { load(); onChanged(); }} showPhase2={false} />
+          <div className="toolbar" style={{ marginTop: 16 }}>
+            <ConfirmButton className="btn-sm btn-danger" onConfirm={remove} confirmText="Delete this project permanently?">Delete Project</ConfirmButton>
+          </div>
+        </>
+      )}
+    </>
   );
 }
