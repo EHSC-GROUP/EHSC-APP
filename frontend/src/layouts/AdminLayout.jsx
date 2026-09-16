@@ -31,7 +31,7 @@ export default function AdminLayout() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <h1>Project Management App</h1>
+        <h1>Operations Management App</h1>
         <nav>
           {NAV_GROUPS.map((group) => (
             <div className="nav-group" key={group.label}>
