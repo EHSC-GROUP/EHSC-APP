@@ -24,6 +24,7 @@ import MyLeave from "./pages/Employee/MyLeave";
 import MyReimbursements from "./pages/Employee/MyReimbursements";
 import MyAttendance from "./pages/Employee/MyAttendance";
 import MyProfile from "./pages/Employee/MyProfile";
+import MyProjectTracker from "./pages/Employee/MyProjectTracker";
 import MyDocuments from "./pages/Employee/MyDocuments";
 import MyPayslips from "./pages/Employee/MyPayslips";
 import MyActivity from "./pages/Employee/MyActivity";
@@ -83,6 +84,7 @@ export default function App() {
         <Route path="reimbursements" element={<MyReimbursements />} />
         <Route path="attendance" element={<MyAttendance />} />
         <Route path="profile" element={<MyProfile />} />
+        <Route path="project-tracker" element={<MyProjectTracker />} />
         <Route path="documents" element={<MyDocuments />} />
         <Route path="payslips" element={<MyPayslips />} />
         <Route path="activity" element={<MyActivity />} />
