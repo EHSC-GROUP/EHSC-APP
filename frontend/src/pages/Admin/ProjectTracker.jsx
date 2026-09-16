@@ -18,7 +18,12 @@ function daysBetween(a, b) {
   return Math.round((b.getTime() - a.getTime()) / DAY_MS);
 }
 
-const DAY_COL_WIDTH = 34; // px per day column in the Gantt header/timeline
+const DAY_COL_WIDTH = 34; // px per day column in the Gantt header/timeline (Daily view)
+const WEEKLY_DAY_COL_WIDTH = 10; // px per day column when zoomed out to weeks — same date range, much narrower chart
+
+function formatShort(date) {
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 // One row per action, flattened across every Company Profile's Phase III(b)
 // project plan — this is the "all projects at once" view.
@@ -45,6 +50,7 @@ export default function ProjectTracker() {
   const [profiles, setProfiles] = useState(null);
   const [error, setError] = useState("");
   const [clientFilter, setClientFilter] = useState("");
+  const [timelineView, setTimelineView] = useState("daily"); // "daily" | "weekly"
   // Hover shows the tooltip; click pins it open (stays until that bar is
   // clicked again, or the page is clicked elsewhere) — useful for touch, or
   // to read it without holding the cursor still. Position is captured in
@@ -58,7 +64,7 @@ export default function ProjectTracker() {
   async function load() {
     setError("");
     try {
-      const { data } = await client.get("/company-profiles");
+      const { data } = await client.get("/projects");
       setProfiles(data);
     } catch (err) {
       setError(errorMessage(err));
@@ -132,8 +138,33 @@ export default function ProjectTracker() {
     return bands;
   }, [ticks]);
 
+  // Weekly view: collapse the day-tick row into 7-day bands labeled
+  // "Week N: <start> – <end>" — each week is just the next 7 days of the
+  // visible range (offsetDays 0-6, 7-13, ...), not an ISO calendar week.
+  const weekBands = useMemo(() => {
+    const bands = [];
+    for (const t of ticks) {
+      const weekOf = Math.floor(t.offsetDays / 7);
+      const last = bands[bands.length - 1];
+      if (last && last.weekOf === weekOf) {
+        last.days += 1;
+        last.endDate = t.date;
+      } else {
+        bands.push({ weekOf, startOffset: t.offsetDays, days: 1, startDate: t.date, endDate: t.date });
+      }
+    }
+    return bands.map((b, i) => ({
+      key: b.weekOf,
+      label: `Week ${i + 1}: ${formatShort(b.startDate)} – ${formatShort(b.endDate)}`,
+      startOffset: b.startOffset,
+      days: b.days,
+    }));
+  }, [ticks]);
+
   const totalDays = Math.max(1, daysBetween(rangeStart, rangeEnd));
-  const chartWidthPx = Math.max(900, (totalDays + 1) * DAY_COL_WIDTH);
+  const chartWidthPx = timelineView === "weekly"
+    ? Math.max(500, (totalDays + 1) * WEEKLY_DAY_COL_WIDTH)
+    : Math.max(900, (totalDays + 1) * DAY_COL_WIDTH);
   const todayOffsetPct = (daysBetween(rangeStart, today) / totalDays) * 100;
 
   // Group rows by client for the group-header bands.
@@ -178,6 +209,13 @@ export default function ProjectTracker() {
           <option value="">All companies</option>
           {clientNames.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        <div className="drawer-tabs" style={{ marginBottom: 0, borderBottom: "none" }}>
+          {["daily", "weekly"].map((v) => (
+            <button key={v} className={timelineView === v ? "active" : ""} onClick={() => setTimelineView(v)}>
+              {v === "daily" ? "Daily" : "Weekly"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="gantt-legend">
@@ -216,11 +254,21 @@ export default function ProjectTracker() {
                 <span className="gantt-col-end">End</span>
               </div>
               <div className="gantt-ticks" style={{ minWidth: chartWidthPx }}>
-                {ticks.map((t) => (
-                  <div key={t.offsetDays} className="gantt-tick" style={{ left: `${(t.offsetDays / totalDays) * 100}%`, width: DAY_COL_WIDTH }}>
-                    {t.date.getDate()}
-                  </div>
-                ))}
+                {timelineView === "weekly"
+                  ? weekBands.map((b) => (
+                      <div
+                        key={b.key}
+                        className="gantt-tick-month-band"
+                        style={{ left: `${(b.startOffset / totalDays) * 100}%`, width: `${(b.days / totalDays) * 100}%` }}
+                      >
+                        {b.label}
+                      </div>
+                    ))
+                  : ticks.map((t) => (
+                      <div key={t.offsetDays} className="gantt-tick" style={{ left: `${(t.offsetDays / totalDays) * 100}%`, width: DAY_COL_WIDTH }}>
+                        {t.date.getDate()}
+                      </div>
+                    ))}
               </div>
             </div>
 
