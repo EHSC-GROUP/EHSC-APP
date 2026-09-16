@@ -2,22 +2,52 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, BD_RESULT, APPROACH_MODE } from "../lib/constants.js";
+import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
-import { linkedCompanyProfileDoc } from "../lib/companyProfile.js";
+import { newProjectDoc } from "../lib/companyProfile.js";
+import { emptyBranch } from "./companyProfiles.js";
 
 const router = Router();
 
-// Sequential, human-readable enquiry numbers (ENQ-0001, ENQ-0002, ...),
-// generated in a transaction against a single counter doc so concurrent
-// creates never collide.
+// Sequential, human-readable enquiry numbers (001, 002, ...), generated in
+// a transaction against a single counter doc so concurrent creates never
+// collide.
 async function nextEnquiryNo() {
   const ref = db.collection(COLLECTIONS.HR_SETTINGS).doc("bd_counter");
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const seq = (snap.exists ? snap.data().seq : 0) + 1;
     tx.set(ref, { seq }, { merge: true });
-    return `ENQ-${String(seq).padStart(4, "0")}`;
+    return String(seq).padStart(3, "0");
+  });
+}
+
+// Parent company numbers start at 150 (150, 151, 152, ...) — one per
+// genuinely new company, never reused when a second branch or project is
+// added under an existing one.
+async function nextParentNumber() {
+  const ref = db.collection(COLLECTIONS.HR_SETTINGS).doc("company_counter");
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const parentNumber = (snap.exists ? snap.data().seq : 149) + 1;
+    tx.set(ref, { seq: parentNumber }, { merge: true });
+    return parentNumber;
+  });
+}
+
+// Project IDs are PRJ + the parent company's 3-digit number + a 3-digit
+// sequence (PRJ150001, PRJ150002, ...) — one counter shared by every branch
+// of that company, so project numbering never resets per branch. Deliberately
+// 3 digits (not 2, like branch numbers) so a project's numeric part is
+// always one digit longer than any branch code and can never be mistaken
+// for one, even when both happen to be "the first" (01).
+async function nextProjectId(companyRef, parentNumber) {
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(companyRef);
+    if (!snap.exists) throw Object.assign(new Error("Company not found"), { status: 404 });
+    const projectSeq = (snap.data().projectSeq || 0) + 1;
+    tx.update(companyRef, { projectSeq });
+    return `PRJ${parentNumber}${String(projectSeq).padStart(3, "0")}`;
   });
 }
 
@@ -55,24 +85,107 @@ router.get("/:id", authenticate, requireAdmin, async (req, res, next) => {
 router.post("/", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const {
-      clientName, address, marketingSource, approachedByName, approachDate, approachMode,
+      companyId, branchId, clientName, address, marketingSource,
+      referralType, referredByEmployeeId, referredByEmployeeName, referredByExternalName, referredByExternalPhone,
+      approachedByName, approachDate, approachMode,
       contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, remarks,
     } = req.body;
 
-    if (!clientName || !approachedByName || !approachDate || !approachMode) {
-      return res.status(400).json({ error: "clientName, approachedByName, approachDate and approachMode are required" });
+    if (!approachedByName || !approachDate || !approachMode) {
+      return res.status(400).json({ error: "approachedByName, approachDate and approachMode are required" });
     }
     if (!validateApproachMode(approachMode)) {
       return res.status(400).json({ error: `approachMode must be one of ${Object.values(APPROACH_MODE).join(", ")}` });
     }
+    if (approachMode === APPROACH_MODE.EMAIL && !contactEmail) {
+      return res.status(400).json({ error: "contactEmail is required when the mode of approach is Email" });
+    }
+    if (approachMode === APPROACH_MODE.PHONE && !contactPhone) {
+      return res.status(400).json({ error: "contactPhone is required when the mode of approach is Phone" });
+    }
+    if (marketingSource && !MARKETING_SOURCE_OPTIONS.includes(marketingSource)) {
+      return res.status(400).json({ error: `marketingSource must be one of ${MARKETING_SOURCE_OPTIONS.join(", ")}` });
+    }
+    if (marketingSource === "Referral") {
+      if (!referralType || !Object.values(REFERRAL_TYPE).includes(referralType)) {
+        return res.status(400).json({ error: "referralType (EMPLOYEE or EXTERNAL) is required when marketingSource is Referral" });
+      }
+      if (referralType === REFERRAL_TYPE.EMPLOYEE && !referredByEmployeeId) {
+        return res.status(400).json({ error: "referredByEmployeeId is required for an employee referral" });
+      }
+      if (referralType === REFERRAL_TYPE.EXTERNAL && (!referredByExternalName || !referredByExternalPhone)) {
+        return res.status(400).json({ error: "referredByExternalName and referredByExternalPhone are required for an external referral" });
+      }
+    }
+
+    let companyRef;
+    let parentNumber;
+    let resolvedClientName;
+    let branch;
+
+    if (companyId) {
+      companyRef = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(companyId);
+      const companySnap = await companyRef.get();
+      if (!companySnap.exists) return res.status(404).json({ error: "Selected company not found" });
+      const company = companySnap.data();
+      parentNumber = company.parentNumber;
+      resolvedClientName = company.clientName;
+
+      if (branchId) {
+        branch = (company.branches || []).find((b) => b.id === branchId);
+        if (!branch) return res.status(404).json({ error: "Selected branch not found" });
+      } else {
+        if (!address) return res.status(400).json({ error: "address is required for a new branch" });
+        branch = await db.runTransaction(async (tx) => {
+          const snap = await tx.get(companyRef);
+          const c = snap.data();
+          const branchSeq = (c.branchSeq || 0) + 1;
+          const branchNumber = String(branchSeq).padStart(2, "0");
+          const companyCode = `${c.parentNumber}${branchNumber}`;
+          const newBranch = emptyBranch({ branchNumber, companyCode, address, contactPersonName: approachedByName, contactPhone });
+          tx.update(companyRef, { branchSeq, branches: [...(c.branches || []), newBranch] });
+          return newBranch;
+        });
+      }
+    } else {
+      if (!clientName) return res.status(400).json({ error: "clientName is required for a new company" });
+      parentNumber = await nextParentNumber();
+      resolvedClientName = clientName;
+      companyRef = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(uuid());
+      const branchNumber = "01";
+      const companyCode = `${parentNumber}${branchNumber}`;
+      branch = emptyBranch({ branchNumber, companyCode, address, contactPersonName: approachedByName, contactPhone });
+      await companyRef.set({
+        parentNumber,
+        clientName,
+        branchSeq: 1,
+        projectSeq: 0,
+        branches: [branch],
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdBy: req.user.userId,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: req.user.userId,
+      });
+    }
 
     const enquiryNo = await nextEnquiryNo();
+    const projectId = await nextProjectId(companyRef, parentNumber);
     const id = uuid();
+
     const doc = {
       enquiryNo,
-      clientName,
-      address: address || "",
+      companyId: companyRef.id,
+      branchId: branch.id,
+      companyCode: branch.companyCode,
+      projectId,
+      clientName: resolvedClientName,
+      address: branch.address,
       marketingSource: marketingSource || "",
+      referralType: marketingSource === "Referral" ? referralType : null,
+      referredByEmployeeId: referralType === REFERRAL_TYPE.EMPLOYEE ? referredByEmployeeId.toUpperCase() : null,
+      referredByEmployeeName: referralType === REFERRAL_TYPE.EMPLOYEE ? (referredByEmployeeName || referredByEmployeeId) : null,
+      referredByExternalName: referralType === REFERRAL_TYPE.EXTERNAL ? referredByExternalName : null,
+      referredByExternalPhone: referralType === REFERRAL_TYPE.EXTERNAL ? referredByExternalPhone : null,
       approachedByName,
       approachDate,
       approachMode,
@@ -89,38 +202,24 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: req.user.userId,
     };
-    // A Company Profile is created alongside every enquiry, at the same
-    // moment — not gated on a later "won" result. Its basic fields are a
-    // one-time copy from the enquiry; the rest fills in as the enquiry
-    // moves through Phase II (proposal/negotiation) and Phase III
-    // (work order execution).
-    const profileDoc = linkedCompanyProfileDoc(doc, id, enquiryNo, req.user.userId);
+
+    const projectDoc = newProjectDoc({
+      projectId,
+      companyId: companyRef.id,
+      branchId: branch.id,
+      companyCode: branch.companyCode,
+      clientName: resolvedClientName,
+      sourceEnquiryId: id,
+      sourceEnquiryNo: enquiryNo,
+      userId: req.user.userId,
+    });
+
     const batch = db.batch();
     batch.set(db.collection(COLLECTIONS.BD_ENQUIRIES).doc(id), doc);
-    batch.set(db.collection(COLLECTIONS.COMPANY_PROFILES).doc(id), profileDoc);
+    batch.set(db.collection(COLLECTIONS.PROJECTS).doc(uuid()), projectDoc);
     await batch.commit();
 
     res.status(201).json({ id, ...doc });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Backfill for enquiries created before Company Profiles auto-created —
-// same shape, but only runs if one doesn't already exist for this enquiry.
-router.post("/:id/create-profile", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    const enquirySnap = await db.collection(COLLECTIONS.BD_ENQUIRIES).doc(req.params.id).get();
-    if (!enquirySnap.exists) return res.status(404).json({ error: "Enquiry not found" });
-
-    const profileRef = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(req.params.id);
-    const existing = await profileRef.get();
-    if (existing.exists) return res.status(400).json({ error: "A Company Profile already exists for this enquiry" });
-
-    const enquiry = enquirySnap.data();
-    const profileDoc = linkedCompanyProfileDoc(enquiry, req.params.id, enquiry.enquiryNo, req.user.userId);
-    await profileRef.set(profileDoc);
-    res.status(201).json({ id: req.params.id, ...profileDoc });
   } catch (err) {
     next(err);
   }
@@ -142,6 +241,9 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     }
     if (result !== undefined && !Object.values(BD_RESULT).includes(result)) {
       return res.status(400).json({ error: `result must be one of ${Object.values(BD_RESULT).join(", ")}` });
+    }
+    if (marketingSource !== undefined && marketingSource && !MARKETING_SOURCE_OPTIONS.includes(marketingSource)) {
+      return res.status(400).json({ error: `marketingSource must be one of ${MARKETING_SOURCE_OPTIONS.join(", ")}` });
     }
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
