@@ -6,6 +6,7 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { generateUserId } from "../lib/userId.js";
+import { getAssignedWork } from "../lib/assignedWork.js";
 
 const router = Router();
 
@@ -83,6 +84,20 @@ router.get("/:userId", authenticate, async (req, res, next) => {
       role: user.role,
       status: deriveStatus(profile),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/:userId/assigned-work", authenticate, async (req, res, next) => {
+  try {
+    const targetId = req.params.userId.toUpperCase();
+    const isSelf = req.user.userId === targetId;
+    const isAdmin = [ROLES.ADMIN, ROLES.SUPERADMIN].includes(req.user.role);
+    if (!isSelf && !isAdmin) return res.status(403).json({ error: "Forbidden" });
+
+    const items = await getAssignedWork(targetId);
+    res.json(items);
   } catch (err) {
     next(err);
   }

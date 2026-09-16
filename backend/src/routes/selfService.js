@@ -3,6 +3,7 @@ import { Router } from "express";
 import { db } from "../config/firebase.js";
 import { COLLECTIONS, PAYSLIP_STATUS } from "../lib/constants.js";
 import { authenticate } from "../middleware/auth.js";
+import { getAssignedWork } from "../lib/assignedWork.js";
 
 const router = Router();
 
@@ -28,6 +29,15 @@ router.get("/profile", authenticate, async (req, res, next) => {
       name: userSnap.data()?.name,
       status: profile.dateOfLeaving ? "RELIEVED" : "ACTIVE",
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/assigned-work", authenticate, async (req, res, next) => {
+  try {
+    const items = await getAssignedWork(req.user.userId);
+    res.json(items);
   } catch (err) {
     next(err);
   }
