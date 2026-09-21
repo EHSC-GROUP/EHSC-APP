@@ -1,13 +1,24 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
 
 import { db } from "../config/firebase.js";
-import { COLLECTIONS } from "../lib/constants.js";
+import { COLLECTIONS, TEMP_PASSWORD } from "../lib/constants.js";
 import { signToken } from "../lib/jwt.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { isValidId } from "../lib/validateId.js";
 
 const router = Router();
+// userId route params must look like a real ID before they're used to build
+// a Firestore document path (see lib/validateId.js). 'ALL' is the one
+// special literal (documents.js's company-wide bucket) and passes through
+// since it's plain letters.
+router.param("userId", (req, res, next, value) => {
+  const v = (value || "").toUpperCase();
+  if (!isValidId(v)) return res.status(400).json({ error: "userId is invalid" });
+  req.params.userId = v;
+  next();
+});
+
 
 router.post("/login", async (req, res, next) => {
   try {
@@ -43,6 +54,10 @@ router.post("/change-password", authenticate, async (req, res, next) => {
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: "User not found" });
 
+    if (newPassword === TEMP_PASSWORD) {
+      return res.status(400).json({ error: "Choose a different password — the temporary one can't be reused" });
+    }
+
     const match = await bcrypt.compare(currentPassword, snap.data().password);
     if (!match) return res.status(401).json({ error: "Current password is incorrect" });
 
@@ -65,15 +80,15 @@ router.get("/me", authenticate, async (req, res, next) => {
   }
 });
 
-// Admin-initiated reset: generates a temporary password, forces the user
-// to change it on next login. Returned once — not stored in plaintext.
+// Admin-initiated reset: sets the standard temporary password and forces the
+// user to change it on next login.
 router.post("/admin/reset-password/:userId", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.USERS).doc(req.params.userId.toUpperCase());
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: "User not found" });
 
-    const tempPassword = crypto.randomBytes(6).toString("base64url");
+    const tempPassword = TEMP_PASSWORD;
     const hash = await bcrypt.hash(tempPassword, 10);
     await ref.update({ password: hash, mustReset: true });
     res.json({ tempPassword });

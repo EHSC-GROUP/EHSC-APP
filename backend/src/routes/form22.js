@@ -20,7 +20,7 @@ router.get("/export", authenticate, requireAdmin, async (req, res, next) => {
 
     const profilesSnap = userIds
       ? await db.getAll(...userIds.map((id) => db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(id)))
-      : (await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "==", "employee").get()).docs;
+      : (await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get()).docs;
 
     const rawProfiles = profilesSnap.filter((s) => s.exists).map((s) => ({ userId: s.id, ...s.data() }));
     const userRefs = rawProfiles.map((p) => db.collection(COLLECTIONS.USERS).doc(p.userId));

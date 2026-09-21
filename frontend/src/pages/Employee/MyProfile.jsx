@@ -14,7 +14,7 @@ export default function MyProfile() {
   if (error) return <ErrorText>{error}</ErrorText>;
   if (!profile) return <Loading />;
 
-  const isExternal = profile.type === "external";
+  const isExternal = profile.type === "associate";
 
   return (
     <div>
@@ -29,8 +29,11 @@ export default function MyProfile() {
             {!isExternal && <tr><td>Designation</td><td>{profile.designation || "-"}</td></tr>}
             {!isExternal && <tr><td>Department</td><td>{profile.department || "-"}</td></tr>}
             {!isExternal && <tr><td>Date of Joining</td><td>{profile.dateOfJoining || "-"}</td></tr>}
-            <tr><td>Email</td><td>{profile.email || "-"}</td></tr>
+            {!isExternal && <tr><td>Professional Email</td><td>{profile.professionalEmail || "-"}</td></tr>}
+            {!isExternal && <tr><td>Personal Email</td><td>{profile.personalEmail || "-"}</td></tr>}
+            {isExternal && <tr><td>Email</td><td>{profile.email || "-"}</td></tr>}
             <tr><td>Phone</td><td>{profile.phone || "-"}</td></tr>
+            <tr><td>Address</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.address || "-"}</td></tr>
             <tr><td>ESI Number</td><td>{profile.esiNumber || "-"}</td></tr>
             <tr><td>UAN</td><td>{profile.uan || "-"}</td></tr>
           </tbody>
