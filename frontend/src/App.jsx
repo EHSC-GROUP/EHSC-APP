@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
+import { useFeatureFlags } from "./context/FeatureFlagsContext";
 
 import Login from "./pages/Login";
 import ChangePassword from "./pages/ChangePassword";
@@ -15,8 +16,9 @@ import Holidays from "./pages/Admin/Holidays";
 import Reimbursements from "./pages/Admin/Reimbursements";
 import Attendance from "./pages/Admin/Attendance";
 import CompanyDocuments from "./pages/Admin/CompanyDocuments";
-import Form22 from "./pages/Admin/Form22";
+import Travel from "./pages/Admin/Travel";
 import Settings from "./pages/Admin/Settings";
+import MaterialIndents from "./pages/Admin/MaterialIndents";
 
 import EmployeeLayout from "./layouts/EmployeeLayout";
 import Hub from "./pages/Employee/Hub";
@@ -28,12 +30,31 @@ import MyProjectTracker from "./pages/Employee/MyProjectTracker";
 import MyDocuments from "./pages/Employee/MyDocuments";
 import MyPayslips from "./pages/Employee/MyPayslips";
 import MyActivity from "./pages/Employee/MyActivity";
+import MyMaterialIndents from "./pages/Employee/MyMaterialIndents";
+import MyTravel from "./pages/Employee/MyTravel";
 
 function RequireAuth({ children, role }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (user.mustReset) return <Navigate to="/change-password" replace />;
   if (role === "admin" && !["admin", "superadmin"].includes(user.role)) return <Navigate to="/me" replace />;
+  return children;
+}
+
+// Guards a route behind a feature flag — used for the PM suite, which
+// ships disabled for the HR/Payroll go-live. Shows a plain notice instead
+// of redirecting, so a bookmarked/typed URL doesn't just bounce silently.
+function RequireFeature({ flag, children }) {
+  const { flags, loading } = useFeatureFlags();
+  if (loading) return null;
+  if (!flags[flag]) {
+    return (
+      <div className="card">
+        <h3 className="mt-0">This module is currently disabled</h3>
+        <p className="hint-text mt-0">An admin can turn it back on from Settings → Feature Flags.</p>
+      </div>
+    );
+  }
   return children;
 }
 
@@ -56,18 +77,20 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="business-development" replace />} />
-        <Route path="business-development" element={<BusinessDevelopment />} />
-        <Route path="company-profiles" element={<CompanyProfiles />} />
-        <Route path="project-tracker" element={<ProjectTracker />} />
-        <Route path="profiles" element={<EmployeeProfiles />} />
+        <Route index element={<Navigate to="profiles" replace />} />
+        <Route path="business-development" element={<RequireFeature flag="projectManagement"><BusinessDevelopment /></RequireFeature>} />
+        <Route path="company-profiles" element={<RequireFeature flag="projectManagement"><CompanyProfiles /></RequireFeature>} />
+        <Route path="project-tracker" element={<RequireFeature flag="projectManagement"><ProjectTracker /></RequireFeature>} />
+        <Route path="profiles" element={<EmployeeProfiles kind="staff" />} />
+        <Route path="associates" element={<EmployeeProfiles kind="associate" />} />
         <Route path="payslips" element={<Payslips />} />
         <Route path="leave" element={<Leave />} />
         <Route path="holidays" element={<Holidays />} />
         <Route path="reimbursements" element={<Reimbursements />} />
+        <Route path="material-indents" element={<MaterialIndents />} />
         <Route path="attendance" element={<Attendance />} />
         <Route path="documents" element={<CompanyDocuments />} />
-        <Route path="form22" element={<Form22 />} />
+        <Route path="travel" element={<Travel />} />
         <Route path="settings" element={<Settings />} />
       </Route>
 
@@ -82,9 +105,11 @@ export default function App() {
         <Route index element={<Hub />} />
         <Route path="leave" element={<MyLeave />} />
         <Route path="reimbursements" element={<MyReimbursements />} />
+        <Route path="material-indents" element={<MyMaterialIndents />} />
         <Route path="attendance" element={<MyAttendance />} />
+        <Route path="travel" element={<MyTravel />} />
         <Route path="profile" element={<MyProfile />} />
-        <Route path="project-tracker" element={<MyProjectTracker />} />
+        <Route path="project-tracker" element={<RequireFeature flag="projectManagement"><MyProjectTracker /></RequireFeature>} />
         <Route path="documents" element={<MyDocuments />} />
         <Route path="payslips" element={<MyPayslips />} />
         <Route path="activity" element={<MyActivity />} />

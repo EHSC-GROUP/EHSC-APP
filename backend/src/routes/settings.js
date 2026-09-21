@@ -4,9 +4,37 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { getWeeklyOffDays } from "../lib/calendar.js";
-import { getEarningsFormula, validateFormula } from "../lib/earningsFormula.js";
+import { getEarningsFormula, validateFormula, pickFormulaFields } from "../lib/earningsFormula.js";
+import { getFeatureFlags, FLAGS_DOC } from "../lib/featureFlags.js";
+import { FEATURE_FLAG_DEFAULTS } from "../lib/constants.js";
 
 const router = Router();
+
+// Readable by any authenticated user (the reimbursement form needs to know
+// whether to show the project picker), writable by admins only.
+router.get("/feature-flags", authenticate, async (req, res, next) => {
+  try {
+    res.json(await getFeatureFlags());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/feature-flags", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const updates = {};
+    for (const key of Object.keys(FEATURE_FLAG_DEFAULTS)) {
+      if (req.body[key] !== undefined) updates[key] = !!req.body[key];
+    }
+    await FLAGS_DOC().set(
+      { ...updates, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId },
+      { merge: true }
+    );
+    res.json(await getFeatureFlags());
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/weekly-off", authenticate, async (req, res, next) => {
   try {
@@ -43,13 +71,12 @@ router.get("/earnings-formula", authenticate, requireAdmin, async (req, res, nex
 
 router.put("/earnings-formula", authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const { basicPercent, hraPercent } = req.body;
-    const error = validateFormula(basicPercent, hraPercent);
+    const formula = pickFormulaFields(req.body);
+    const error = validateFormula(formula);
     if (error) return res.status(400).json({ error });
 
     await db.collection(COLLECTIONS.HR_SETTINGS).doc("earnings_formula").set({
-      basicPercent: Number(basicPercent),
-      hraPercent: Number(hraPercent),
+      ...formula,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: req.user.userId,
     });

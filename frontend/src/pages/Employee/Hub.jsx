@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import client from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
+import { useFeatureFlags } from "../../context/FeatureFlagsContext";
 
 export default function Hub() {
   const { user } = useAuth();
+  const { flags } = useFeatureFlags();
   const navigate = useNavigate();
   const [badges, setBadges] = useState({ pendingLeave: 0, pendingReimbursements: 0 });
   const [hasReimbAccess, setHasReimbAccess] = useState(null);
@@ -18,9 +20,11 @@ export default function Hub() {
     { to: "/change-password", title: "Change Password", desc: "Update your login password" },
     { to: "/me/leave", title: "Leave", desc: "Apply, view balances and requests", badge: badges.pendingLeave },
     { to: "/me/reimbursements", title: "Reimbursements", desc: hasReimbAccess === false ? "Access not granted" : "Submit and track vouchers", badge: badges.pendingReimbursements, disabled: hasReimbAccess === false },
+    { to: "/me/material-indents", title: "Material Indents", desc: "Request materials for a job" },
     { to: "/me/attendance", title: "Attendance", desc: "Your daily status and check-in history" },
+    { to: "/me/travel", title: "Travel", desc: "Ask for approval to travel on a date" },
     { to: "/me/profile", title: "HR Details", desc: "Your profile (read-only)" },
-    { to: "/me/project-tracker", title: "Project Tracker", desc: "Work assigned to you" },
+    ...(flags.projectManagement ? [{ to: "/me/project-tracker", title: "Project Tracker", desc: "Work assigned to you" }] : []),
     { to: "/me/documents", title: "Documents", desc: "Your files and company documents" },
     { to: "/me/payslips", title: "My Payslips", desc: "Published payslips" },
     { to: "/me/activity", title: "Activity", desc: "Recent status updates" },
