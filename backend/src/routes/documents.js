@@ -6,8 +6,20 @@ import { COLLECTIONS, ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, deleteFile, safeFileName } from "../lib/storage.js";
+import { isValidId } from "../lib/validateId.js";
 
 const router = Router();
+// userId route params must look like a real ID before they're used to build
+// a Firestore document path (see lib/validateId.js). 'ALL' is the one
+// special literal (documents.js's company-wide bucket) and passes through
+// since it's plain letters.
+router.param("userId", (req, res, next, value) => {
+  const v = (value || "").toUpperCase();
+  if (!isValidId(v)) return res.status(400).json({ error: "userId is invalid" });
+  req.params.userId = v;
+  next();
+});
+
 
 router.get("/company", authenticate, async (req, res, next) => {
   try {
@@ -36,8 +48,11 @@ router.post("/:userId", authenticate, requireAdmin, upload.single("file"), async
   try {
     const targetId = req.params.userId === "ALL" ? "ALL" : req.params.userId.toUpperCase();
     if (!req.file) return res.status(400).json({ error: "file is required" });
-    const { title, category } = req.body;
+    const { title, category, validity } = req.body;
     if (!title) return res.status(400).json({ error: "title is required" });
+    if (validity && !/^\d{4}-\d{2}-\d{2}$/.test(validity)) {
+      return res.status(400).json({ error: "validity must be a date (YYYY-MM-DD)" });
+    }
 
     const id = uuid();
     const filePath = `documents/${targetId}/${id}-${safeFileName(req.file.originalname)}`;
@@ -47,6 +62,7 @@ router.post("/:userId", authenticate, requireAdmin, upload.single("file"), async
       userId: targetId,
       title,
       category: category || "General",
+      validity: validity || null,
       filePath,
       fileUrl: `/api/documents/${id}/file`,
       uploadedAt: admin.firestore.FieldValue.serverTimestamp(),

@@ -3,11 +3,24 @@ import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
 
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const inDays = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+
+// Shared with MyDocuments.jsx's employee-facing view, so a licence/certificate
+// nearing or past its expiry reads the same way wherever it's shown.
+export function ValidityCell({ validity }) {
+  if (!validity) return <span className="text-muted">-</span>;
+  if (validity < todayISO()) return <span style={{ color: "var(--danger)", fontWeight: 600 }}>{validity} (expired)</span>;
+  if (validity <= inDays(30)) return <span style={{ color: "var(--warning)", fontWeight: 600 }}>{validity} (expiring soon)</span>;
+  return <span>{validity}</span>;
+}
+
 export default function CompanyDocuments() {
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("General");
+  const [validity, setValidity] = useState("");
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -30,9 +43,10 @@ export default function CompanyDocuments() {
     form.append("file", file);
     form.append("title", title);
     form.append("category", category);
+    if (validity) form.append("validity", validity);
     try {
       await client.post("/documents/ALL", form);
-      setTitle(""); setFile(null);
+      setTitle(""); setValidity(""); setFile(null);
       load();
     } catch (err) {
       setError(errorMessage(err));
@@ -53,13 +67,17 @@ export default function CompanyDocuments() {
 
   return (
     <div>
-      <div className="page-header"><h2>Company Documents</h2></div>
+      <div className="page-header"><h2>Compliance</h2></div>
       <p className="hint-text">Visible to every employee's self-service documents view.</p>
 
       <form onSubmit={upload} className="card">
         <div className="form-row">
           <div><label>Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} required /></div>
           <div><label>Category</label><input value={category} onChange={(e) => setCategory(e.target.value)} /></div>
+        </div>
+        <div className="form-row">
+          <div><label>Validity (optional)</label><input type="date" value={validity} onChange={(e) => setValidity(e.target.value)} /></div>
+          <div />
         </div>
         <label>File</label>
         <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" onChange={(e) => setFile(e.target.files[0])} required />
@@ -70,16 +88,17 @@ export default function CompanyDocuments() {
       {!list ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Title</th><th>Category</th><th></th></tr></thead>
+            <thead><tr><th>Title</th><th>Category</th><th>Validity</th><th></th></tr></thead>
             <tbody>
               {list.map((f) => (
                 <tr key={f.id}>
                   <td><button className="btn-sm" onClick={() => openAuthedFile(f.fileUrl).catch((err) => setError(errorMessage(err)))}>{f.title}</button></td>
                   <td>{f.category}</td>
+                  <td><ValidityCell validity={f.validity} /></td>
                   <td><button className="btn-sm btn-danger" onClick={() => remove(f.id)}>Delete</button></td>
                 </tr>
               ))}
-              {list.length === 0 && <tr><td colSpan={3} className="empty-state">No company documents.</td></tr>}
+              {list.length === 0 && <tr><td colSpan={4} className="empty-state">No company documents.</td></tr>}
             </tbody>
           </table>
         </div>
