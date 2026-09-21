@@ -18,7 +18,7 @@ const statusDocId = (userId, date) => `${userId}_${date}`;
 
 async function getActiveEmployeeProfiles() {
   const [profilesSnap, usersSnap] = await Promise.all([
-    db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "==", "employee").get(),
+    db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get(),
     db.collection(COLLECTIONS.USERS).get(),
   ]);
   const usersById = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
@@ -288,6 +288,130 @@ router.put("/ooo-requests/:id/reject", authenticate, requireAdmin, async (req, r
   }
 });
 
+// ---- Travel requests: an employee proactively asking to be marked Travel
+// for a day of work travel (e.g. an on-site client visit) — same
+// admin-approval shape as an Out-of-Office request, but not tied to a
+// failed geofence check-in. Never writes an attendance record itself —
+// only approval does that.
+const TRAVEL_DOC = (id) => db.collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS).doc(id);
+
+router.post("/travel-requests", authenticate, async (req, res, next) => {
+  try {
+    const { date, reason } = req.body;
+    if (!date || !reason) return res.status(400).json({ error: "date and reason are required" });
+    // Travel is requested for today or a future day (in advance), never a past one.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
+      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
+    }
+    if (date < new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: "Travel can only be requested for today or a future date" });
+    }
+
+    const existingSnap = await db
+      .collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS)
+      .where("userId", "==", req.user.userId)
+      .where("date", "==", date)
+      .where("status", "==", OOO_REQUEST_STATUS.PENDING)
+      .get();
+    if (!existingSnap.empty) {
+      return res.status(400).json({ error: "You already have a pending travel request for this date." });
+    }
+
+    const id = uuid();
+    const doc = {
+      userId: req.user.userId,
+      name: req.user.name,
+      date,
+      reason,
+      status: OOO_REQUEST_STATUS.PENDING,
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+      requestedBy: req.user.userId,
+    };
+    await TRAVEL_DOC(id).set(doc);
+    res.status(201).json({ id, ...doc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/travel-requests/mine", authenticate, async (req, res, next) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS).where("userId", "==", req.user.userId).get();
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (a.date < b.date ? 1 : -1));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/travel-requests", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    let query = db.collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS);
+    if (req.query.status) query = query.where("status", "==", req.query.status);
+    const snap = await query.get();
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (a.date < b.date ? 1 : -1));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/travel-requests/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const ref = TRAVEL_DOC(req.params.id);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const request = snap.data();
+      if (request.status !== OOO_REQUEST_STATUS.PENDING) {
+        throw Object.assign(new Error("Only PENDING requests can be approved"), { status: 400 });
+      }
+
+      tx.update(ref, {
+        status: OOO_REQUEST_STATUS.APPROVED,
+        decidedBy: req.user.userId,
+        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const statusRef = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, request.date));
+      tx.set(statusRef, {
+        userId: request.userId,
+        date: request.date,
+        status: ATTENDANCE_STATUS_VALUES.TRAVEL,
+        note: request.reason,
+        source: ATTENDANCE_SOURCE.SELF_TRAVEL_REQUEST,
+        markedAt: new Date().toISOString(),
+        markedBy: req.user.userId,
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/travel-requests/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const ref = TRAVEL_DOC(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Not found" });
+    if (snap.data().status !== OOO_REQUEST_STATUS.PENDING) {
+      return res.status(400).json({ error: "Only PENDING requests can be rejected" });
+    }
+    await ref.update({
+      status: OOO_REQUEST_STATUS.REJECTED,
+      decidedBy: req.user.userId,
+      decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+      comment: req.body.comment || null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Caller's own daily-status history for one month. Queried by userId only
 // and filtered/sorted in JS, so it never needs a composite Firestore index.
 router.get("/my-status", authenticate, async (req, res, next) => {
@@ -434,13 +558,21 @@ router.get("/status-summary", authenticate, requireAdmin, async (req, res, next)
       db.collection(COLLECTIONS.ATTENDANCE_STATUS).where("date", ">=", `${month}-01`).where("date", "<=", `${month}-31`).get(),
     ]);
 
-    const tallies = new Map(employees.map((e) => [e.userId, { userId: e.userId, name: e.name, PRESENT: 0, ABSENT: 0, LEAVE: 0, HALF_DAY: 0, OUT_OF_OFFICE: 0 }]));
+    const tallies = new Map(employees.map((e) => [e.userId, { userId: e.userId, name: e.name, PRESENT: 0, ABSENT: 0, LEAVE: 0, HALF_DAY: 0, OUT_OF_OFFICE: 0, TRAVEL: 0 }]));
     for (const doc of snap.docs) {
       const r = doc.data();
       const entry = tallies.get(r.userId);
       if (entry && entry[r.status] !== undefined) entry[r.status] += 1;
     }
-    res.json([...tallies.values()]);
+    // Present-equivalent total — same definition Form 22 and the payslip
+    // muster grid use (see attendanceQuery.js's PRESENT_EQUIVALENT): an
+    // approved Out of Office or Travel day counts as present, same as a
+    // plain check-in or a half day.
+    const result = [...tallies.values()].map((t) => ({
+      ...t,
+      PRESENT_EQUIVALENT: t.PRESENT + t.HALF_DAY + t.OUT_OF_OFFICE + t.TRAVEL,
+    }));
+    res.json(result);
   } catch (err) {
     next(err);
   }

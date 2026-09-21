@@ -13,7 +13,7 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const SOURCE_LABEL = { SELF_GEOFENCE: "Self check-in", BULK: "Bulk", SELF_OOO_REQUEST: "Self check-in" };
+const SOURCE_LABEL = { SELF_GEOFENCE: "Self check-in", BULK: "Bulk", SELF_OOO_REQUEST: "Self check-in", SELF_TRAVEL_REQUEST: "Travel request" };
 
 export default function MyAttendance() {
   const { user } = useAuth();
@@ -47,6 +47,10 @@ function DailyStatusSection() {
   const [showOooForm, setShowOooForm] = useState(false);
   const [oooReason, setOooReason] = useState("");
   const [submittingOoo, setSubmittingOoo] = useState(false);
+  const [travelRequests, setTravelRequests] = useState(null);
+  const [showTravelForm, setShowTravelForm] = useState(false);
+  const [travelReason, setTravelReason] = useState("");
+  const [submittingTravel, setSubmittingTravel] = useState(false);
 
   async function loadHistory() {
     setError("");
@@ -79,9 +83,20 @@ function DailyStatusSection() {
   }
   useEffect(() => { loadOooRequests(); }, []);
 
+  async function loadTravelRequests() {
+    try {
+      const { data } = await client.get("/attendance/travel-requests/mine");
+      setTravelRequests(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { loadTravelRequests(); }, []);
+
   const today = todayISO();
   const todayRecord = (history || []).find((h) => h.date === today);
   const pendingOooToday = (oooRequests || []).find((r) => r.date === today && r.status === "PENDING");
+  const pendingTravelToday = (travelRequests || []).find((r) => r.date === today && r.status === "PENDING");
 
   async function checkIn() {
     setCheckingIn(true);
@@ -127,7 +142,23 @@ function DailyStatusSection() {
     }
   }
 
-  const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday;
+  async function submitTravel() {
+    if (!travelReason.trim()) return setError("Please give a reason for the travel request.");
+    setSubmittingTravel(true);
+    setError("");
+    try {
+      await client.post("/attendance/travel-requests", { date: today, reason: travelReason });
+      setShowTravelForm(false);
+      setTravelReason("");
+      loadTravelRequests();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSubmittingTravel(false);
+    }
+  }
+
+  const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday && !pendingTravelToday;
 
   return (
     <div className="card">
@@ -138,6 +169,8 @@ function DailyStatusSection() {
           <StatusBadge status={todayRecord.status} />
         ) : pendingOooToday ? (
           <span className="badge-pill badge-PENDING_OOO">Out of Office — pending approval</span>
+        ) : pendingTravelToday ? (
+          <span className="badge-pill badge-PENDING_TRAVEL">Travel — pending approval</span>
         ) : (
           <span className="text-muted">Not marked yet</span>
         )}
@@ -151,6 +184,27 @@ function DailyStatusSection() {
 
       {geofence && !geofence.enabled && !todayRecord && !pendingOooToday && (
         <p className="hint-text">Self check-in isn't enabled. Ask your admin to mark your attendance.</p>
+      )}
+
+      {!todayRecord && !pendingOooToday && !pendingTravelToday && (
+        <div style={{ marginTop: 8 }}>
+          {!showTravelForm ? (
+            <button className="btn-sm" onClick={() => setShowTravelForm(true)}>Request to Travel</button>
+          ) : (
+            <div className="form-row" style={{ marginTop: 8, alignItems: "flex-start" }}>
+              <div style={{ flex: 1 }}>
+                <textarea
+                  rows={2}
+                  placeholder="Where are you traveling for work, and why? (e.g. client site visit)"
+                  value={travelReason}
+                  onChange={(e) => setTravelReason(e.target.value)}
+                />
+              </div>
+              <button className="btn-sm btn-primary" onClick={submitTravel} disabled={submittingTravel}>{submittingTravel ? "Submitting…" : "Submit Request"}</button>
+              <button className="btn-sm" onClick={() => setShowTravelForm(false)}>Cancel</button>
+            </div>
+          )}
+        </div>
       )}
 
       {checkInResult?.ok && (

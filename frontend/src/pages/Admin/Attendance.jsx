@@ -31,9 +31,9 @@ function monthBoundsOf(dateStr) {
   return { from: `${dateStr.slice(0, 7)}-01`, to: `${dateStr.slice(0, 7)}-${String(lastDay).padStart(2, "0")}` };
 }
 
-const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY", "OUT_OF_OFFICE"];
-const STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", LEAVE: "Leave", HALF_DAY: "Half Day", OUT_OF_OFFICE: "Out of Office" };
-const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "OOO request approved" };
+const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY", "OUT_OF_OFFICE", "TRAVEL"];
+const STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", LEAVE: "Leave", HALF_DAY: "Half Day", OUT_OF_OFFICE: "Out of Office", TRAVEL: "Travel" };
+const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "OOO request approved", SELF_TRAVEL_REQUEST: "Travel request approved" };
 
 export default function Attendance() {
   return (
@@ -190,7 +190,7 @@ function DailyStatusTab() {
         {!summary ? <Loading /> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Employee</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half Day</th><th>Out of Office</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half Day</th><th>Out of Office</th><th>Travel</th><th>Present (incl. OOO/Travel)</th></tr></thead>
               <tbody>
                 {summary.map((s) => (
                   <tr key={s.userId}>
@@ -200,9 +200,11 @@ function DailyStatusTab() {
                     <td>{s.LEAVE}</td>
                     <td>{s.HALF_DAY}</td>
                     <td>{s.OUT_OF_OFFICE}</td>
+                    <td>{s.TRAVEL}</td>
+                    <td><strong>{s.PRESENT_EQUIVALENT}</strong></td>
                   </tr>
                 ))}
-                {summary.length === 0 && <tr><td colSpan={6} className="empty-state">No active employees.</td></tr>}
+                {summary.length === 0 && <tr><td colSpan={8} className="empty-state">No active employees.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -368,4 +370,3 @@ function OooRequestsQueue({ onDecided }) {
     </div>
   );
 }
-
