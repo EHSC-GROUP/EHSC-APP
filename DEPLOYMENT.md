@@ -4,6 +4,49 @@ This covers what changed for security hardening, what's still outstanding, and t
 steps to take this app from local dev to a real production deployment. Read it
 top to bottom before going live.
 
+## 0. Current production deployment (as of 2026-09-21)
+
+- **GCP project**: `ehsc-app` (billing linked, owned by `ITAdmin@ehsconsultantsgroup.org`),
+  region `asia-south1` (Mumbai) throughout. `.firebaserc`'s `"prod"` alias points here.
+  The earlier `ehsc-cc3e7` project from a prior migration attempt was abandoned —
+  its Firestore/Storage/Billing were never fully provisioned; everything now lives
+  in `ehsc-app` instead.
+- **Backend**: deployed to Cloud Run — service `hr-app-backend`, built from
+  `backend/Dockerfile` via `gcloud run deploy --source .`. Publicly reachable
+  (`roles/run.invoker` granted to `allUsers` — required, since this app does its
+  own JWT login rather than gating access through Google IAM):
+  `https://hr-app-backend-730280179591.asia-south1.run.app`
+- **Runtime identity**: a dedicated `backend-runtime@ehsc-app.iam.gserviceaccount.com`
+  service account (not the broad default compute one) — scoped to `roles/datastore.user`
+  and `roles/storage.objectAdmin` on `gs://ehsc-app-storage` only. No service account
+  *key* exists or is needed — Cloud Run injects this identity's credentials
+  automatically. (The org enforces `iam.disableServiceAccountKeyCreation`, so
+  downloadable JSON keys aren't an option here anyway — this is also just the
+  better practice regardless.)
+- **Firestore**: native mode, `asia-south1`, created empty and then seeded once
+  (`scripts/seed.js` run locally against production with `.env` temporarily moved
+  aside so it couldn't accidentally target the emulator) — `SUPERADMIN` /
+  `Welcome@123` exists, `mustReset: true`. **Change that password immediately.**
+- **Storage**: `gs://ehsc-app-storage`, uniform bucket-level access.
+- **Env vars currently set on the Cloud Run service** (via `backend/.env.cloudrun.yaml`,
+  gitignored — regenerate rather than relying on this file surviving): `NODE_ENV`,
+  `JWT_SECRET` (freshly generated, 64 chars), `JWT_EXPIRES_IN`, `FIREBASE_PROJECT_ID`,
+  `FIREBASE_STORAGE_BUCKET`, `COMPANY_NAME`, `COMPANY_ADDRESS`, `CORS_ORIGIN`.
+- **`CORS_ORIGIN` is currently a placeholder** (`https://ehsc-app.web.app,https://ehsc-app.firebaseapp.com`)
+  guessing the future Firebase Hosting domain — **frontend hosting hasn't been
+  deployed yet.** Once it is, update this to the real domain:
+  ```bash
+  gcloud run services update hr-app-backend --project=ehsc-app --region=asia-south1 \
+    --update-env-vars="CORS_ORIGIN=https://<real-frontend-domain>"
+  ```
+- **`firebase.json`** already has the `/api/**` → Cloud Run rewrite wired to this
+  exact service/region, ready for `firebase deploy --only hosting` once the
+  frontend is built — no further edits needed there.
+- **Not yet done**: frontend Hosting deploy; rotating/downscoping is not needed
+  (no key was ever created); Firestore backup schedule (§6); every real
+  employee/admin/associate profile still needs to be created fresh in this
+  project (no data was migrated from local/emulator or the old project).
+
 ## 1. Security hardening already in place
 
 - **HTTP headers** — `helmet()` is applied to every response (X-Content-Type-Options,
@@ -93,13 +136,14 @@ Steps:
 
 ## 4. Go-live checklist (do these, in order)
 
-- [ ] `JWT_SECRET` is a fresh, unique 32+ char value (not the dev one).
-- [ ] `CORS_ORIGIN` is set to the real frontend URL.
-- [ ] `NODE_ENV=production`.
-- [ ] No `*_EMULATOR_HOST` vars are set.
-- [ ] `node scripts/seed.js` run once against production; sign in as `SUPERADMIN`
+- [x] `JWT_SECRET` is a fresh, unique 32+ char value (not the dev one). — done, 64 chars
+- [ ] `CORS_ORIGIN` is set to the real frontend URL. — **still a placeholder, see §0**
+- [x] `NODE_ENV=production`. — done
+- [x] No `*_EMULATOR_HOST` vars are set. — confirmed, not present in Cloud Run env
+- [x] `node scripts/seed.js` run once against production; sign in as `SUPERADMIN`
       and change the password **immediately** — it starts as `Welcome@123`, a
       password this document (and the app's own UI) makes public knowledge.
+      — done 2026-09-21, **password not yet changed, do this now**
 - [ ] Every employee/admin/associate profile created before go-live has actually
       signed in and changed their password, or been told to do so on day one.
   Nobody's account should sit at the standard temporary password once real data

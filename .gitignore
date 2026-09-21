@@ -12,3 +12,4 @@ firestore-emulator-data/
 emulator-data/
 *firebase-adminsdk*.json
 *serviceAccountKey*.json
+backend/.env.cloudrun.yaml
