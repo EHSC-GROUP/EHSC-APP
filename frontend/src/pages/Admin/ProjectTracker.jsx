@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
+import { openAuthedFile } from "../../lib/openFile";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -60,6 +61,23 @@ export default function ProjectTracker() {
   // the scroll container gets cut off by that container's implied
   // overflow-y once its content taller than the container.
   const [activeTooltip, setActiveTooltip] = useState(null); // { id, x, y, pinned }
+  const [exporting, setExporting] = useState(false);
+
+  async function exportExcel() {
+    setExporting(true);
+    setError("");
+    try {
+      const params = clientFilter ? `?clientName=${encodeURIComponent(clientFilter)}` : "";
+      await openAuthedFile(`/api/projects/gantt-export${params}`, {
+        download: true,
+        filename: `Project_Tracker_Gantt_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      });
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function load() {
     setError("");
@@ -216,6 +234,10 @@ export default function ProjectTracker() {
             </button>
           ))}
         </div>
+        <div className="spacer" />
+        <button className="btn-sm" onClick={exportExcel} disabled={exporting || !profiles}>
+          {exporting ? "Exporting…" : "Export to Excel"}
+        </button>
       </div>
 
       <div className="gantt-legend">

@@ -5,8 +5,51 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4 } from "../lib/companyProfile.js";
+import { buildGanttWorkbook } from "../lib/ganttExcel.js";
 
 const router = Router();
+
+// A minimal, non-admin-gated project list for pickers (e.g. the
+// reimbursement form's project-linkage field, once that feature is
+// enabled) — id/projectId/clientName only, none of the financial/contract
+// detail the full admin listing carries.
+router.get("/picklist", authenticate, async (req, res, next) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.PROJECTS).get();
+    const list = snap.docs.map((d) => ({ id: d.id, projectId: d.data().projectId, clientName: d.data().clientName }));
+    list.sort((a, b) => (a.projectId || "").localeCompare(b.projectId || ""));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Excel download of the Project Tracker's Gantt chart — same rows,
+// grouping and status coloring as the on-screen chart (frontend
+// flattenActions/statusOf in ProjectTracker.jsx), so the export matches
+// what's visible when the button is clicked. Optional ?clientName= mirrors
+// the page's company filter.
+router.get("/gantt-export", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.PROJECTS).get();
+    const rows = [];
+    for (const doc of snap.docs) {
+      const project = doc.data();
+      if (req.query.clientName && project.clientName !== req.query.clientName) continue;
+      for (const action of project.phase3b?.actions || []) {
+        rows.push({ ...action, clientName: project.clientName });
+      }
+    }
+
+    const workbook = await buildGanttWorkbook(rows);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Project_Tracker_Gantt_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.get("/", authenticate, requireAdmin, async (req, res, next) => {
   try {

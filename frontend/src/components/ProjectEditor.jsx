@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import client, { errorMessage } from "../api/client";
-import { ErrorText } from "./Misc";
+import { ErrorText, Loading } from "./Misc";
+import StatusBadge from "./StatusBadge";
 
 const emptyPhase2 = () => ({
   proposalNo: "", proposalDate: "", modeOfSubmission: "", submittedTo: "", submittedBy: "",
@@ -54,10 +55,19 @@ function toFormShape(project) {
 // following `showPhases` so any other caller keeps the old all-or-nothing
 // behavior.
 export default function ProjectEditor({ project, company, onChanged, showPhases = true, showPhase2 = showPhases }) {
+  // Project Costing (REQ-04) is a disabled-by-default feature — only add
+  // the tab once an admin has switched it on in Settings.
+  const [costingEnabled, setCostingEnabled] = useState(false);
+  useEffect(() => {
+    if (!showPhases) return;
+    client.get("/settings/feature-flags").then(({ data }) => setCostingEnabled(!!data.projectCosting)).catch(() => setCostingEnabled(false));
+  }, [showPhases]);
+
   const sections = [
     ...(showPhases ? ["Company Details"] : []),
     ...(showPhase2 ? ["Conversation Stage"] : []),
     ...(showPhases ? ["Implementation Phase", "Project Plan", "Project Completion"] : []),
+    ...(showPhases && costingEnabled ? ["Costing"] : []),
   ];
   const hasTabs = sections.length > 1;
 
@@ -128,6 +138,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
   const clientReplies = project.phase2?.clientReplies || [];
   const ORDINALS = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th"];
   const isProjectPlan = showPhases && section === "Project Plan";
+  const isCosting = showPhases && costingEnabled && section === "Costing";
 
   return (
     <div>
@@ -140,11 +151,13 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
           </div>
         )}
         <div className="spacer" />
-        {!editing && !isProjectPlan && <button className="btn-sm" onClick={() => { setForm(toFormShape(project)); setEditing(true); }}>Edit</button>}
+        {!editing && !isProjectPlan && !isCosting && <button className="btn-sm" onClick={() => { setForm(toFormShape(project)); setEditing(true); }}>Edit</button>}
       </div>
 
       {isProjectPlan ? (
         <PlanActionsSection projectId={project.id} actions={project.phase3b?.actions || []} onChanged={onChanged} />
+      ) : isCosting ? (
+        <ProjectCostingTab projectId={project.id} />
       ) : !editing ? (
         <div>
           {showPhases && section === "Company Details" && (
@@ -491,6 +504,9 @@ function PlanActionsSection({ projectId, actions, onChanged }) {
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [dateForm, setDateForm] = useState({ startDate: "", dueDate: "" });
+  const [savingDates, setSavingDates] = useState(false);
   const sorted = [...actions].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
   const byId = new Map(actions.map((a) => [a.id, a]));
 
@@ -510,6 +526,30 @@ function PlanActionsSection({ projectId, actions, onChanged }) {
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
+    }
+  }
+
+  function startEditDates(action) {
+    setEditingId(action.id);
+    setDateForm({ startDate: action.startDate || "", dueDate: action.dueDate || "" });
+    setError("");
+  }
+
+  async function saveDates(actionId) {
+    if (!dateForm.dueDate) return setError("Due date is required.");
+    setSavingDates(true);
+    setError("");
+    try {
+      await client.put(`/projects/${projectId}/plan-actions/${actionId}`, {
+        startDate: dateForm.startDate || null,
+        dueDate: dateForm.dueDate,
+      });
+      setEditingId(null);
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSavingDates(false);
     }
   }
 
@@ -537,13 +577,31 @@ function PlanActionsSection({ projectId, actions, onChanged }) {
                 <span style={{ textDecoration: a.completed ? "line-through" : "none" }}>{a.description}</span>
               </label>
               <div className="spacer" />
+              {editingId !== a.id && (
+                <button className="btn-sm" onClick={() => startEditDates(a)}>Edit Dates</button>
+              )}
               <button className="btn-sm btn-danger" onClick={() => remove(a.id)}>Delete</button>
             </div>
-            <p className="hint-text mt-0">
-              Assigned to: {a.assignedToName || a.assignedTo} · Due: <span className={overdue ? "overdue" : ""}>{a.dueDate}{overdue ? " (overdue)" : ""}</span>
-              {a.startDate && <> · Started: {a.startDate}</>}
-              {a.completed && a.completedAt && <> · Completed: {new Date(a.completedAt).toLocaleDateString()}</>}
-            </p>
+            {editingId === a.id ? (
+              <div className="form-row" style={{ alignItems: "flex-end", marginBottom: 4 }}>
+                <div>
+                  <label>Start Date</label>
+                  <input type="date" value={dateForm.startDate} onChange={(e) => setDateForm((f) => ({ ...f, startDate: e.target.value }))} />
+                </div>
+                <div>
+                  <label>Due Date</label>
+                  <input type="date" value={dateForm.dueDate} onChange={(e) => setDateForm((f) => ({ ...f, dueDate: e.target.value }))} />
+                </div>
+                <button className="btn-sm btn-primary" onClick={() => saveDates(a.id)} disabled={savingDates}>{savingDates ? "Saving…" : "Save"}</button>
+                <button className="btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+              </div>
+            ) : (
+              <p className="hint-text mt-0">
+                Assigned to: {a.assignedToName || a.assignedTo} · Due: <span className={overdue ? "overdue" : ""}>{a.dueDate}{overdue ? " (overdue)" : ""}</span>
+                {a.startDate && <> · Started: {a.startDate}</>}
+                {a.completed && a.completedAt && <> · Completed: {new Date(a.completedAt).toLocaleDateString()}</>}
+              </p>
+            )}
             {predecessors.length > 0 && (
               <p className="hint-text mt-0">Depends on: {predecessors.map((p) => p.description).join(", ")}</p>
             )}
@@ -724,6 +782,87 @@ function AddPlanActionModal({ projectId, onClose, onAdded }) {
           <ErrorText>{error}</ErrorText>
           <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Action"}</button>
         </form>
+      </div>
+    </div>
+  );
+}
+
+const COST_TYPES = ["GENERAL", "TRAVEL", "ACCOMMODATION", "ADVANCE"];
+const COST_TYPE_LABEL = { GENERAL: "General", TRAVEL: "Travel", ACCOMMODATION: "Accommodation", ADVANCE: "Advance" };
+
+// REQ-04: running cost spent on this project, built from every
+// reimbursement claim linked to it (REQ-03) — rejected/cancelled claims
+// never counted as spend, and "Paid" is broken out separately from
+// "Committed" (pending/approved but not yet paid) so the two never get
+// added together into one misleading number.
+function ProjectCostingTab({ projectId }) {
+  const [claims, setClaims] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    client.get("/reimbursements/admin", { params: { projectId } })
+      .then(({ data }) => setClaims(data))
+      .catch((err) => setError(errorMessage(err)));
+  }, [projectId]);
+
+  if (!claims) return error ? <ErrorText>{error}</ErrorText> : <Loading />;
+
+  const counted = claims.filter((c) => !["REJECTED", "CANCELLED"].includes(c.status));
+  const paid = counted.filter((c) => c.status === "PAID");
+  const committed = counted.filter((c) => c.status !== "PAID");
+  const sum = (list) => list.reduce((s, c) => s + c.totalAmount, 0);
+
+  const byType = COST_TYPES.map((type) => {
+    const list = counted.filter((c) => (c.type || "GENERAL") === type);
+    return { type, count: list.length, total: sum(list) };
+  }).filter((row) => row.count > 0);
+
+  return (
+    <div>
+      <p className="hint-text mt-0">
+        Built from every reimbursement claim linked to this project. Rejected and cancelled claims are never
+        counted; "Paid" and "Committed" (approved or pending, not yet paid out) are kept separate.
+      </p>
+      <div className="stat-cards">
+        <div className="stat-card"><div className="value">₹{sum(counted).toFixed(2)}</div><div className="label">Total Cost So Far</div></div>
+        <div className="stat-card"><div className="value">₹{sum(paid).toFixed(2)}</div><div className="label">Paid</div></div>
+        <div className="stat-card"><div className="value">₹{sum(committed).toFixed(2)}</div><div className="label">Committed (not yet paid)</div></div>
+      </div>
+
+      <div className="card">
+        <h3 className="mt-0">By Claim Type</h3>
+        <table>
+          <thead><tr><th>Type</th><th>Claims</th><th>Total</th></tr></thead>
+          <tbody>
+            {byType.map((row) => (
+              <tr key={row.type}>
+                <td>{COST_TYPE_LABEL[row.type]}</td>
+                <td>{row.count}</td>
+                <td>₹{row.total.toFixed(2)}</td>
+              </tr>
+            ))}
+            {byType.length === 0 && <tr><td colSpan={3} className="empty-state">No reimbursements linked to this project yet.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card table-wrap">
+        <h3 className="mt-0">All Linked Claims</h3>
+        <table>
+          <thead><tr><th>Employee</th><th>Date</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
+          <tbody>
+            {claims.map((c) => (
+              <tr key={c.id}>
+                <td>{c.name || c.userId}</td>
+                <td>{c.voucherDate}</td>
+                <td><StatusBadge status={c.type || "GENERAL"} /></td>
+                <td>₹{c.totalAmount.toFixed(2)}</td>
+                <td><StatusBadge status={c.status} /></td>
+              </tr>
+            ))}
+            {claims.length === 0 && <tr><td colSpan={5} className="empty-state">No reimbursements linked to this project yet.</td></tr>}
+          </tbody>
+        </table>
       </div>
     </div>
   );
