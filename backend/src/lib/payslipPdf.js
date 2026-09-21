@@ -1,15 +1,11 @@
 import PDFDocument from "pdfkit";
 import { numberToWords } from "./numberToWords.js";
+import { drawLetterhead, drawFooter } from "./pdfBranding.js";
 
-const COMPANY_NAME = process.env.COMPANY_NAME || "Your Company Pvt Ltd";
-const COMPANY_ADDRESS = process.env.COMPANY_ADDRESS || "";
+const PAGE = { left: 40, right: 555 };
 
 function drawPayslipPage(doc, payslip) {
-    doc.fontSize(16).font("Helvetica-Bold").text(COMPANY_NAME, { align: "center" });
-    if (COMPANY_ADDRESS) {
-      doc.fontSize(9).font("Helvetica").text(COMPANY_ADDRESS, { align: "center" });
-    }
-    doc.moveDown(0.5);
+    drawLetterhead(doc, PAGE);
     doc.fontSize(12).font("Helvetica-Bold").text(`Payslip for ${payslip.period}`, { align: "center" });
     doc.moveDown();
 
@@ -45,13 +41,16 @@ function drawPayslipPage(doc, payslip) {
     const earnings = [
       ["Basic", payslip.basic],
       ["HRA", payslip.hra],
+      ["Transportation Allowance", payslip.transportAllowance],
+      ["Special Allowance", payslip.specialAllowance],
+      ["Medical Allowance", payslip.statutoryBonus],
       ["Others", payslip.others],
       ["Incentives", payslip.incentives],
     ];
     const deductions = [
       ["Professional Tax", payslip.pt],
       ["Income Tax", payslip.incomeTax],
-      ["ESI", payslip.esi],
+      ["Medical Insurance", payslip.medicalAllowance],
       ["Other Deductions", payslip.othersDeduction],
     ];
     doc.font("Helvetica").fontSize(9);
@@ -59,11 +58,11 @@ function drawPayslipPage(doc, payslip) {
     for (let i = 0; i < Math.max(earnings.length, deductions.length); i++) {
       if (earnings[i]) {
         doc.text(earnings[i][0], colX[0], rowY);
-        doc.text(Number(earnings[i][1]).toFixed(2), colX[1], rowY);
+        doc.text(Number(earnings[i][1] || 0).toFixed(2), colX[1], rowY);
       }
       if (deductions[i]) {
         doc.text(deductions[i][0], colX[2], rowY);
-        doc.text(Number(deductions[i][1]).toFixed(2), colX[3], rowY);
+        doc.text(Number(deductions[i][1] || 0).toFixed(2), colX[3], rowY);
       }
       rowY += 16;
     }
@@ -93,6 +92,7 @@ export function renderPayslipPdf(payslip) {
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
     drawPayslipPage(doc, payslip);
+    drawFooter(doc, PAGE);
     doc.end();
   });
 }
@@ -108,6 +108,7 @@ export function renderConsolidatedPayslipPdf(payslips) {
     payslips.forEach((p, i) => {
       if (i > 0) doc.addPage();
       drawPayslipPage(doc, p);
+      drawFooter(doc, PAGE);
     });
     doc.end();
   });

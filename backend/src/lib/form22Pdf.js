@@ -1,7 +1,7 @@
 import PDFDocument from "pdfkit";
+import { drawLetterhead, drawFooter } from "./pdfBranding.js";
 
-const COMPANY_NAME = process.env.COMPANY_NAME || "Your Company Pvt Ltd";
-const COMPANY_ADDRESS = process.env.COMPANY_ADDRESS || "";
+const PAGE = { left: 30, right: 812 };
 
 // Karnataka Muster Roll cum Register of Wages (Form 22) — one landscape
 // page per employee, built from the exact same computed payslip data
@@ -18,6 +18,7 @@ export function renderForm22Pdf(period, payslips) {
     payslips.forEach((p, idx) => {
       if (idx > 0) doc.addPage();
       drawPage(doc, period, p);
+      drawFooter(doc, PAGE);
     });
 
     doc.end();
@@ -25,8 +26,7 @@ export function renderForm22Pdf(period, payslips) {
 }
 
 function drawPage(doc, period, p) {
-  doc.fontSize(14).font("Helvetica-Bold").text(COMPANY_NAME, { align: "center" });
-  if (COMPANY_ADDRESS) doc.fontSize(9).font("Helvetica").text(COMPANY_ADDRESS, { align: "center" });
+  drawLetterhead(doc, PAGE);
   doc.fontSize(11).font("Helvetica-Bold").text("Muster Roll cum Register of Wages (Form 22)", { align: "center" });
   doc.fontSize(9).font("Helvetica").text(`Wage Period: ${period}`, { align: "center" });
   doc.moveDown();
@@ -65,15 +65,19 @@ function drawPage(doc, period, p) {
   doc.text("Amount", 420, tableTop);
   doc.moveTo(30, tableTop + 14).lineTo(770, tableTop + 14).stroke();
 
-  const earnings = [["Basic", p.basic], ["HRA", p.hra], ["Others", p.others], ["Incentives", p.incentives]];
-  const deductions = [["PT", p.pt], ["Income Tax", p.incomeTax], ["ESI", p.esi], ["Other Deductions", p.othersDeduction]];
+  const earnings = [["Basic", p.basic], ["HRA", p.hra], ["Transportation Allowance", p.transportAllowance], ["Special Allowance", p.specialAllowance], ["Medical Allowance", p.statutoryBonus], ["Others", p.others], ["Incentives", p.incentives]];
+  const deductions = [["PT", p.pt], ["Income Tax", p.incomeTax], ["Medical Insurance", p.medicalAllowance], ["Other Deductions", p.othersDeduction]];
   doc.font("Helvetica").fontSize(9);
   let rowY2 = tableTop + 20;
-  for (let i = 0; i < 4; i++) {
-    doc.text(earnings[i][0], 30, rowY2);
-    doc.text(Number(earnings[i][1] || 0).toFixed(2), 150, rowY2);
-    doc.text(deductions[i][0], 300, rowY2);
-    doc.text(Number(deductions[i][1] || 0).toFixed(2), 420, rowY2);
+  for (let i = 0; i < Math.max(earnings.length, deductions.length); i++) {
+    if (earnings[i]) {
+      doc.text(earnings[i][0], 30, rowY2);
+      doc.text(Number(earnings[i][1] || 0).toFixed(2), 150, rowY2);
+    }
+    if (deductions[i]) {
+      doc.text(deductions[i][0], 300, rowY2);
+      doc.text(Number(deductions[i][1] || 0).toFixed(2), 420, rowY2);
+    }
     rowY2 += 14;
   }
   doc.font("Helvetica-Bold");
