@@ -29,7 +29,8 @@ export default function Login() {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>Operations Management App</h1>
+        <img src="/logo.jpeg" alt="EHSC" style={{ height: 72, display: "block", margin: "0 auto 12px" }} />
+        <h1 style={{ textAlign: "center" }}>EHSC</h1>
         <label>User ID</label>
         <input value={userId} onChange={(e) => setUserId(e.target.value)} autoFocus required />
         <label>Password</label>

@@ -8,6 +8,7 @@ function currentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+// Form 22 export — opened from a button on the Employee Profiles page.
 export default function Form22() {
   const [month, setMonth] = useState(currentMonth());
   const [mode, setMode] = useState("all");
@@ -16,7 +17,7 @@ export default function Form22() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    client.get("/profiles").then((r) => setProfiles(r.data.filter((p) => p.type === "employee"))).catch((err) => setError(errorMessage(err)));
+    client.get("/profiles").then((r) => setProfiles(r.data.filter((p) => ["employee", "admin"].includes(p.type)))).catch((err) => setError(errorMessage(err)));
   }, []);
 
   function toggle(userId) {
@@ -44,35 +45,32 @@ export default function Form22() {
 
   return (
     <div>
-      <div className="page-header"><h2>Statutory Register (Form 22)</h2></div>
-      <p className="hint-text">Karnataka Muster Roll cum Register of Wages — reuses the exact same payroll computation as the payslip for the period.</p>
+      <p className="hint-text mt-0">Karnataka Muster Roll cum Register of Wages — reuses the exact same payroll computation as the payslip for the period.</p>
 
-      <div className="card">
-        <div className="form-row">
-          <div><label>Wage Period</label><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></div>
-          <div>
-            <label>Employees</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="all">All Employees</option>
-              <option value="selected">Selected Employees</option>
-            </select>
-          </div>
+      <div className="form-row">
+        <div><label>Wage Period</label><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></div>
+        <div>
+          <label>Employees</label>
+          <select value={mode} onChange={(e) => setMode(e.target.value)}>
+            <option value="all">All Employees</option>
+            <option value="selected">Selected Employees</option>
+          </select>
         </div>
-
-        {mode === "selected" && (
-          <div style={{ maxHeight: 260, overflowY: "auto", marginTop: 10 }}>
-            {profiles.map((p) => (
-              <label key={p.userId} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                <input type="checkbox" style={{ width: "auto" }} checked={selected.has(p.userId)} onChange={() => toggle(p.userId)} />
-                {p.name} <span className="text-muted">({p.userId})</span>
-              </label>
-            ))}
-          </div>
-        )}
-
-        <ErrorText>{error}</ErrorText>
-        <button className="btn-primary" style={{ marginTop: 16 }} onClick={download}>Download PDF</button>
       </div>
+
+      {mode === "selected" && (
+        <div style={{ maxHeight: 260, overflowY: "auto", marginTop: 10 }}>
+          {profiles.map((p) => (
+            <label key={p.userId} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+              <input type="checkbox" style={{ width: "auto" }} checked={selected.has(p.userId)} onChange={() => toggle(p.userId)} />
+              {p.name} <span className="text-muted">({p.userId})</span>
+            </label>
+          ))}
+        </div>
+      )}
+
+      <ErrorText>{error}</ErrorText>
+      <button className="btn-primary" style={{ marginTop: 16 }} onClick={download}>Download PDF</button>
     </div>
   );
 }
