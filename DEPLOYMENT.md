@@ -32,18 +32,18 @@ top to bottom before going live.
   gitignored — regenerate rather than relying on this file surviving): `NODE_ENV`,
   `JWT_SECRET` (freshly generated, 64 chars), `JWT_EXPIRES_IN`, `FIREBASE_PROJECT_ID`,
   `FIREBASE_STORAGE_BUCKET`, `COMPANY_NAME`, `COMPANY_ADDRESS`, `CORS_ORIGIN`.
-- **`CORS_ORIGIN` is currently a placeholder** (`https://ehsc-app.web.app,https://ehsc-app.firebaseapp.com`)
-  guessing the future Firebase Hosting domain — **frontend hosting hasn't been
-  deployed yet.** Once it is, update this to the real domain:
+- **Frontend**: deployed to Firebase Hosting on the same project —
+  `https://ehsc-app.web.app`. `firebase.json`'s `/api/**` rewrite proxies to the
+  Cloud Run service above, so the browser only ever talks to one origin
+  (`ehsc-app.web.app`) — verified end-to-end (`/api/health` and a real login
+  both round-tripped correctly through the rewrite). `CORS_ORIGIN` on Cloud Run
+  already matches this domain, so no follow-up needed there; it only matters
+  as defense-in-depth if something ever calls the Cloud Run URL directly.
+  Redeploy after any frontend change with:
   ```bash
-  gcloud run services update hr-app-backend --project=ehsc-app --region=asia-south1 \
-    --update-env-vars="CORS_ORIGIN=https://<real-frontend-domain>"
+  cd frontend && npm run build && cd .. && firebase deploy --only hosting --project ehsc-app
   ```
-- **`firebase.json`** already has the `/api/**` → Cloud Run rewrite wired to this
-  exact service/region, ready for `firebase deploy --only hosting` once the
-  frontend is built — no further edits needed there.
-- **Not yet done**: frontend Hosting deploy; rotating/downscoping is not needed
-  (no key was ever created); Firestore backup schedule (§6); every real
+- **Not yet done**: Firestore backup schedule (§6); every real
   employee/admin/associate profile still needs to be created fresh in this
   project (no data was migrated from local/emulator or the old project).
 
