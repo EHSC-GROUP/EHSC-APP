@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import Modal from "../../components/Modal";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
+import { openAuthedFile } from "../../lib/openFile";
 
 function currentFY() {
   const d = new Date();
@@ -47,7 +48,15 @@ export default function MyLeave() {
     <div>
       <div className="page-header">
         <h2>Leave</h2>
-        <button className="btn-primary" onClick={() => setShowApply(true)}>+ Apply for Leave</button>
+        <div className="toolbar">
+          <button
+            className="btn-sm"
+            onClick={() => openAuthedFile(`/api/leave/card/${user.userId}/pdf?fy=${fy}`, { download: true, filename: `Leave_Card_FY${fy}.pdf` }).catch((err) => setError(errorMessage(err)))}
+          >
+            Download Leave Card
+          </button>
+          <button className="btn-primary" onClick={() => setShowApply(true)}>+ Apply for Leave</button>
+        </div>
       </div>
 
       {balances && (

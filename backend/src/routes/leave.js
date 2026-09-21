@@ -21,8 +21,24 @@ import {
   adjustUsedInTransaction,
   setEntitlementOverride,
 } from "../lib/leaveBalances.js";
+import { canDeptApprove, getDepartmentOf, loadDepartmentMap, visibleDepartmentFor, filterByDepartment } from "../lib/approvals.js";
+import { getLeaveCardData, listActiveEmployeeUserIds } from "../lib/leaveCard.js";
+import { renderLeaveCardPdf } from "../lib/leaveCardPdf.js";
+import { buildLeaveCardWorkbook } from "../lib/leaveCardExcel.js";
+import { isValidId } from "../lib/validateId.js";
 
 const router = Router();
+// userId route params must look like a real ID before they're used to build
+// a Firestore document path (see lib/validateId.js). 'ALL' is the one
+// special literal (documents.js's company-wide bucket) and passes through
+// since it's plain letters.
+router.param("userId", (req, res, next, value) => {
+  const v = (value || "").toUpperCase();
+  if (!isValidId(v)) return res.status(400).json({ error: "userId is invalid" });
+  req.params.userId = v;
+  next();
+});
+
 
 function isAdminRole(role) {
   return [ROLES.ADMIN, ROLES.SUPERADMIN].includes(role);
@@ -57,6 +73,18 @@ router.get("/requests", authenticate, requireAdmin, async (req, res, next) => {
       const fy = Number(req.query.fy);
       list = list.filter((r) => financialYearOf(r.fromDate) === fy);
     }
+    // Department admins only see their own department's leave; the
+    // superadmin sees everything (but only a matching department admin can
+    // approve — see canDeptApprove).
+    const [visibleDept, deptMap] = await Promise.all([visibleDepartmentFor(req.user), loadDepartmentMap()]);
+    list = filterByDepartment(list, visibleDept, deptMap);
+    list = await Promise.all(
+      list.map(async (r) => ({
+        ...r,
+        department: deptMap.get(r.userId) || null,
+        actions: { canApprove: r.status === LEAVE_STATUS.PENDING && (await canDeptApprove(req.user, r)) },
+      }))
+    );
     list.sort((a, b) => (a.fromDate < b.fromDate ? 1 : -1));
     res.json(list);
   } catch (err) {
@@ -99,6 +127,14 @@ router.post("/requests", authenticate, requireAdmin, upload.single("medicalCert"
     }
     const effectiveToDate = leaveType === HALF_DAY ? fromDate : toDate;
     if (fromDate > effectiveToDate) return res.status(400).json({ error: "fromDate must be <= toDate" });
+
+    // A department admin can only record leave for their own department.
+    if (req.user.role === ROLES.ADMIN) {
+      const [adminDept, targetDept] = await Promise.all([getDepartmentOf(req.user.userId), getDepartmentOf(userId.toUpperCase())]);
+      if (!adminDept || adminDept !== targetDept) {
+        return res.status(403).json({ error: "You can only record leave for employees in your own department" });
+      }
+    }
 
     let days;
     const isHalfDay = leaveType === HALF_DAY ? true : halfDay === "true" || halfDay === true;
@@ -209,6 +245,12 @@ router.put("/requests/:id/approve", authenticate, requireAdmin, async (req, res,
     const ref = db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).doc(req.params.id);
     const leaveTypes = await getLeaveTypes();
 
+    const pre = await ref.get();
+    if (!pre.exists) return res.status(404).json({ error: "Not found" });
+    if (!(await canDeptApprove(req.user, pre.data()))) {
+      return res.status(403).json({ error: "Only an admin of this employee's department can approve their leave" });
+    }
+
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
@@ -246,6 +288,9 @@ router.put("/requests/:id/reject", authenticate, requireAdmin, async (req, res, 
     if (snap.data().status !== LEAVE_STATUS.PENDING) {
       return res.status(400).json({ error: "Only PENDING requests can be rejected" });
     }
+    if (!(await canDeptApprove(req.user, snap.data()))) {
+      return res.status(403).json({ error: "Only an admin of this employee's department can reject their leave" });
+    }
     await ref.update({
       status: LEAVE_STATUS.REJECTED,
       decidedBy: req.user.userId,
@@ -275,6 +320,14 @@ router.put("/requests/:id/cancel", authenticate, async (req, res, next) => {
       if (!isSelf && !isAdminRole(req.user.role)) {
         throw Object.assign(new Error("Forbidden"), { status: 403 });
       }
+      // A department admin can only cancel their own department's leave;
+      // the superadmin can cancel any.
+      if (!isSelf && req.user.role === ROLES.ADMIN) {
+        const [adminDept, targetDept] = await Promise.all([getDepartmentOf(req.user.userId), getDepartmentOf(request.userId)]);
+        if (!adminDept || adminDept !== targetDept) {
+          throw Object.assign(new Error("Only an admin of this employee's department can cancel their leave"), { status: 403 });
+        }
+      }
       if (![LEAVE_STATUS.PENDING, LEAVE_STATUS.APPROVED].includes(request.status)) {
         throw Object.assign(new Error("Only PENDING or APPROVED requests can be cancelled"), { status: 400 });
       }
@@ -292,6 +345,69 @@ router.put("/requests/:id/cancel", authenticate, async (req, res, next) => {
     });
 
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---- Leave Card export (PDF/Excel) ----------------------------------------
+// Registered ahead of "/card/:userId/..." so "/card/export/..." isn't
+// swallowed by the ":userId" param.
+router.get("/card/export/pdf", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const fy = req.query.fy ? Number(req.query.fy) : financialYearOf(new Date().toISOString().slice(0, 10));
+    const userIds = await listActiveEmployeeUserIds();
+    const cards = await Promise.all(userIds.map((id) => getLeaveCardData(id, fy)));
+    const pdfBuffer = await renderLeaveCardPdf(cards);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Leave_Cards_FY${fy}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/card/export/excel", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const fy = req.query.fy ? Number(req.query.fy) : financialYearOf(new Date().toISOString().slice(0, 10));
+    const userIds = await listActiveEmployeeUserIds();
+    const cards = await Promise.all(userIds.map((id) => getLeaveCardData(id, fy)));
+    const workbook = await buildLeaveCardWorkbook(cards);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Leave_Cards_FY${fy}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/card/:userId/pdf", authenticate, async (req, res, next) => {
+  try {
+    const targetId = req.params.userId.toUpperCase();
+    if (targetId !== req.user.userId && !isAdminRole(req.user.role)) return res.status(403).json({ error: "Forbidden" });
+    const fy = req.query.fy ? Number(req.query.fy) : financialYearOf(new Date().toISOString().slice(0, 10));
+    const card = await getLeaveCardData(targetId, fy);
+    const pdfBuffer = await renderLeaveCardPdf([card]);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="Leave_Card_${targetId}_FY${fy}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/card/:userId/excel", authenticate, async (req, res, next) => {
+  try {
+    const targetId = req.params.userId.toUpperCase();
+    if (targetId !== req.user.userId && !isAdminRole(req.user.role)) return res.status(403).json({ error: "Forbidden" });
+    const fy = req.query.fy ? Number(req.query.fy) : financialYearOf(new Date().toISOString().slice(0, 10));
+    const card = await getLeaveCardData(targetId, fy);
+    const workbook = await buildLeaveCardWorkbook([card]);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Leave_Card_${targetId}_FY${fy}.xlsx"`);
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (err) {
     next(err);
   }

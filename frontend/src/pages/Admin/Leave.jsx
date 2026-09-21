@@ -14,7 +14,7 @@ export default function Leave() {
   const [tab, setTab] = useState("Register");
   return (
     <div>
-      <div className="page-header"><h2>Leave</h2></div>
+      <div className="page-header"><h2>Leave Management</h2></div>
       <div className="drawer-tabs">
         {["Register", "Balances", "Types"].map((t) => (
           <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>
@@ -67,31 +67,45 @@ function LeaveRegister() {
           {["PENDING", "APPROVED", "REJECTED", "CANCELLED"].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <div className="spacer" />
+        <button
+          className="btn-sm"
+          onClick={() => openAuthedFile(`/api/leave/card/export/pdf?fy=${fy}`, { download: true, filename: `Leave_Cards_FY${fy}.pdf` }).catch((err) => setError(errorMessage(err)))}
+        >
+          Export Leave Cards (PDF)
+        </button>
+        <button
+          className="btn-sm"
+          onClick={() => openAuthedFile(`/api/leave/card/export/excel?fy=${fy}`, { download: true, filename: `Leave_Cards_FY${fy}.xlsx` }).catch((err) => setError(errorMessage(err)))}
+        >
+          Export Leave Cards (Excel)
+        </button>
         <button className="btn-primary" onClick={() => setShowNew(true)}>+ Record Leave</button>
       </div>
       <ErrorText>{error}</ErrorText>
       {!list ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th><th>Reason</th><th></th></tr></thead>
+            <thead><tr><th>Employee</th><th>Dept</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Status</th><th>Reason</th><th></th></tr></thead>
             <tbody>
               {list.map((r) => (
                 <tr key={r.id}>
                   <td>{r.name || r.userId}</td>
+                  <td>{r.department || "-"}</td>
                   <td>{r.leaveType}{r.halfDay ? " (H)" : ""}</td>
                   <td>{r.fromDate}</td><td>{r.toDate}</td><td>{r.days}</td>
                   <td><StatusBadge status={r.status} /></td>
                   <td>{r.reason}{r.medicalCertLink && <> · <button className="btn-sm" onClick={() => openAuthedFile(r.medicalCertLink).catch((err) => setError(errorMessage(err)))}>cert</button></>}</td>
                   <td>
                     <div className="toolbar" style={{ margin: 0 }}>
-                      {r.status === "PENDING" && <button className="btn-sm" onClick={() => decide(r.id, "approve")}>Approve</button>}
-                      {r.status === "PENDING" && <button className="btn-sm" onClick={() => decide(r.id, "reject")}>Reject</button>}
+                      {r.actions?.canApprove && <button className="btn-sm" onClick={() => decide(r.id, "approve")}>Approve</button>}
+                      {r.actions?.canApprove && <button className="btn-sm" onClick={() => decide(r.id, "reject")}>Reject</button>}
+                      {r.status === "PENDING" && !r.actions?.canApprove && <span className="hint-text">Awaiting {r.department || "department"} admin</span>}
                       {["PENDING", "APPROVED"].includes(r.status) && <button className="btn-sm btn-danger" onClick={() => decide(r.id, "cancel")}>Cancel</button>}
                     </div>
                   </td>
                 </tr>
               ))}
-              {list.length === 0 && <tr><td colSpan={8} className="empty-state">No leave requests.</td></tr>}
+              {list.length === 0 && <tr><td colSpan={9} className="empty-state">No leave requests.</td></tr>}
             </tbody>
           </table>
         </div>
