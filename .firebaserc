@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "hr-app-local"
+    "default": "hr-app-local",
+    "prod": "ehsc-cc3e7"
   }
 }

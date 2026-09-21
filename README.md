@@ -47,14 +47,16 @@ npm run dev
 # App: http://localhost:5173 (proxies /api to the backend)
 ```
 
-On first run, seed a Super Admin account and default settings (weekly-off = Sunday, earnings formula = 50% Basic / 20% HRA):
+On first run, seed a Super Admin account and default settings (weekly-off = Sunday, default earnings formula):
 
 ```bash
 cd backend
 node scripts/seed.js
 ```
 
-This prints a one-time login: `SUPERADMIN` / `ChangeMe123!` (or set `SEED_SUPERADMIN_ID` / `SEED_SUPERADMIN_PASSWORD` env vars before running). You'll be forced through a password change on first login.
+This prints a one-time login: `SUPERADMIN` / `Welcome@123` — the same standard temporary password every new profile gets (or set `SEED_SUPERADMIN_ID` / `SEED_SUPERADMIN_PASSWORD` env vars before running). You'll be forced through a password change on first login.
+
+**Going to production?** See [DEPLOYMENT.md](DEPLOYMENT.md) for the full security/deployment checklist first.
 
 Open **http://localhost:5173** and sign in.
 
