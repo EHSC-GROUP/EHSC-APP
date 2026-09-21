@@ -4,12 +4,16 @@ import Modal from "../../components/Modal";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
 import VoucherForm from "../../components/VoucherForm";
+import AdvancesPanel from "../../components/AdvancesPanel";
+import { BillLinks } from "../Employee/MyReimbursements";
 import { openAuthedFile } from "../../lib/openFile";
 
 export default function Reimbursements() {
+  const [tab, setTab] = useState("Vouchers");
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [type, setType] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [showAccess, setShowAccess] = useState(false);
 
@@ -18,13 +22,14 @@ export default function Reimbursements() {
     try {
       const params = {};
       if (status) params.status = status;
+      if (type) params.type = type;
       const { data } = await client.get("/reimbursements/admin", { params });
       setList(data);
     } catch (err) {
       setError(errorMessage(err));
     }
   }
-  useEffect(() => { load(); }, [status]);
+  useEffect(() => { load(); }, [status, type]);
 
   async function decide(id, verb, extra) {
     try {
@@ -35,19 +40,33 @@ export default function Reimbursements() {
     }
   }
 
-  function markPaid(id) {
-    const paymentRef = window.prompt("Payment reference:");
+  function reject(id) {
+    const comment = window.prompt("Reason (optional):") || "";
+    decide(id, "reject", { comment });
+  }
+
+  function markPaid(r) {
+    const payable = Number(r.payableAmount ?? r.totalAmount).toFixed(2);
+    const paymentRef = window.prompt(`Payment reference (paying ₹${payable}):`);
     if (!paymentRef) return;
     const paymentDate = window.prompt("Payment date (YYYY-MM-DD):", new Date().toISOString().slice(0, 10));
     if (!paymentDate) return;
-    decide(id, "mark-paid", { paymentRef, paymentDate });
+    decide(r.id, "mark-paid", { paymentRef, paymentDate });
+  }
+
+  function exportUrl(kind) {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (type) params.set("type", type);
+    const qs = params.toString();
+    return `/api/reimbursements/export/${kind}${qs ? `?${qs}` : ""}`;
   }
 
   const totals = (list || []).reduce(
     (acc, r) => {
       acc.total += r.totalAmount;
-      if (r.status === "PENDING") acc.pending += r.totalAmount;
-      if (r.status === "PAID") acc.paid += r.totalAmount;
+      if (["PENDING", "DEPT_APPROVED"].includes(r.status)) acc.pending += r.totalAmount;
+      if (r.status === "PAID") acc.paid += Number(r.paidAmount ?? r.totalAmount);
       return acc;
     },
     { total: 0, pending: 0, paid: 0 }
@@ -59,55 +78,96 @@ export default function Reimbursements() {
         <h2>Reimbursements</h2>
         <div className="toolbar">
           <button onClick={() => setShowAccess(true)}>Manage Access</button>
-          <button className="btn-primary" onClick={() => setShowNew(true)}>+ New Voucher</button>
+          {tab === "Vouchers" && <button className="btn-primary" onClick={() => setShowNew(true)}>+ New Voucher</button>}
         </div>
       </div>
-
-      <div className="stat-cards">
-        <div className="stat-card"><div className="value">₹{totals.total.toFixed(2)}</div><div className="label">Total Claimed</div></div>
-        <div className="stat-card"><div className="value">₹{totals.pending.toFixed(2)}</div><div className="label">Pending</div></div>
-        <div className="stat-card"><div className="value">₹{totals.paid.toFixed(2)}</div><div className="label">Paid</div></div>
+      <div className="drawer-tabs">
+        {["Vouchers", "Advances"].map((t) => (
+          <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>
+        ))}
       </div>
 
-      <div className="toolbar">
-        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 160 }}>
-          <option value="">All statuses</option>
-          {["PENDING", "APPROVED", "PAID", "REJECTED", "CANCELLED"].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </div>
+      {tab === "Advances" && <AdvancesPanel admin />}
 
-      <ErrorText>{error}</ErrorText>
-      {!list ? <Loading /> : (
-        <div className="card table-wrap">
-          <table>
-            <thead><tr><th>Employee</th><th>Voucher Date</th><th>Paid To</th><th>Amount</th><th>Status</th><th></th></tr></thead>
-            <tbody>
-              {list.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.name || r.userId}</td>
-                  <td>{r.voucherDate}</td>
-                  <td>{r.paidTo}</td>
-                  <td>₹{r.totalAmount.toFixed(2)} {r.billLink && <button className="btn-sm" onClick={() => openAuthedFile(r.billLink).catch((err) => setError(errorMessage(err)))}>bill</button>}</td>
-                  <td><StatusBadge status={r.status} /></td>
-                  <td>
-                    <div className="toolbar" style={{ margin: 0 }}>
-                      {r.status === "PENDING" && <button className="btn-sm" onClick={() => decide(r.id, "approve")}>Approve</button>}
-                      {r.status === "PENDING" && <button className="btn-sm" onClick={() => decide(r.id, "reject")}>Reject</button>}
-                      {r.status === "APPROVED" && <button className="btn-sm" onClick={() => markPaid(r.id)}>Mark Paid</button>}
-                      {["PENDING", "APPROVED"].includes(r.status) && <button className="btn-sm btn-danger" onClick={() => decide(r.id, "cancel")}>Cancel</button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {list.length === 0 && <tr><td colSpan={6} className="empty-state">No reimbursements.</td></tr>}
-            </tbody>
-          </table>
-        </div>
+      {tab === "Vouchers" && (
+        <>
+          <p className="hint-text mt-0">
+            Two-step approval: the employee's department admin approves first, then the superadmin gives final approval.
+            Vouchers are drawn from the employee's advance wallet first — only the excess is ever paid.
+          </p>
+          <div className="stat-cards">
+            <div className="stat-card"><div className="value">₹{totals.total.toFixed(2)}</div><div className="label">Total Claimed</div></div>
+            <div className="stat-card"><div className="value">₹{totals.pending.toFixed(2)}</div><div className="label">Awaiting approval</div></div>
+            <div className="stat-card"><div className="value">₹{totals.paid.toFixed(2)}</div><div className="label">Paid out</div></div>
+          </div>
+
+          <div className="toolbar">
+            <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 180 }}>
+              <option value="">All statuses</option>
+              {["PENDING", "DEPT_APPROVED", "APPROVED", "SETTLED", "PAID", "REJECTED", "CANCELLED"].map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+            </select>
+            <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: 160 }}>
+              <option value="">All types</option>
+              {["GENERAL", "TRAVEL", "ACCOMMODATION"].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            <div className="spacer" />
+            <button
+              className="btn-sm"
+              onClick={() => openAuthedFile(exportUrl("pdf"), { download: true, filename: "Reimbursement_Claims.pdf" }).catch((err) => setError(errorMessage(err)))}
+            >
+              Export PDF
+            </button>
+            <button
+              className="btn-sm"
+              onClick={() => openAuthedFile(exportUrl("excel"), { download: true, filename: "Reimbursement_Register.xlsx" }).catch((err) => setError(errorMessage(err)))}
+            >
+              Export Excel
+            </button>
+          </div>
+
+          <ErrorText>{error}</ErrorText>
+          {!list ? <Loading /> : (
+            <div className="card table-wrap">
+              <table>
+                <thead><tr><th>Employee</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {list.map((r) => (
+                    <tr key={r.id}>
+                      <td>{r.name || r.userId}<div className="hint-text mt-0">{r.department || "no department"}</div></td>
+                      <td>{r.voucherDate}</td>
+                      <td><StatusBadge status={r.type || "GENERAL"} /></td>
+                      <td>₹{r.totalAmount.toFixed(2)} <BillLinks record={r} onError={setError} /></td>
+                      <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.advanceTaken || 0).toFixed(2)}` : "-"}</td>
+                      <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.payableAmount ?? r.totalAmount).toFixed(2)}` : "-"}</td>
+                      <td>
+                        <StatusBadge status={r.status} />
+                        {r.awaiting && <div className="hint-text mt-0">{r.awaiting}</div>}
+                      </td>
+                      <td>
+                        <div className="toolbar" style={{ margin: 0 }}>
+                          {r.actions?.canDeptApprove && <button className="btn-sm" onClick={() => decide(r.id, "dept-approve")}>Approve (Dept)</button>}
+                          {r.actions?.canFinalApprove && <button className="btn-sm" onClick={() => decide(r.id, "final-approve")}>Final Approve</button>}
+                          {r.actions?.canReject && <button className="btn-sm" onClick={() => reject(r.id)}>Reject</button>}
+                          {r.actions?.canMarkPaid && <button className="btn-sm" onClick={() => markPaid(r)}>Mark Paid</button>}
+                          {(r.actions?.canCancel || (r.status === "APPROVED" && r.actions?.canMarkPaid)) && (
+                            <button className="btn-sm btn-danger" onClick={() => decide(r.id, "cancel")}>Cancel</button>
+                          )}
+                          <button className="btn-sm" onClick={() => openAuthedFile(`/api/reimbursements/${r.id}/pdf`, { download: true, filename: `Reimbursement_${r.id}.pdf` }).catch((err) => setError(errorMessage(err)))}>PDF</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {list.length === 0 && <tr><td colSpan={8} className="empty-state">No reimbursements.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {showNew && <Modal title="New Expense Voucher" wide onClose={() => setShowNew(false)}>
+            <VoucherForm requireBill={false} onSubmitted={() => { setShowNew(false); load(); }} />
+          </Modal>}
+        </>
       )}
-
-      {showNew && <Modal title="New Expense Voucher" onClose={() => setShowNew(false)}>
-        <VoucherForm requireBill={false} onSubmitted={() => { setShowNew(false); load(); }} />
-      </Modal>}
       {showAccess && <AccessModal onClose={() => setShowAccess(false)} />}
     </div>
   );
@@ -121,7 +181,7 @@ function AccessModal({ onClose }) {
 
   useEffect(() => {
     Promise.all([client.get("/profiles"), client.get("/reimbursements/access")]).then(([p, a]) => {
-      setProfiles(p.data.filter((x) => x.type === "employee"));
+      setProfiles(p.data.filter((x) => ["employee", "admin"].includes(x.type)));
       setGranted(new Set(a.data));
     }).catch((err) => setError(errorMessage(err)));
   }, []);
