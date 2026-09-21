@@ -1,11 +1,14 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { db, admin } from "../src/config/firebase.js";
-import { COLLECTIONS, ROLES } from "../src/lib/constants.js";
+import { COLLECTIONS, ROLES, TEMP_PASSWORD } from "../src/lib/constants.js";
+import { DEFAULT_FORMULA } from "../src/lib/earningsFormula.js";
 
 async function seed() {
   const userId = process.env.SEED_SUPERADMIN_ID || "SUPERADMIN";
-  const password = process.env.SEED_SUPERADMIN_PASSWORD || "ChangeMe123!";
+  // Same standard temporary password every other new login gets — one
+  // password to protect/rotate instead of a second hardcoded default.
+  const password = process.env.SEED_SUPERADMIN_PASSWORD || TEMP_PASSWORD;
 
   const existing = await db.collection(COLLECTIONS.USERS).doc(userId).get();
   if (existing.exists) {
@@ -28,11 +31,11 @@ async function seed() {
     { merge: true }
   );
   await db.collection(COLLECTIONS.HR_SETTINGS).doc("earnings_formula").set(
-    { basicPercent: 50, hraPercent: 20, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: "seed" },
+    { ...DEFAULT_FORMULA, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: "seed" },
     { merge: true }
   );
 
-  console.log("Default settings (weekly off = Sunday, earnings formula = 50%/20%) ensured.");
+  console.log("Default settings (weekly off = Sunday, earnings formula = defaults) ensured.");
   process.exit(0);
 }
 

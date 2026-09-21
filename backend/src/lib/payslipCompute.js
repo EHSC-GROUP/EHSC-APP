@@ -9,7 +9,7 @@ import {
 } from "./dateUtils.js";
 import { getHolidaySetForRange, getWeeklyOffDays } from "./calendar.js";
 import { getLeaveTypes } from "./leaveBalances.js";
-import { attendanceMarksForMonth } from "./attendanceQuery.js";
+import { attendanceWeightsForMonth } from "./attendanceQuery.js";
 import { getCurrentSalaryVersion } from "./salaryStructures.js";
 
 // Expands one APPROVED leave request into per-day contributions, clipped to
@@ -49,12 +49,13 @@ async function getApprovedLeaveRequestsOverlapping(userId, periodStart, periodEn
 export async function computeMusterAndLeave(userId, period) {
   const { year, month, start, end } = monthBounds(period);
   const daysInMonthCount = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const isPresent = (date) => (attendanceWeights.get(date) || 0) > 0;
 
-  const [holidaySet, weeklyOffDays, leaveTypes, attendanceMarks, requests] = await Promise.all([
+  const [holidaySet, weeklyOffDays, leaveTypes, attendanceWeights, requests] = await Promise.all([
     getHolidaySetForRange(start, end),
     getWeeklyOffDays(),
     getLeaveTypes(),
-    attendanceMarksForMonth(userId, period),
+    attendanceWeightsForMonth(userId, period),
     getApprovedLeaveRequestsOverlapping(userId, start, end),
   ]);
 
@@ -122,7 +123,7 @@ export async function computeMusterAndLeave(userId, period) {
       if (entry.leaveType === HALF_DAY) mark = "HD";
       else if (entry.amount === 0.5) mark = `${entry.leaveType}(H)`;
       else mark = entry.leaveType;
-    } else if (attendanceMarks.get(date)) {
+    } else if (isPresent(date)) {
       mark = "P";
     } else {
       mark = "A";
@@ -132,7 +133,9 @@ export async function computeMusterAndLeave(userId, period) {
 
   const workingDays = daysInMonthCount - holidayDays - weeklyOffCount;
   const absentDays = dayMarks.filter((d) => d.mark === "A").length;
-  const systemPresentDays = [...attendanceMarks.values()].filter(Boolean).length;
+  // Days present per the attendance records: Present / Out of Office / Travel
+  // count as a full day, Half Day as half.
+  const systemPresentDays = round1([...attendanceWeights.values()].reduce((sum, w) => sum + w, 0));
 
   return {
     daysInMonth: daysInMonthCount,
@@ -151,20 +154,30 @@ export async function computeMusterAndLeave(userId, period) {
 
 export function computeEarningsForPayableDays(structureVersion, payableDays, daysInMonth) {
   const ratio = daysInMonth > 0 ? payableDays / daysInMonth : 0;
-  const basic = round2(structureVersion.basic * ratio);
-  const hra = round2(structureVersion.hra * ratio);
-  const others = round2(structureVersion.others * ratio);
-  const pt = payableDays > 0 ? Number(structureVersion.pt || 0) : 0;
-  const esi = structureVersion.esiApplicable
-    ? round2((basic + hra + others) * (Number(structureVersion.esiPercent) || 0) / 100)
-    : 0;
-  return { ratio, basic, hra, others, pt, esi };
+  // Formula-driven components pro-rate with payable days. Versions created
+  // before Transportation/Special/Medical Allowance existed simply have none
+  // of those (their `others` still carries the remainder of gross).
+  const prorate = (amount) => round2(Number(amount || 0) * ratio);
+  const basic = prorate(structureVersion.basic);
+  const hra = prorate(structureVersion.hra);
+  const transportAllowance = prorate(structureVersion.transport);
+  const specialAllowance = prorate(structureVersion.special);
+  const statutoryBonus = prorate(structureVersion.bonus);
+  const others = prorate(structureVersion.others);
+  // Flat amounts (not pro-rated): only zeroed when there are no payable days.
+  const flat = (amount) => (payableDays > 0 ? Number(amount || 0) : 0);
+  const pt = flat(structureVersion.pt);
+  const medicalAllowance = flat(structureVersion.medicalAllowance);
+  return { ratio, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance };
 }
 
-export function computeTotals({ basic, hra, others, incentives, pt, incomeTax, esi, othersDeduction }) {
-  const totalEarnings = round2(Number(basic) + Number(hra) + Number(others) + Number(incentives || 0));
+export function computeTotals(p) {
+  const totalEarnings = round2(
+    Number(p.basic) + Number(p.hra) + Number(p.transportAllowance || 0) + Number(p.specialAllowance || 0) +
+    Number(p.statutoryBonus || 0) + Number(p.others) + Number(p.incentives || 0)
+  );
   const totalDeductions = round2(
-    Number(pt || 0) + Number(incomeTax || 0) + Number(esi || 0) + Number(othersDeduction || 0)
+    Number(p.pt || 0) + Number(p.medicalAllowance || 0) + Number(p.incomeTax || 0) + Number(p.othersDeduction || 0)
   );
   const netPay = round2(totalEarnings - totalDeductions);
   return { totalEarnings, totalDeductions, netPay };
@@ -181,29 +194,26 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
 
   const muster = await computeMusterAndLeave(userId, period);
 
-  const presentDays = existing ? existing.presentDays : 0;
+  // Present Days comes from the attendance records. If an admin overrode it by
+  // hand (or, for payslips made before this flag existed, entered a value), that
+  // manual figure is kept when regenerating.
+  const presentDaysManual = existing
+    ? existing.presentDaysManual ?? Number(existing.presentDays) > 0
+    : false;
+  const presentDays = presentDaysManual ? existing.presentDays : muster.systemPresentDays;
   const incentives = existing ? existing.incentives ?? 0 : 0;
   const incomeTax = existing ? existing.incomeTax ?? 0 : 0;
   const othersDeduction = existing ? existing.othersDeduction ?? 0 : 0;
   const ptManual = existing?.ptManual || false;
-  const esiManual = existing?.esiManual || false;
+  const medicalManual = existing?.medicalManual || false;
 
   const payableDays = Math.min(muster.daysInMonth, round2(Number(presentDays) + muster.paidLeaveDays));
   const earnings = computeEarningsForPayableDays(structureVersion, payableDays, muster.daysInMonth);
 
   const pt = ptManual ? existing.pt : earnings.pt;
-  const esi = esiManual ? existing.esi : earnings.esi;
+  const medicalAllowance = medicalManual ? existing.medicalAllowance : earnings.medicalAllowance;
 
-  const totals = computeTotals({
-    basic: earnings.basic,
-    hra: earnings.hra,
-    others: earnings.others,
-    incentives,
-    pt,
-    incomeTax,
-    esi,
-    othersDeduction,
-  });
+  const totals = computeTotals({ ...earnings, incentives, pt, medicalAllowance, incomeTax, othersDeduction });
 
   return {
     skipped: false,
@@ -218,6 +228,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     daysInMonth: muster.daysInMonth,
     workingDays: muster.workingDays,
     presentDays: Number(presentDays),
+    presentDaysManual,
     systemPresentDays: muster.systemPresentDays,
     paidLeaveDays: muster.paidLeaveDays,
     payableDays,
@@ -230,43 +241,63 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     dayMarks: muster.dayMarks,
     basic: earnings.basic,
     hra: earnings.hra,
+    transportAllowance: earnings.transportAllowance,
+    specialAllowance: earnings.specialAllowance,
+    statutoryBonus: earnings.statutoryBonus,
     others: earnings.others,
     incentives: Number(incentives),
     pt: Number(pt),
+    medicalAllowance: Number(medicalAllowance),
     incomeTax: Number(incomeTax),
-    esi: Number(esi),
     othersDeduction: Number(othersDeduction),
     ptManual,
-    esiManual,
+    medicalManual,
     ...totals,
   };
 }
 
-// Edit: recompute payable days/basic/hra/others only if presentDays changed;
-// always recompute totals. incentives/pt/incomeTax/esi/othersDeduction are
-// applied only when explicitly present in `updates` (undefined = keep as-is).
+// Edit: recompute payable days and the earnings components only if
+// presentDays changed; always recompute totals. incentives/pt/
+// medicalAllowance/incomeTax/othersDeduction are applied only when
+// explicitly present in `updates` (undefined = keep as-is).
 export async function applyPayslipEdit(existing, updates) {
-  let { presentDays, payableDays, basic, hra, others, pt, esi, ptManual, esiManual } = existing;
+  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance, ptManual, medicalManual } = existing;
 
-  if (updates.presentDays !== undefined && Number(updates.presentDays) !== existing.presentDays) {
-    presentDays = Number(updates.presentDays);
+  // Payslips made before the flag existed count as manual if a value was entered.
+  presentDaysManual = presentDaysManual ?? Number(existing.presentDays) > 0;
+
+  // An admin either types a different figure (manual override) or asks to go
+  // back to the attendance-based one.
+  let newPresentDays = null;
+  if (updates.useAttendance) {
+    newPresentDays = Number(existing.systemPresentDays || 0);
+    presentDaysManual = false;
+  } else if (updates.presentDays !== undefined && Number(updates.presentDays) !== existing.presentDays) {
+    newPresentDays = Number(updates.presentDays);
+    presentDaysManual = true;
+  }
+  if (newPresentDays !== null && newPresentDays !== existing.presentDays) {
+    presentDays = newPresentDays;
     const structureVersion = await getCurrentSalaryVersion(existing.userId, monthBounds(existing.period).end);
     payableDays = Math.min(existing.daysInMonth, round2(presentDays + existing.paidLeaveDays));
     const earnings = computeEarningsForPayableDays(structureVersion, payableDays, existing.daysInMonth);
     basic = earnings.basic;
     hra = earnings.hra;
+    transportAllowance = earnings.transportAllowance;
+    specialAllowance = earnings.specialAllowance;
+    statutoryBonus = earnings.statutoryBonus;
     others = earnings.others;
     if (!ptManual) pt = earnings.pt;
-    if (!esiManual) esi = earnings.esi;
+    if (!medicalManual) medicalAllowance = earnings.medicalAllowance;
   }
 
   if (updates.pt !== undefined) {
     pt = Number(updates.pt);
     ptManual = true;
   }
-  if (updates.esi !== undefined) {
-    esi = Number(updates.esi);
-    esiManual = true;
+  if (updates.medicalAllowance !== undefined) {
+    medicalAllowance = Number(updates.medicalAllowance);
+    medicalManual = true;
   }
 
   const incentives = updates.incentives !== undefined ? Number(updates.incentives) : existing.incentives;
@@ -274,22 +305,29 @@ export async function applyPayslipEdit(existing, updates) {
   const othersDeduction =
     updates.othersDeduction !== undefined ? Number(updates.othersDeduction) : existing.othersDeduction;
 
-  const totals = computeTotals({ basic, hra, others, incentives, pt, incomeTax, esi, othersDeduction });
+  const totals = computeTotals({
+    basic, hra, transportAllowance, specialAllowance, statutoryBonus, others,
+    incentives, pt, medicalAllowance, incomeTax, othersDeduction,
+  });
 
   return {
     ...existing,
     presentDays,
+    presentDaysManual: presentDaysManual ?? false,
     payableDays,
     basic,
     hra,
+    transportAllowance,
+    specialAllowance,
+    statutoryBonus,
     others,
     incentives,
     pt,
+    medicalAllowance,
     incomeTax,
-    esi,
     othersDeduction,
     ptManual,
-    esiManual,
+    medicalManual,
     ...totals,
   };
 }

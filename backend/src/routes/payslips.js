@@ -7,8 +7,20 @@ import { computeGeneratedPayslip, applyPayslipEdit } from "../lib/payslipCompute
 import { renderPayslipPdf, renderConsolidatedPayslipPdf } from "../lib/payslipPdf.js";
 import { buildPayrollRegisterWorkbook } from "../lib/payrollExcel.js";
 import { uploadBuffer, streamFile } from "../lib/storage.js";
+import { isValidId } from "../lib/validateId.js";
 
 const router = Router();
+// userId route params must look like a real ID before they're used to build
+// a Firestore document path (see lib/validateId.js). 'ALL' is the one
+// special literal (documents.js's company-wide bucket) and passes through
+// since it's plain letters.
+router.param("userId", (req, res, next, value) => {
+  const v = (value || "").toUpperCase();
+  if (!isValidId(v)) return res.status(400).json({ error: "userId is invalid" });
+  req.params.userId = v;
+  next();
+});
+
 
 function payslipDocId(userId, period) {
   return `${userId}_${period}`;
@@ -34,7 +46,7 @@ async function getActiveEmployeeProfiles(userIds) {
     const snaps = await db.getAll(...refs);
     profiles = snaps.filter((s) => s.exists).map((s) => ({ userId: s.id, ...s.data() }));
   } else {
-    const snap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "==", "employee").get();
+    const snap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get();
     profiles = snap.docs.map((d) => ({ userId: d.id, ...d.data() }));
   }
   return attachNames(profiles);
@@ -47,7 +59,7 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
     if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
 
     const [profiles, payslipsSnap] = await Promise.all([
-      db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "==", "employee").get(),
+      db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get(),
       db.collection(COLLECTIONS.HR_PAYSLIPS).where("period", "==", period).get(),
     ]);
     const payslipsByUser = new Map(payslipsSnap.docs.map((d) => [d.data().userId, { id: d.id, ...d.data() }]));
