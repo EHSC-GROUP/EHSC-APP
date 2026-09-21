@@ -6,8 +6,20 @@ import { COLLECTIONS, ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, deleteFile, safeFileName } from "../lib/storage.js";
+import { isValidId } from "../lib/validateId.js";
 
 const router = Router();
+// userId route params must look like a real ID before they're used to build
+// a Firestore document path (see lib/validateId.js). 'ALL' is the one
+// special literal (documents.js's company-wide bucket) and passes through
+// since it's plain letters.
+router.param("userId", (req, res, next, value) => {
+  const v = (value || "").toUpperCase();
+  if (!isValidId(v)) return res.status(400).json({ error: "userId is invalid" });
+  req.params.userId = v;
+  next();
+});
+
 
 router.get("/:userId", authenticate, async (req, res, next) => {
   try {
