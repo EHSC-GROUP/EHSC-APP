@@ -5,8 +5,8 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES, PROFILE_TYPE, STAFF_PROFILE_TYPES, DEPARTMENTS, TEMP_PASSWORD } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { generateAssociateId } from "../lib/userId.js";
-import { getAssignedWork } from "../lib/assignedWork.js";
 import { isValidId } from "../lib/validateId.js";
+import { pickCurrentVersion } from "../lib/salaryStructures.js";
 
 const router = Router();
 // userId route params must look like a real ID before they're used to build
@@ -74,16 +74,25 @@ function validateStaffFields(body, { partial }) {
 router.get("/", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const includeArchived = req.query.includeArchived === "true";
-    const [profilesSnap, usersSnap] = await Promise.all([
+    const [profilesSnap, usersSnap, salarySnap] = await Promise.all([
       db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).get(),
       db.collection(COLLECTIONS.USERS).get(),
+      db.collection(COLLECTIONS.HR_SALARY_STRUCTURES).get(),
     ]);
     const usersById = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
+    const salaryById = new Map(salarySnap.docs.map((d) => [d.id, d.data().versions || []]));
 
     const list = profilesSnap.docs
       .map((d) => {
         const profile = d.data();
         const user = usersById.get(d.id) || {};
+        // Reference net salary for a full month (gross minus the flat
+        // deductions on the current salary version) — not the same as a
+        // specific payslip's net pay, which prorates with payable days.
+        const version = pickCurrentVersion(salaryById.get(d.id));
+        const netSalary = version
+          ? Math.round((Number(version.gross || 0) - Number(version.pt || 0) - Number(version.medicalAllowance || 0) - Number(version.tds || 0)) * 100) / 100
+          : null;
         return {
           ...profile,
           userId: d.id,
@@ -91,6 +100,7 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
           role: user.role,
           disabled: !!user.disabled,
           status: deriveStatus(profile),
+          netSalary,
         };
       })
       .filter((p) => includeArchived || !p.disabled);
@@ -123,20 +133,6 @@ router.get("/:userId", authenticate, async (req, res, next) => {
       role: user.role,
       status: deriveStatus(profile),
     });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/:userId/assigned-work", authenticate, async (req, res, next) => {
-  try {
-    const targetId = req.params.userId.toUpperCase();
-    const isSelf = req.user.userId === targetId;
-    const isAdmin = [ROLES.ADMIN, ROLES.SUPERADMIN].includes(req.user.role);
-    if (!isSelf && !isAdmin) return res.status(403).json({ error: "Forbidden" });
-
-    const items = await getAssignedWork(targetId);
-    res.json(items);
   } catch (err) {
     next(err);
   }

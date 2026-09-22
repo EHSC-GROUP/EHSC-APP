@@ -2,15 +2,16 @@ import { db } from "../config/firebase.js";
 import { COLLECTIONS } from "./constants.js";
 import { round2 } from "./dateUtils.js";
 
-// Basic is a percent of Gross. HRA, Transportation Allowance and Special
-// Allowance are each a percent of BASIC. Whatever of gross is left over
+// Basic, HRA, Special Allowances and Transportation Allowance are each a
+// percent of GROSS directly (not of Basic). Whatever of gross is left over
 // lands in `others` ("Statutory Bonus-Others" on payslips/exports), so the
-// components always add back up to gross.
+// components always add back up to gross. Defaults match EHSC's real slip
+// format: 50 / 25 / 12.5 / 2.5, leaving 10% as Statutory Bonus-Others.
 export const DEFAULT_FORMULA = Object.freeze({
   basicPercent: 50,
-  hraPercent: 40,
-  transportPercent: 20,
-  specialPercent: 20,
+  hraPercent: 25,
+  specialPercent: 12.5,
+  transportPercent: 2.5,
 });
 
 const FORMULA_KEYS = Object.keys(DEFAULT_FORMULA);
@@ -25,27 +26,25 @@ export async function getEarningsFormula() {
 
 export function computeEarnings(gross, formula) {
   const g = Number(gross);
-  const basic = round2((g * formula.basicPercent) / 100);
-  const pctOfBasic = (p) => round2((basic * Number(p)) / 100);
-  const hra = pctOfBasic(formula.hraPercent);
-  const transport = pctOfBasic(formula.transportPercent);
-  const special = pctOfBasic(formula.specialPercent);
-  const others = round2(g - basic - hra - transport - special);
+  const pctOfGross = (p) => round2((g * Number(p)) / 100);
+  const basic = pctOfGross(formula.basicPercent);
+  const hra = pctOfGross(formula.hraPercent);
+  const special = pctOfGross(formula.specialPercent);
+  const transport = pctOfGross(formula.transportPercent);
+  const others = round2(g - basic - hra - special - transport);
   return { basic, hra, transport, special, others };
 }
 
-// Every percent must be a non-negative number, and the components must not
-// add up to more than 100% of gross:
-// basic% + basic% * (hra% + transport% + special%) / 100 <= 100.
+// Every percent must be a non-negative number, and they must not add up to
+// more than 100% of gross (whatever's left is Statutory Bonus-Others).
 export function validateFormula(formula) {
   for (const key of FORMULA_KEYS) {
     const v = Number(formula[key]);
     if (!Number.isFinite(v) || v < 0) return `${key} must be a non-negative number`;
   }
-  const bp = Number(formula.basicPercent);
-  const ofBasic = Number(formula.hraPercent) + Number(formula.transportPercent) + Number(formula.specialPercent);
-  if (bp + (bp * ofBasic) / 100 > 100 + 1e-9) {
-    return "Basic + HRA + Transportation + Special exceed 100% of gross";
+  const sum = FORMULA_KEYS.reduce((s, key) => s + Number(formula[key]), 0);
+  if (sum > 100 + 1e-9) {
+    return "Basic + HRA + Special Allowances + Transportation Allowance exceed 100% of gross";
   }
   return null;
 }

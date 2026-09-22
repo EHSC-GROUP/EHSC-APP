@@ -128,18 +128,18 @@ export default function Settings() {
       <div className="card">
         <h3 className="mt-0">Earnings Formula</h3>
         <p className="hint-text mt-0">
-          Basic = Gross × Basic%. HRA, Transportation Allowance and Special Allowance are each a
-          percent of <strong>Basic</strong> (not of gross). Anything left over of gross shows as "Statutory Bonus-Others".
+          Basic, HRA, Special Allowances and Transportation Allowance are each a percent of <strong>Gross</strong>.
+          Anything left over of gross shows as "Statutory Bonus-Others".
         </p>
         {!formula ? <Loading /> : (
           <form onSubmit={save}>
             <div className="form-row">
               <div><label>Basic % (of Gross)</label><input type="number" min="0" max="100" step="0.01" value={formula.basicPercent} onChange={(e) => setFormula({ ...formula, basicPercent: Number(e.target.value) })} /></div>
-              <div><label>HRA % (of Basic)</label><input type="number" min="0" step="0.01" value={formula.hraPercent} onChange={(e) => setFormula({ ...formula, hraPercent: Number(e.target.value) })} /></div>
+              <div><label>HRA % (of Gross)</label><input type="number" min="0" step="0.01" value={formula.hraPercent} onChange={(e) => setFormula({ ...formula, hraPercent: Number(e.target.value) })} /></div>
             </div>
             <div className="form-row">
-              <div><label>Transportation Allowance % (of Basic)</label><input type="number" min="0" step="0.01" value={formula.transportPercent} onChange={(e) => setFormula({ ...formula, transportPercent: Number(e.target.value) })} /></div>
-              <div><label>Special Allowance % (of Basic)</label><input type="number" min="0" step="0.01" value={formula.specialPercent} onChange={(e) => setFormula({ ...formula, specialPercent: Number(e.target.value) })} /></div>
+              <div><label>Special Allowances % (of Gross)</label><input type="number" min="0" step="0.01" value={formula.specialPercent} onChange={(e) => setFormula({ ...formula, specialPercent: Number(e.target.value) })} /></div>
+              <div><label>Transportation Allowance % (of Gross)</label><input type="number" min="0" step="0.01" value={formula.transportPercent} onChange={(e) => setFormula({ ...formula, transportPercent: Number(e.target.value) })} /></div>
             </div>
             <ErrorText>{error}</ErrorText>
             <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Save"}</button>

@@ -62,7 +62,7 @@ export default function EmployeeProfiles({ kind = "staff" }) {
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>User ID</th><th>Type</th><th>Designation</th><th>Department</th><th>Status</th>
+                <th>Name</th><th>User ID</th><th>Type</th><th>Designation</th><th>Department</th><th>Net Salary</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -73,10 +73,11 @@ export default function EmployeeProfiles({ kind = "staff" }) {
                   <td>{p.type}</td>
                   <td>{p.designation || "-"}</td>
                   <td>{p.department || "-"}</td>
+                  <td className="amt-gross">{p.netSalary != null ? `₹${p.netSalary.toFixed(2)}` : "-"}</td>
                   <td><StatusBadge status={p.status} /></td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={6} className="empty-state">No profiles found.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={7} className="empty-state">No profiles found.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -108,6 +109,7 @@ function CreateProfileModal({ kind, onClose, onCreated }) {
   const [form, setForm] = useState({
     name: "", firstName: "", lastName: "", employeeId: "", designation: "", department: "",
     address: "", professionalEmail: "", personalEmail: "", email: "", phone: "",
+    reportingManager: "", emergencyContactName: "", emergencyContactPhone: "",
   });
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -181,7 +183,11 @@ function CreateProfileModal({ kind, onClose, onCreated }) {
             </div>
             <div className="form-row">
               <div><label>Phone</label><input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></div>
-              <div />
+              <div><label>Reporting Manager</label><input value={form.reportingManager} onChange={(e) => set("reportingManager", e.target.value)} /></div>
+            </div>
+            <div className="form-row">
+              <div><label>Emergency Contact Name</label><input value={form.emergencyContactName} onChange={(e) => set("emergencyContactName", e.target.value)} /></div>
+              <div><label>Emergency Contact Phone</label><input value={form.emergencyContactPhone} onChange={(e) => set("emergencyContactPhone", e.target.value)} /></div>
             </div>
           </>
         ) : (
@@ -204,7 +210,7 @@ function CreateProfileModal({ kind, onClose, onCreated }) {
   );
 }
 
-const TABS = ["Profile", "Assigned Work", "Salary", "Leave Balances", "Files"];
+const TABS = ["Profile", "Salary", "Leave Balances", "Files"];
 
 function ProfileDrawer({ userId, onClose, onChanged }) {
   const [profile, setProfile] = useState(null);
@@ -238,7 +244,6 @@ function ProfileDrawer({ userId, onClose, onChanged }) {
             ))}
           </div>
           {tab === "Profile" && <ProfileTab profile={profile} onSaved={() => { load(); onChanged(); }} />}
-          {tab === "Assigned Work" && <AssignedWorkTab userId={userId} />}
           {tab === "Salary" && isStaff(profile.type) && <SalaryTab userId={userId} />}
           {tab === "Leave Balances" && isStaff(profile.type) && <LeaveBalanceTab userId={userId} />}
           {tab === "Files" && <FilesTab userId={userId} type={profile.type} />}
@@ -325,6 +330,9 @@ function ProfileTab({ profile, onSaved }) {
             {!isExternal && <tr><td>Personal Email</td><td>{profile.personalEmail || "-"}</td></tr>}
             {isExternal && <tr><td>Email</td><td>{profile.email || "-"}</td></tr>}
             <tr><td>Phone</td><td>{profile.phone || "-"}</td></tr>
+            {!isExternal && <tr><td>Reporting Manager</td><td>{profile.reportingManager || "-"}</td></tr>}
+            <tr><td>Emergency Contact Name</td><td>{profile.emergencyContactName || "-"}</td></tr>
+            <tr><td>Emergency Contact Phone</td><td>{profile.emergencyContactPhone || "-"}</td></tr>
             <tr><td>Address</td><td style={{ whiteSpace: "pre-wrap" }}>{profile.address || "-"}</td></tr>
             <tr><td>ESI Number</td><td>{profile.esiNumber || "-"}</td></tr>
             <tr><td>UAN</td><td>{profile.uan || "-"}</td></tr>
@@ -394,10 +402,16 @@ function ProfileTab({ profile, onSaved }) {
             <div><label>Professional Email</label><input type="email" value={form.professionalEmail || ""} onChange={(e) => set("professionalEmail", e.target.value)} required /></div>
             <div><label>Personal Email</label><input type="email" value={form.personalEmail || ""} onChange={(e) => set("personalEmail", e.target.value)} required /></div>
           </div>
-          <label>Phone</label>
-          <input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} />
+          <div className="form-row">
+            <div><label>Phone</label><input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} /></div>
+            <div><label>Reporting Manager</label><input value={form.reportingManager || ""} onChange={(e) => set("reportingManager", e.target.value)} /></div>
+          </div>
         </>
       )}
+      <div className="form-row">
+        <div><label>Emergency Contact Name</label><input value={form.emergencyContactName || ""} onChange={(e) => set("emergencyContactName", e.target.value)} /></div>
+        <div><label>Emergency Contact Phone</label><input value={form.emergencyContactPhone || ""} onChange={(e) => set("emergencyContactPhone", e.target.value)} /></div>
+      </div>
       <label>Address</label>
       <textarea rows={2} value={form.address || ""} onChange={(e) => set("address", e.target.value)} />
       <div className="form-row">
@@ -415,78 +429,6 @@ function ProfileTab({ profile, onSaved }) {
         <button type="button" onClick={() => { setForm(profile); setEditing(false); }}>Cancel</button>
       </div>
     </form>
-  );
-}
-
-function assignedWorkEndpoint(a) {
-  return a.source === "project"
-    ? `/projects/${a.sourceId}/plan-actions/${a.id}`
-    : `/business-development/${a.sourceId}/actions/${a.id}`;
-}
-
-function AssignedWorkTab({ userId }) {
-  const [items, setItems] = useState(null);
-  const [error, setError] = useState("");
-  const [busyId, setBusyId] = useState(null);
-
-  useEffect(() => {
-    setItems(null);
-    client.get(`/profiles/${userId}/assigned-work`)
-      .then(({ data }) => setItems(data))
-      .catch((err) => setError(errorMessage(err)));
-  }, [userId]);
-
-  async function toggleCompleted(a) {
-    setError("");
-    setBusyId(a.id);
-    try {
-      const completed = !a.completed;
-      await client.put(assignedWorkEndpoint(a), { completed });
-      setItems((list) => list.map((x) => (x.id === a.id ? { ...x, completed, completedAt: completed ? new Date().toISOString() : null } : x)));
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  if (!items) return error ? <ErrorText>{error}</ErrorText> : <Loading />;
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  return (
-    <div className="table-wrap">
-      <ErrorText>{error}</ErrorText>
-      <table>
-        <thead>
-          <tr><th>Description</th><th>From</th><th>Due</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody>
-          {items.map((a) => {
-            const overdue = !a.completed && a.dueDate && a.dueDate < today;
-            return (
-              <tr key={`${a.source}-${a.sourceId}-${a.id}`}>
-                <td>
-                  {a.description}
-                  <div className="hint-text">
-                    {a.source === "project" ? "Project" : "Enquiry"} {a.sourceLabel} — {a.clientName}
-                  </div>
-                </td>
-                <td>{a.startDate || "-"}</td>
-                <td className={overdue ? "overdue" : ""}>{a.dueDate}{overdue ? " (overdue)" : ""}</td>
-                <td><StatusBadge status={a.completed ? "COMPLETED" : "PENDING"} /></td>
-                <td>
-                  <button className="btn-sm" disabled={busyId === a.id} onClick={() => toggleCompleted(a)}>
-                    {busyId === a.id ? "Saving…" : a.completed ? "Mark Pending" : "Mark Complete"}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-          {items.length === 0 && <tr><td colSpan={5} className="empty-state">No work assigned yet.</td></tr>}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -531,7 +473,7 @@ function SalaryTab({ userId }) {
       {showNew && <NewVersionForm userId={userId} gross={gross} setGross={setGross} preview={preview} onCreated={() => { setShowNew(false); setGross(""); load(); }} />}
 
       <table>
-        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Transport</th><th>Special</th><th>Statutory Bonus-Others</th><th>PT</th><th>Medical Ins.</th><th>TDS</th></tr></thead>
+        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Special Allow.</th><th>Transport</th><th>Statutory Bonus-Others</th><th>PT</th><th>Medical Ins.</th><th>TDS</th><th>Net Salary</th></tr></thead>
         <tbody>
           {data.versions.map((v) => (
             <tr key={v.effectiveFrom}>
@@ -539,31 +481,39 @@ function SalaryTab({ userId }) {
               <td className="amt-gross">₹{v.gross}</td>
               <td className="amt-basic">₹{v.basic}</td>
               <td className="amt-hra">₹{v.hra}</td>
-              <td className="amt-allow">₹{v.transport || 0}</td>
               <td className="amt-allow">₹{v.special || 0}</td>
+              <td className="amt-allow">₹{v.transport || 0}</td>
               <td className="amt-others">₹{v.others}</td>
               <td className="amt-deduction">₹{v.pt}</td>
               <td className="amt-deduction">₹{v.medicalAllowance || 0}</td>
               <td className="amt-deduction">₹{v.tds || 0}</td>
+              <td className="amt-gross">₹{netSalaryOf(v).toFixed(2)}</td>
             </tr>
           ))}
-          {data.versions.length === 0 && <tr><td colSpan={10} className="empty-state">No salary structure yet.</td></tr>}
+          {data.versions.length === 0 && <tr><td colSpan={11} className="empty-state">No salary structure yet.</td></tr>}
         </tbody>
       </table>
     </div>
   );
 }
 
+// Reference net salary for a full month, before any attendance-based
+// proration — gross minus the flat deductions on that version. The actual
+// payslip's net pay can differ (it prorates with payable days).
+function netSalaryOf(v) {
+  return Number(v.gross || 0) - Number(v.pt || 0) - Number(v.medicalAllowance || 0) - Number(v.tds || 0);
+}
+
 const COMPONENT_FIELDS = [
   ["basic", "Basic"],
   ["hra", "HRA"],
+  ["special", "Special Allowances (Mobile, Uniform, Maintenance, Internet)"],
   ["transport", "Transportation Allowance"],
-  ["special", "Special Allowance"],
 ];
 
 function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
   const [form, setForm] = useState({ effectiveFrom: "", pt: 0, medicalAllowance: 0, tds: 0 });
-  const [comps, setComps] = useState({ basic: "", hra: "", transport: "", special: "" });
+  const [comps, setComps] = useState({ basic: "", hra: "", special: "", transport: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -573,10 +523,10 @@ function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
   // changes (the parent debounces the preview request).
   useEffect(() => {
     if (!preview) {
-      setComps({ basic: "", hra: "", transport: "", special: "" });
+      setComps({ basic: "", hra: "", special: "", transport: "" });
       return;
     }
-    setComps({ basic: preview.basic, hra: preview.hra, transport: preview.transport, special: preview.special });
+    setComps({ basic: preview.basic, hra: preview.hra, special: preview.special, transport: preview.transport });
   }, [preview]);
 
   const grossNum = Number(gross) || 0;
