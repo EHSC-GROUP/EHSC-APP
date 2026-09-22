@@ -110,9 +110,9 @@ router.post("/:userId", authenticate, requireAdmin, async (req, res, next) => {
     const typeError = await assertEmployeeType(userId);
     if (typeError) return res.status(400).json({ error: typeError });
 
-    // pt and medicalAllowance are flat deduction amounts entered directly
-    // (not percentages).
-    const { effectiveFrom, gross, pt, medicalAllowance, components } = req.body;
+    // pt, medicalAllowance and tds are flat deduction amounts entered
+    // directly (not percentages).
+    const { effectiveFrom, gross, pt, medicalAllowance, tds, components } = req.body;
     if (!effectiveFrom || !(Number(gross) > 0)) {
       return res.status(400).json({ error: "effectiveFrom and a positive gross are required" });
     }
@@ -152,6 +152,7 @@ router.post("/:userId", authenticate, requireAdmin, async (req, res, next) => {
         ...formulaSnapshot(formula),
         pt: Number(pt) || 0,
         medicalAllowance: Number(medicalAllowance) || 0,
+        tds: Number(tds) || 0,
         addedBy: req.user.userId,
         addedAt: new Date().toISOString(),
       };

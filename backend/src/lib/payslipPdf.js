@@ -49,7 +49,7 @@ function drawPayslipPage(doc, payslip) {
     ];
     const deductions = [
       ["Professional Tax", payslip.pt],
-      ["Income Tax", payslip.incomeTax],
+      ["TDS", payslip.incomeTax],
       ["Medical Insurance", payslip.medicalAllowance],
       ["Other Deductions", payslip.othersDeduction],
     ];

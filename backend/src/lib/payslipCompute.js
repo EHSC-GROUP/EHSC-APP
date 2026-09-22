@@ -168,7 +168,8 @@ export function computeEarningsForPayableDays(structureVersion, payableDays, day
   const flat = (amount) => (payableDays > 0 ? Number(amount || 0) : 0);
   const pt = flat(structureVersion.pt);
   const medicalAllowance = flat(structureVersion.medicalAllowance);
-  return { ratio, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance };
+  const tds = flat(structureVersion.tds);
+  return { ratio, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance, tds };
 }
 
 export function computeTotals(p) {
@@ -202,16 +203,19 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     : false;
   const presentDays = presentDaysManual ? existing.presentDays : muster.systemPresentDays;
   const incentives = existing ? existing.incentives ?? 0 : 0;
-  const incomeTax = existing ? existing.incomeTax ?? 0 : 0;
   const othersDeduction = existing ? existing.othersDeduction ?? 0 : 0;
   const ptManual = existing?.ptManual || false;
   const medicalManual = existing?.medicalManual || false;
+  const incomeTaxManual = existing?.incomeTaxManual || false;
 
   const payableDays = Math.min(muster.daysInMonth, round2(Number(presentDays) + muster.paidLeaveDays));
   const earnings = computeEarningsForPayableDays(structureVersion, payableDays, muster.daysInMonth);
 
   const pt = ptManual ? existing.pt : earnings.pt;
   const medicalAllowance = medicalManual ? existing.medicalAllowance : earnings.medicalAllowance;
+  // TDS defaults from the salary structure (like PT/Medical Insurance); a
+  // manually-edited figure on this payslip survives regeneration.
+  const incomeTax = incomeTaxManual ? existing.incomeTax : earnings.tds;
 
   const totals = computeTotals({ ...earnings, incentives, pt, medicalAllowance, incomeTax, othersDeduction });
 
@@ -252,6 +256,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     othersDeduction: Number(othersDeduction),
     ptManual,
     medicalManual,
+    incomeTaxManual,
     ...totals,
   };
 }
@@ -261,7 +266,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
 // medicalAllowance/incomeTax/othersDeduction are applied only when
 // explicitly present in `updates` (undefined = keep as-is).
 export async function applyPayslipEdit(existing, updates) {
-  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance, ptManual, medicalManual } = existing;
+  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance, incomeTax, ptManual, medicalManual, incomeTaxManual } = existing;
 
   // Payslips made before the flag existed count as manual if a value was entered.
   presentDaysManual = presentDaysManual ?? Number(existing.presentDays) > 0;
@@ -289,6 +294,7 @@ export async function applyPayslipEdit(existing, updates) {
     others = earnings.others;
     if (!ptManual) pt = earnings.pt;
     if (!medicalManual) medicalAllowance = earnings.medicalAllowance;
+    if (!incomeTaxManual) incomeTax = earnings.tds;
   }
 
   if (updates.pt !== undefined) {
@@ -299,9 +305,12 @@ export async function applyPayslipEdit(existing, updates) {
     medicalAllowance = Number(updates.medicalAllowance);
     medicalManual = true;
   }
+  if (updates.incomeTax !== undefined) {
+    incomeTax = Number(updates.incomeTax);
+    incomeTaxManual = true;
+  }
 
   const incentives = updates.incentives !== undefined ? Number(updates.incentives) : existing.incentives;
-  const incomeTax = updates.incomeTax !== undefined ? Number(updates.incomeTax) : existing.incomeTax;
   const othersDeduction =
     updates.othersDeduction !== undefined ? Number(updates.othersDeduction) : existing.othersDeduction;
 
@@ -328,6 +337,7 @@ export async function applyPayslipEdit(existing, updates) {
     othersDeduction,
     ptManual,
     medicalManual,
+    incomeTaxManual,
     ...totals,
   };
 }

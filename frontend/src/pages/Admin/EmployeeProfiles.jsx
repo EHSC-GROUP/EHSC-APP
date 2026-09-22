@@ -100,8 +100,8 @@ export default function EmployeeProfiles({ kind = "staff" }) {
 }
 
 const DEPARTMENTS = ["BD", "HR", "Operations", "Finance", "Business Management"];
-const TYPE_LABEL = { employee: "Employee", admin: "Admin", associate: "Associate" };
-const isStaff = (type) => type === "employee" || type === "admin";
+const TYPE_LABEL = { employee: "Employee", admin: "Admin", team_leader: "Team Leader", associate: "Associate" };
+const isStaff = (type) => type === "employee" || type === "admin" || type === "team_leader";
 
 function CreateProfileModal({ kind, onClose, onCreated }) {
   const [type, setType] = useState(kind === "associate" ? "associate" : "employee");
@@ -531,7 +531,7 @@ function SalaryTab({ userId }) {
       {showNew && <NewVersionForm userId={userId} gross={gross} setGross={setGross} preview={preview} onCreated={() => { setShowNew(false); setGross(""); load(); }} />}
 
       <table>
-        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Transport</th><th>Special</th><th>Medical Allow.</th><th>Others</th><th>PT</th><th>Medical Ins.</th></tr></thead>
+        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Transport</th><th>Special</th><th>Medical Allow.</th><th>Others</th><th>PT</th><th>Medical Ins.</th><th>TDS</th></tr></thead>
         <tbody>
           {data.versions.map((v) => (
             <tr key={v.effectiveFrom}>
@@ -545,9 +545,10 @@ function SalaryTab({ userId }) {
               <td className="amt-others">₹{v.others}</td>
               <td className="amt-deduction">₹{v.pt}</td>
               <td className="amt-deduction">₹{v.medicalAllowance || 0}</td>
+              <td className="amt-deduction">₹{v.tds || 0}</td>
             </tr>
           ))}
-          {data.versions.length === 0 && <tr><td colSpan={10} className="empty-state">No salary structure yet.</td></tr>}
+          {data.versions.length === 0 && <tr><td colSpan={11} className="empty-state">No salary structure yet.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -563,7 +564,7 @@ const COMPONENT_FIELDS = [
 ];
 
 function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
-  const [form, setForm] = useState({ effectiveFrom: "", pt: 0, medicalAllowance: 0 });
+  const [form, setForm] = useState({ effectiveFrom: "", pt: 0, medicalAllowance: 0, tds: 0 });
   const [comps, setComps] = useState({ basic: "", hra: "", transport: "", special: "", bonus: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -629,6 +630,10 @@ function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
       <div className="form-row">
         <div><label>PT (flat)</label><input type="number" min="0" step="0.01" value={form.pt} onChange={(e) => set("pt", e.target.value)} /></div>
         <div><label>Medical Insurance (flat)</label><input type="number" min="0" step="0.01" value={form.medicalAllowance} onChange={(e) => set("medicalAllowance", e.target.value)} /></div>
+      </div>
+      <div className="form-row">
+        <div><label>TDS (flat)</label><input type="number" min="0" step="0.01" value={form.tds} onChange={(e) => set("tds", e.target.value)} /></div>
+        <div />
       </div>
       <ErrorText>{error}</ErrorText>
       <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Version"}</button>

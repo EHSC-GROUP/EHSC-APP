@@ -292,7 +292,7 @@ function EditPayslipModal({ payslip, period, onClose, onSaved }) {
           <div><label>Medical Insurance</label><input type="number" step="0.01" value={form.medicalAllowance} onChange={(e) => set("medicalAllowance", e.target.value)} /></div>
         </div>
         <div className="form-row">
-          <div><label>Income Tax</label><input type="number" step="0.01" value={form.incomeTax} onChange={(e) => set("incomeTax", e.target.value)} /></div>
+          <div><label>TDS</label><input type="number" step="0.01" value={form.incomeTax} onChange={(e) => set("incomeTax", e.target.value)} /></div>
           <div><label>Other Deductions</label><input type="number" step="0.01" value={form.othersDeduction} onChange={(e) => set("othersDeduction", e.target.value)} /></div>
         </div>
         <ErrorText>{error}</ErrorText>

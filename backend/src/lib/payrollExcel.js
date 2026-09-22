@@ -19,7 +19,7 @@ const COLUMNS = [
   { header: "Incentives", key: "incentives", width: 12 },
   { header: "Total Earnings", key: "totalEarnings", width: 14 },
   { header: "PT", key: "pt", width: 10 },
-  { header: "Income Tax", key: "incomeTax", width: 12 },
+  { header: "TDS", key: "incomeTax", width: 12 },
   { header: "Medical Insurance", key: "medicalAllowance", width: 14 },
   { header: "Other Deductions", key: "othersDeduction", width: 14 },
   { header: "Total Deductions", key: "totalDeductions", width: 14 },
