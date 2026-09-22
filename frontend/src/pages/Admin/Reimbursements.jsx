@@ -65,7 +65,7 @@ export default function Reimbursements() {
   const totals = (list || []).reduce(
     (acc, r) => {
       acc.total += r.totalAmount;
-      if (["PENDING", "DEPT_APPROVED"].includes(r.status)) acc.pending += r.totalAmount;
+      if (["PENDING", "TL_APPROVED", "DEPT_APPROVED"].includes(r.status)) acc.pending += r.totalAmount;
       if (r.status === "PAID") acc.paid += Number(r.paidAmount ?? r.totalAmount);
       return acc;
     },
@@ -92,8 +92,9 @@ export default function Reimbursements() {
       {tab === "Vouchers" && (
         <>
           <p className="hint-text mt-0">
-            Two-step approval: the employee's department admin approves first, then the superadmin gives final approval.
-            Vouchers are drawn from the employee's advance wallet first — only the excess is ever paid.
+            The employee's department admin approves, then the superadmin gives final approval — departments with a
+            Team Leader assigned get an extra approval from them first. Vouchers are drawn from the employee's
+            advance wallet first — only the excess is ever paid.
           </p>
           <div className="stat-cards">
             <div className="stat-card"><div className="value">₹{totals.total.toFixed(2)}</div><div className="label">Total Claimed</div></div>
@@ -104,7 +105,7 @@ export default function Reimbursements() {
           <div className="toolbar">
             <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ width: 180 }}>
               <option value="">All statuses</option>
-              {["PENDING", "DEPT_APPROVED", "APPROVED", "SETTLED", "PAID", "REJECTED", "CANCELLED"].map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
+              {["PENDING", "TL_APPROVED", "DEPT_APPROVED", "APPROVED", "SETTLED", "PAID", "REJECTED", "CANCELLED"].map((s) => <option key={s} value={s}>{s.replace(/_/g, " ")}</option>)}
             </select>
             <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: 160 }}>
               <option value="">All types</option>
@@ -145,6 +146,7 @@ export default function Reimbursements() {
                       </td>
                       <td>
                         <div className="toolbar" style={{ margin: 0 }}>
+                          {r.actions?.canTeamLeadApprove && <button className="btn-sm" onClick={() => decide(r.id, "tl-approve")}>Approve (Team Lead)</button>}
                           {r.actions?.canDeptApprove && <button className="btn-sm" onClick={() => decide(r.id, "dept-approve")}>Approve (Dept)</button>}
                           {r.actions?.canFinalApprove && <button className="btn-sm" onClick={() => decide(r.id, "final-approve")}>Final Approve</button>}
                           {r.actions?.canReject && <button className="btn-sm" onClick={() => reject(r.id)}>Reject</button>}

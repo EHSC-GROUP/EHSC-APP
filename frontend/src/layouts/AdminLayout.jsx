@@ -29,10 +29,19 @@ const NAV_GROUPS = [
   },
 ];
 
+// A Team Lead only ever needs these two pages — approving their
+// department's leave and reimbursements. Everything else is hidden from
+// the nav (and StaffOnly blocks the routes directly too, see App.jsx).
+const TEAM_LEAD_PATHS = ["/admin/leave", "/admin/reimbursements"];
+
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const { flags } = useFeatureFlags();
-  const visibleGroups = NAV_GROUPS.filter((group) => group.label !== "PM" || flags.projectManagement);
+  const isTeamLead = user?.role === "team_lead";
+  const visibleGroups = NAV_GROUPS
+    .filter((group) => group.label !== "PM" || (flags.projectManagement && !isTeamLead))
+    .map((group) => (isTeamLead ? { ...group, items: group.items.filter((item) => TEAM_LEAD_PATHS.includes(item.to)) } : group))
+    .filter((group) => group.items.length > 0);
   return (
     <div className="app-shell">
       <aside className="sidebar">

@@ -180,7 +180,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
     batch.set(db.collection(COLLECTIONS.USERS).doc(userId), {
       userId,
       name: body.name,
-      role: body.type === PROFILE_TYPE.ADMIN ? ROLES.ADMIN : ROLES.EMPLOYEE,
+      role: body.type === PROFILE_TYPE.ADMIN ? ROLES.ADMIN : body.type === PROFILE_TYPE.TEAM_LEADER ? ROLES.TEAM_LEAD : ROLES.EMPLOYEE,
       password: hash,
       mustReset: true,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),

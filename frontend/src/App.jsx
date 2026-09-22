@@ -37,7 +37,18 @@ function RequireAuth({ children, role }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   if (user.mustReset) return <Navigate to="/change-password" replace />;
-  if (role === "admin" && !["admin", "superadmin"].includes(user.role)) return <Navigate to="/me" replace />;
+  // A Team Lead uses the admin-style layout too (just for Leave and
+  // Reimbursements — see StaffOnly below), not the employee self-service one.
+  if (role === "admin" && !["admin", "superadmin", "team_lead"].includes(user.role)) return <Navigate to="/me" replace />;
+  return children;
+}
+
+// Guards the admin pages a Team Lead should NOT reach (everything except
+// Leave and Reimbursements) — sends them back to the one page they're sure
+// to have access to instead of a broken/empty page full of 403s.
+function StaffOnly({ children }) {
+  const { user } = useAuth();
+  if (user.role === "team_lead") return <Navigate to="/admin/leave" replace />;
   return children;
 }
 
@@ -77,21 +88,21 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="profiles" replace />} />
-        <Route path="business-development" element={<RequireFeature flag="projectManagement"><BusinessDevelopment /></RequireFeature>} />
-        <Route path="company-profiles" element={<RequireFeature flag="projectManagement"><CompanyProfiles /></RequireFeature>} />
-        <Route path="project-tracker" element={<RequireFeature flag="projectManagement"><ProjectTracker /></RequireFeature>} />
-        <Route path="profiles" element={<EmployeeProfiles kind="staff" />} />
-        <Route path="associates" element={<EmployeeProfiles kind="associate" />} />
-        <Route path="payslips" element={<Payslips />} />
+        <Route index element={<Navigate to={user?.role === "team_lead" ? "leave" : "profiles"} replace />} />
+        <Route path="business-development" element={<StaffOnly><RequireFeature flag="projectManagement"><BusinessDevelopment /></RequireFeature></StaffOnly>} />
+        <Route path="company-profiles" element={<StaffOnly><RequireFeature flag="projectManagement"><CompanyProfiles /></RequireFeature></StaffOnly>} />
+        <Route path="project-tracker" element={<StaffOnly><RequireFeature flag="projectManagement"><ProjectTracker /></RequireFeature></StaffOnly>} />
+        <Route path="profiles" element={<StaffOnly><EmployeeProfiles kind="staff" /></StaffOnly>} />
+        <Route path="associates" element={<StaffOnly><EmployeeProfiles kind="associate" /></StaffOnly>} />
+        <Route path="payslips" element={<StaffOnly><Payslips /></StaffOnly>} />
         <Route path="leave" element={<Leave />} />
-        <Route path="holidays" element={<Holidays />} />
+        <Route path="holidays" element={<StaffOnly><Holidays /></StaffOnly>} />
         <Route path="reimbursements" element={<Reimbursements />} />
-        <Route path="material-indents" element={<MaterialIndents />} />
-        <Route path="attendance" element={<Attendance />} />
-        <Route path="documents" element={<CompanyDocuments />} />
-        <Route path="travel" element={<Travel />} />
-        <Route path="settings" element={<Settings />} />
+        <Route path="material-indents" element={<StaffOnly><MaterialIndents /></StaffOnly>} />
+        <Route path="attendance" element={<StaffOnly><Attendance /></StaffOnly>} />
+        <Route path="documents" element={<StaffOnly><CompanyDocuments /></StaffOnly>} />
+        <Route path="travel" element={<StaffOnly><Travel /></StaffOnly>} />
+        <Route path="settings" element={<StaffOnly><Settings /></StaffOnly>} />
       </Route>
 
       <Route
@@ -119,7 +130,7 @@ export default function App() {
         path="/"
         element={
           user ? (
-            <Navigate to={["admin", "superadmin"].includes(user.role) ? "/admin" : "/me"} replace />
+            <Navigate to={["admin", "superadmin", "team_lead"].includes(user.role) ? "/admin" : "/me"} replace />
           ) : (
             <Navigate to="/login" replace />
           )

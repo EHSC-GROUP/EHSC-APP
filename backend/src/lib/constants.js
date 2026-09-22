@@ -6,6 +6,11 @@ export const ROLES = Object.freeze({
   EMPLOYEE: "user",
   ADMIN: "admin",
   SUPERADMIN: "superadmin",
+  // A narrow approval-only tier: same self-service access as an employee,
+  // plus leave/reimbursement approval for their own department only (see
+  // lib/approvals.js's canTeamLeadApprove). Not an ADMIN_ROLES member —
+  // deliberately can't touch Settings, other profiles, payslips, etc.
+  TEAM_LEAD: "team_lead",
 });
 
 export const ADMIN_ROLES = Object.freeze([ROLES.ADMIN, ROLES.SUPERADMIN]);
@@ -14,15 +19,18 @@ export const ADMIN_ROLES = Object.freeze([ROLES.ADMIN, ROLES.SUPERADMIN]);
 // the user is forced to replace it on first sign-in (and can't pick it again).
 export const TEMP_PASSWORD = "Welcome@123";
 
-// Profile types: "employee" and "admin" are staff (same HR fields; admin
-// additionally gets the admin login role and approves for its department);
+// Profile types: "employee", "admin" and "team_leader" are staff (same HR
+// fields); admin additionally gets the admin login role and approves for
+// its department, team_leader gets the team_lead login role and approves
+// leave/reimbursements for its department (see ROLES.TEAM_LEAD above);
 // "associate" is an external party/vendor (formerly "external").
 export const PROFILE_TYPE = Object.freeze({
   EMPLOYEE: "employee",
   ADMIN: "admin",
+  TEAM_LEADER: "team_leader",
   ASSOCIATE: "associate",
 });
-export const STAFF_PROFILE_TYPES = Object.freeze([PROFILE_TYPE.EMPLOYEE, PROFILE_TYPE.ADMIN]);
+export const STAFF_PROFILE_TYPES = Object.freeze([PROFILE_TYPE.EMPLOYEE, PROFILE_TYPE.ADMIN, PROFILE_TYPE.TEAM_LEADER]);
 
 // Fixed department list — leave and money approvals route by department.
 export const DEPARTMENTS = Object.freeze(["BD", "HR", "Operations", "Finance", "Business Management"]);
@@ -96,8 +104,12 @@ export const LEAVE_STATUS = Object.freeze({
 // (PENDING -> DEPT_APPROVED), then the superadmin gives final approval
 // (DEPT_APPROVED -> APPROVED). SETTLED = fully covered by the employee's
 // advance wallet, so nothing is left to pay out.
+// Departments with an assigned Team Leader get an extra step in front:
+// PENDING -> TL_APPROVED -> DEPT_APPROVED -> APPROVED. Departments with no
+// team leader skip straight to the normal two-step flow.
 export const REIMBURSEMENT_STATUS = Object.freeze({
   PENDING: "PENDING",
+  TL_APPROVED: "TL_APPROVED",
   DEPT_APPROVED: "DEPT_APPROVED",
   APPROVED: "APPROVED",
   SETTLED: "SETTLED",

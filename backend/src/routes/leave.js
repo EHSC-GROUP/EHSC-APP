@@ -10,7 +10,7 @@ import {
   LEAVE_STATUS,
   MEDICAL_CERT_THRESHOLD_DAYS,
 } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireApprover } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, safeFileName } from "../lib/storage.js";
 import { financialYearOf } from "../lib/dateUtils.js";
@@ -21,7 +21,7 @@ import {
   adjustUsedInTransaction,
   setEntitlementOverride,
 } from "../lib/leaveBalances.js";
-import { canDeptApprove, getDepartmentOf, loadDepartmentMap, visibleDepartmentFor, filterByDepartment } from "../lib/approvals.js";
+import { canDeptApprove, canTeamLeadApprove, getDepartmentOf, loadDepartmentMap, visibleDepartmentFor, filterByDepartment } from "../lib/approvals.js";
 import { getLeaveCardData, listActiveEmployeeUserIds } from "../lib/leaveCard.js";
 import { renderLeaveCardPdf } from "../lib/leaveCardPdf.js";
 import { buildLeaveCardWorkbook } from "../lib/leaveCardExcel.js";
@@ -44,6 +44,13 @@ function isAdminRole(role) {
   return [ROLES.ADMIN, ROLES.SUPERADMIN].includes(role);
 }
 
+// Leave is single-step: either the employee's department admin or their
+// team lead (if one is assigned) can approve/reject it — whichever gets
+// there first, no ordering between the two.
+async function canApproveLeave(user, request) {
+  return (await canDeptApprove(user, request)) || (await canTeamLeadApprove(user, request));
+}
+
 // ---- working-day preview (used by both the admin entry form and the
 // self-service apply modal) --------------------------------------------
 router.get("/working-days-preview", authenticate, async (req, res, next) => {
@@ -62,7 +69,7 @@ router.get("/working-days-preview", authenticate, async (req, res, next) => {
 });
 
 // ---- leave register (admin) --------------------------------------------
-router.get("/requests", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/requests", authenticate, requireApprover, async (req, res, next) => {
   try {
     let query = db.collection(COLLECTIONS.HR_LEAVE_REQUESTS);
     if (req.query.userId) query = query.where("userId", "==", req.query.userId.toUpperCase());
@@ -82,7 +89,7 @@ router.get("/requests", authenticate, requireAdmin, async (req, res, next) => {
       list.map(async (r) => ({
         ...r,
         department: deptMap.get(r.userId) || null,
-        actions: { canApprove: r.status === LEAVE_STATUS.PENDING && (await canDeptApprove(req.user, r)) },
+        actions: { canApprove: r.status === LEAVE_STATUS.PENDING && (await canApproveLeave(req.user, r)) },
       }))
     );
     list.sort((a, b) => (a.fromDate < b.fromDate ? 1 : -1));
@@ -240,15 +247,15 @@ router.get("/requests/:id/medical-cert", authenticate, async (req, res, next) =>
 });
 
 // ---- approve (transaction: PENDING -> APPROVED, deduct balance) --------
-router.put("/requests/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/requests/:id/approve", authenticate, requireApprover, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).doc(req.params.id);
     const leaveTypes = await getLeaveTypes();
 
     const pre = await ref.get();
     if (!pre.exists) return res.status(404).json({ error: "Not found" });
-    if (!(await canDeptApprove(req.user, pre.data()))) {
-      return res.status(403).json({ error: "Only an admin of this employee's department can approve their leave" });
+    if (!(await canApproveLeave(req.user, pre.data()))) {
+      return res.status(403).json({ error: "Only an admin or team lead of this employee's department can approve their leave" });
     }
 
     await db.runTransaction(async (tx) => {
@@ -280,7 +287,7 @@ router.put("/requests/:id/approve", authenticate, requireAdmin, async (req, res,
   }
 });
 
-router.put("/requests/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/requests/:id/reject", authenticate, requireApprover, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).doc(req.params.id);
     const snap = await ref.get();
@@ -288,8 +295,8 @@ router.put("/requests/:id/reject", authenticate, requireAdmin, async (req, res, 
     if (snap.data().status !== LEAVE_STATUS.PENDING) {
       return res.status(400).json({ error: "Only PENDING requests can be rejected" });
     }
-    if (!(await canDeptApprove(req.user, snap.data()))) {
-      return res.status(403).json({ error: "Only an admin of this employee's department can reject their leave" });
+    if (!(await canApproveLeave(req.user, snap.data()))) {
+      return res.status(403).json({ error: "Only an admin or team lead of this employee's department can reject their leave" });
     }
     await ref.update({
       status: LEAVE_STATUS.REJECTED,

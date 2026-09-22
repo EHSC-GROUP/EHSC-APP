@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES, REIMBURSEMENT_STATUS, REIMBURSEMENT_TYPE } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireApprover } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, safeFileName } from "../lib/storage.js";
 import { numberToWords } from "../lib/numberToWords.js";
@@ -13,12 +13,13 @@ import { renderReimbursementPdf } from "../lib/reimbursementPdf.js";
 import { buildReimbursementRegisterWorkbook } from "../lib/reimbursementExcel.js";
 import { planWalletOffset, restoreWalletOffsets } from "../lib/advanceWallet.js";
 import {
-  loadDepartmentMap, loadDepartmentAdmins, visibleDepartmentFor, filterByDepartment,
-  canDeptApprove, canFinalApprove, canAdminCancel, awaitingNote, moneyActions,
+  loadDepartmentMap, loadDepartmentAdmins, loadDepartmentTeamLeads, visibleDepartmentFor, filterByDepartment,
+  canDeptApprove, canTeamLeadApprove, canFinalApprove, canAdminCancel, awaitingNote, reimbursementActions,
 } from "../lib/approvals.js";
 
 const router = Router();
 const isAdminRole = (role) => [ROLES.ADMIN, ROLES.SUPERADMIN].includes(role);
+const isApproverRole = (role) => isAdminRole(role) || role === ROLES.TEAM_LEAD;
 const col = () => db.collection(COLLECTIONS.HR_REIMBURSEMENTS);
 
 // Reimbursement Claim Form (RCF) shape: a single claim can carry any mix of
@@ -90,13 +91,13 @@ function normalizeProjects(rawProjects, totalAmount) {
 
 // Adds per-row "what can the caller do / who is it waiting on" info.
 async function decorate(list, user) {
-  const [deptMap, deptAdmins] = await Promise.all([loadDepartmentMap(), loadDepartmentAdmins()]);
+  const [deptMap, deptAdmins, deptTeamLeads] = await Promise.all([loadDepartmentMap(), loadDepartmentAdmins(), loadDepartmentTeamLeads()]);
   return Promise.all(
     list.map(async (r) => {
       const department = deptMap.get(r.userId) || null;
-      const base = { ...r, department, awaiting: awaitingNote(r.status, department, deptAdmins) };
-      if (!isAdminRole(user.role)) return base;
-      const actions = await moneyActions(user, r);
+      const base = { ...r, department, awaiting: awaitingNote(r.status, department, deptAdmins, deptTeamLeads) };
+      if (!isApproverRole(user.role)) return base;
+      const actions = await reimbursementActions(user, { ...r, department }, deptTeamLeads);
       // Payment is the superadmin's, and only for what the advance wallet
       // did not already cover.
       actions.canMarkPaid = user.role === ROLES.SUPERADMIN && r.status === REIMBURSEMENT_STATUS.APPROVED && Number(r.payableAmount ?? r.totalAmount) > 0;
@@ -124,7 +125,7 @@ async function queryScopedList(reqQuery, user) {
   return list;
 }
 
-router.get("/admin", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/admin", authenticate, requireApprover, async (req, res, next) => {
   try {
     res.json(await decorate(await queryScopedList(req.query, req.user), req.user));
   } catch (err) {
@@ -300,7 +301,7 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
 });
 
 async function canViewRecord(user, record) {
-  return isAdminRole(user.role) || record.userId === user.userId;
+  return isApproverRole(user.role) || record.userId === user.userId;
 }
 
 router.get("/:id/bills/:index", authenticate, async (req, res, next) => {
@@ -355,16 +356,50 @@ async function loadOr404(id, res) {
   return { ref, data: snap.data() };
 }
 
-// Step 1 of 2 — the employee's own department admin.
-router.put("/:id/dept-approve", authenticate, requireAdmin, async (req, res, next) => {
+// Step 0 — only for departments with an assigned Team Leader: the
+// employee's own team lead signs off before it ever reaches the
+// department admin. Departments with no team lead skip this entirely.
+router.put("/:id/tl-approve", authenticate, requireApprover, async (req, res, next) => {
   try {
     const found = await loadOr404(req.params.id, res);
     if (!found) return;
     if (found.data.status !== REIMBURSEMENT_STATUS.PENDING) {
-      return res.status(400).json({ error: "Only PENDING vouchers await department approval" });
+      return res.status(400).json({ error: "Only PENDING vouchers await team lead approval" });
+    }
+    if (!(await canTeamLeadApprove(req.user, found.data))) {
+      return res.status(403).json({ error: "Only this employee's team lead can give the first approval" });
+    }
+    await found.ref.update({
+      status: REIMBURSEMENT_STATUS.TL_APPROVED,
+      tlApprovedBy: req.user.userId,
+      tlApprovedAt: admin.firestore.FieldValue.serverTimestamp(),
+      tlComment: req.body.comment || null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Step 1 of up to 3 — the employee's own department admin. Waits on
+// TL_APPROVED for a department with a team lead, otherwise on PENDING
+// directly (the normal two-step flow).
+router.put("/:id/dept-approve", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const found = await loadOr404(req.params.id, res);
+    if (!found) return;
+    const teamLeads = await loadDepartmentTeamLeads();
+    const deptHasTL = teamLeads.has(found.data.department);
+    const requiredStatus = deptHasTL ? REIMBURSEMENT_STATUS.TL_APPROVED : REIMBURSEMENT_STATUS.PENDING;
+    if (found.data.status !== requiredStatus) {
+      return res.status(400).json({
+        error: deptHasTL
+          ? "Only vouchers approved by the team leader await department approval"
+          : "Only PENDING vouchers await department approval",
+      });
     }
     if (!(await canDeptApprove(req.user, found.data))) {
-      return res.status(403).json({ error: "Only an admin of this employee's department can give the first approval" });
+      return res.status(403).json({ error: "Only an admin of this employee's department can give this approval" });
     }
     await found.ref.update({
       status: REIMBURSEMENT_STATUS.DEPT_APPROVED,
@@ -418,14 +453,20 @@ router.put("/:id/final-approve", authenticate, requireAdmin, async (req, res, ne
   }
 });
 
-// Reject: department admin at the first stage, superadmin at the second.
-router.put("/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
+// Reject: whoever's turn it currently is — team lead (if the department has
+// one) or department admin at the first stage, department admin again after
+// a team-lead approval, superadmin at the final stage.
+router.put("/:id/reject", authenticate, requireApprover, async (req, res, next) => {
   try {
     const found = await loadOr404(req.params.id, res);
     if (!found) return;
     const { status } = found.data;
+    const teamLeads = await loadDepartmentTeamLeads();
+    const deptHasTL = teamLeads.has(found.data.department);
     const allowed =
-      (status === REIMBURSEMENT_STATUS.PENDING && (await canDeptApprove(req.user, found.data))) ||
+      (status === REIMBURSEMENT_STATUS.PENDING && deptHasTL && (await canTeamLeadApprove(req.user, found.data))) ||
+      (status === REIMBURSEMENT_STATUS.PENDING && !deptHasTL && (await canDeptApprove(req.user, found.data))) ||
+      (status === REIMBURSEMENT_STATUS.TL_APPROVED && (await canDeptApprove(req.user, found.data))) ||
       (status === REIMBURSEMENT_STATUS.DEPT_APPROVED && canFinalApprove(req.user, found.data));
     if (!allowed) return res.status(403).json({ error: "You can't reject this voucher at its current stage" });
     await found.ref.update({
@@ -486,7 +527,7 @@ router.put("/:id/cancel", authenticate, requireAdmin, async (req, res, next) => 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(found.ref);
       const voucher = snap.data();
-      if (![REIMBURSEMENT_STATUS.PENDING, REIMBURSEMENT_STATUS.DEPT_APPROVED, REIMBURSEMENT_STATUS.APPROVED].includes(voucher.status)) {
+      if (![REIMBURSEMENT_STATUS.PENDING, REIMBURSEMENT_STATUS.TL_APPROVED, REIMBURSEMENT_STATUS.DEPT_APPROVED, REIMBURSEMENT_STATUS.APPROVED].includes(voucher.status)) {
         throw Object.assign(new Error("Only vouchers not yet paid or settled can be cancelled"), { status: 400 });
       }
       const offsets = voucher.advanceOffsets || [];

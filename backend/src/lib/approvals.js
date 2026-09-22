@@ -1,5 +1,5 @@
 import { db } from "../config/firebase.js";
-import { COLLECTIONS, ROLES, PROFILE_TYPE } from "./constants.js";
+import { COLLECTIONS, ROLES, PROFILE_TYPE, REIMBURSEMENT_STATUS } from "./constants.js";
 
 // ---- Department-based approval routing --------------------------------
 // Each admin profile belongs to exactly one department and only acts on
@@ -49,6 +49,36 @@ export async function canDeptApprove(user, request) {
   return !!approverDept && approverDept === requesterDept;
 }
 
+// dept -> [team-lead userIds] (team_leader-type profiles whose login isn't
+// archived) — mirrors loadDepartmentAdmins. A department with no entry here
+// has no team lead, so reimbursements for it skip straight to the normal
+// two-step (dept admin, then superadmin) flow.
+export async function loadDepartmentTeamLeads() {
+  const [profiles, users] = await Promise.all([
+    db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "==", PROFILE_TYPE.TEAM_LEADER).get(),
+    db.collection(COLLECTIONS.USERS).get(),
+  ]);
+  const disabled = new Set(users.docs.filter((u) => u.data().disabled).map((u) => u.id));
+  const map = new Map();
+  for (const p of profiles.docs) {
+    const dept = p.data().department;
+    if (!dept || disabled.has(p.id)) continue;
+    if (!map.has(dept)) map.set(dept, []);
+    map.get(dept).push(p.id);
+  }
+  return map;
+}
+
+// Team Leader's own approval step: leave (single-step, alongside
+// canDeptApprove) and the first stage of reimbursements for a department
+// that has a team lead assigned.
+export async function canTeamLeadApprove(user, request) {
+  if (user.role !== ROLES.TEAM_LEAD) return false;
+  if (user.userId === request.userId) return false;
+  const [approverDept, requesterDept] = await Promise.all([getDepartmentOf(user.userId), getDepartmentOf(request.userId)]);
+  return !!approverDept && approverDept === requesterDept;
+}
+
 // Step 2: superadmin only, and never on their own request.
 export function canFinalApprove(user, request) {
   return user.role === ROLES.SUPERADMIN && user.userId !== request.userId;
@@ -78,17 +108,22 @@ export async function canAdminCancel(user, request) {
 
 // Human-readable "who is this waiting on" for the two-step money flow —
 // makes a request stuck for want of a department admin visible, not silent.
-export function awaitingNote(status, department, departmentAdmins) {
+// departmentTeamLeads is optional — pass it (reimbursements only) to surface
+// the extra team-lead stage where a department has one assigned.
+export function awaitingNote(status, department, departmentAdmins, departmentTeamLeads) {
   if (status === "PENDING") {
     if (!department) return "Employee has no department set";
+    if (departmentTeamLeads?.has(department)) return `Awaiting ${department} team leader`;
     return departmentAdmins.has(department) ? `Awaiting ${department} department admin` : `No admin assigned to ${department} yet`;
   }
+  if (status === REIMBURSEMENT_STATUS.TL_APPROVED) return `Awaiting ${department} department admin`;
   if (status === "DEPT_APPROVED") return "Awaiting superadmin final approval";
   return null;
 }
 
 // Per-row permissions for the current user on a two-step money request
-// (reimbursement or advance): what buttons the UI should offer.
+// (reimbursement or advance — advances never have a team-lead stage). What
+// buttons the UI should offer.
 export async function moneyActions(user, request) {
   const deptOk = request.status === "PENDING" ? await canDeptApprove(user, request) : false;
   const finalOk = request.status === "DEPT_APPROVED" ? canFinalApprove(user, request) : false;
@@ -97,6 +132,32 @@ export async function moneyActions(user, request) {
     canDeptApprove: deptOk,
     canFinalApprove: finalOk,
     canReject: deptOk || finalOk,
+    canCancel: cancellable && (await canAdminCancel(user, request)),
+  };
+}
+
+// Same as moneyActions, but reimbursement-specific: departments with a team
+// lead assigned get a PENDING -> TL_APPROVED stage in front of the normal
+// two-step flow; departments without one behave exactly like moneyActions.
+export async function reimbursementActions(user, request, departmentTeamLeads) {
+  const deptHasTL = departmentTeamLeads.has(request.department);
+  let tlOk = false;
+  let deptOk = false;
+  let finalOk = false;
+  if (request.status === REIMBURSEMENT_STATUS.PENDING) {
+    if (deptHasTL) tlOk = await canTeamLeadApprove(user, request);
+    else deptOk = await canDeptApprove(user, request);
+  } else if (request.status === REIMBURSEMENT_STATUS.TL_APPROVED) {
+    deptOk = await canDeptApprove(user, request);
+  } else if (request.status === REIMBURSEMENT_STATUS.DEPT_APPROVED) {
+    finalOk = canFinalApprove(user, request);
+  }
+  const cancellable = [REIMBURSEMENT_STATUS.PENDING, REIMBURSEMENT_STATUS.TL_APPROVED, REIMBURSEMENT_STATUS.DEPT_APPROVED].includes(request.status);
+  return {
+    canTeamLeadApprove: tlOk,
+    canDeptApprove: deptOk,
+    canFinalApprove: finalOk,
+    canReject: tlOk || deptOk || finalOk,
     canCancel: cancellable && (await canAdminCancel(user, request)),
   };
 }
