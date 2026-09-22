@@ -238,7 +238,7 @@ function LeaveBalances() {
 function LeaveTypes() {
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ name: "", paidDaysPerYear: "", carryForward: false, monthlyCap: "" });
+  const [form, setForm] = useState({ name: "", paidDaysPerYear: "", carryForward: false, monthlyCap: "", accrualPerMonth: "" });
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -262,8 +262,9 @@ function LeaveTypes() {
         ...form,
         paidDaysPerYear: Number(form.paidDaysPerYear),
         monthlyCap: form.monthlyCap === "" ? null : Number(form.monthlyCap),
+        accrualPerMonth: form.accrualPerMonth === "" ? null : Number(form.accrualPerMonth),
       });
-      setForm({ name: "", paidDaysPerYear: "", carryForward: false, monthlyCap: "" });
+      setForm({ name: "", paidDaysPerYear: "", carryForward: false, monthlyCap: "", accrualPerMonth: "" });
       load();
     } catch (err) {
       setError(errorMessage(err));
@@ -292,13 +293,21 @@ function LeaveTypes() {
         </div>
         <div className="form-row">
           <div><label>Monthly Cap (blank = uncapped)</label><input type="number" min="0" value={form.monthlyCap} onChange={(e) => set("monthlyCap", e.target.value)} /></div>
+          <div><label>Accrual / Month (blank = none)</label><input type="number" min="0" step="0.5" value={form.accrualPerMonth} onChange={(e) => set("accrualPerMonth", e.target.value)} /></div>
+        </div>
+        <div className="form-row">
           <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 8 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
               <input type="checkbox" style={{ width: "auto" }} checked={form.carryForward} onChange={(e) => set("carryForward", e.target.checked)} />
               Carry forward unused days to next FY
             </label>
           </div>
+          <div />
         </div>
+        <p className="hint-text mt-0">
+          Accrual / Month automatically adds that many days to every active employee's entitlement on the 1st of
+          each month, on top of whatever they already have — it does not replace or reset the current balance.
+        </p>
         <ErrorText>{error}</ErrorText>
         <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add"}</button>
       </form>
@@ -306,12 +315,12 @@ function LeaveTypes() {
       {!list ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>ID</th><th>Name</th><th>Paid Days/Yr</th><th>Monthly Cap</th><th>Carry Forward</th><th></th></tr></thead>
+            <thead><tr><th>ID</th><th>Name</th><th>Paid Days/Yr</th><th>Monthly Cap</th><th>Accrual/Month</th><th>Carry Forward</th><th></th></tr></thead>
             <tbody>
               {list.map((lt) => (
                 <tr key={lt.id}>
                   <td>{lt.id}</td><td>{lt.name}</td><td>{lt.paidDaysPerYear}</td>
-                  <td>{lt.monthlyCap ?? "Uncapped"}</td><td>{lt.carryForward ? "Yes" : "No"}</td>
+                  <td>{lt.monthlyCap ?? "Uncapped"}</td><td>{lt.accrualPerMonth ?? "None"}</td><td>{lt.carryForward ? "Yes" : "No"}</td>
                   <td><button className="btn-sm btn-danger" onClick={() => remove(lt.id)}>Delete</button></td>
                 </tr>
               ))}

@@ -14,10 +14,17 @@ if (process.env.NODE_ENV === "production") {
 
 const { default: app } = await import("./app.js");
 const { startAttendancePruneJob } = await import("./lib/attendancePrune.js");
+const { startLeaveAccrualJob, runMonthlyLeaveAccrual } = await import("./lib/leaveAccrual.js");
 
 const PORT = process.env.PORT || 4000;
 
 app.listen(PORT, () => {
   console.log(`HR & Payroll API listening on http://localhost:${PORT}`);
   startAttendancePruneJob();
+  startLeaveAccrualJob();
+  // Also check once right now — on a Cloud Run instance that scaled to
+  // zero overnight, this is what actually catches "it's the 1st of the
+  // month" instead of waiting on the daily cron tick to line up with a
+  // moment the instance happens to be warm.
+  runMonthlyLeaveAccrual().catch((err) => console.error("Leave accrual startup check failed:", err));
 });

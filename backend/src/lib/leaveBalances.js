@@ -85,6 +85,39 @@ export async function adjustUsedInTransaction(tx, userId, fyStartYear, leaveType
   );
 }
 
+// Monthly accrual: adds deltaDays to a leave type's entitlement (not
+// `used`) for one employee's current-FY balance, within an existing
+// Firestore transaction. Unlike getLeaveBalancesForYear/
+// adjustUsedInTransaction, a *fresh* balance (no stored entry yet) starts
+// from carry-in only, never from paidDaysPerYear — for an accrual-driven
+// type, paidDaysPerYear is the annual figure the balance grows *towards*
+// over the year (accrualPerMonth * 12), not a lump sum granted up front.
+export async function accrueEntitlementInTransaction(tx, userId, fyStartYear, leaveType, deltaDays) {
+  const ref = db.collection(COLLECTIONS.HR_LEAVE_BALANCES).doc(balanceDocId(userId, fyStartYear));
+  const snap = await tx.get(ref);
+  const data = snap.exists ? snap.data() : { userId, year: fyStartYear, balances: {} };
+  const balances = data.balances || {};
+  const existing = balances[leaveType.id];
+
+  let entitlement;
+  if (existing?.entitlement !== undefined) {
+    entitlement = existing.entitlement;
+  } else {
+    const carryIn = await getCarryInForType(userId, fyStartYear, leaveType, (r) => tx.get(r));
+    entitlement = round1(carryIn);
+  }
+
+  const used = round1(existing?.used || 0);
+  const newEntitlement = round1(entitlement + deltaDays);
+  balances[leaveType.id] = { entitlement: newEntitlement, used, remaining: round1(newEntitlement - used) };
+
+  tx.set(
+    ref,
+    { userId, year: fyStartYear, balances, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+}
+
 export async function setEntitlementOverride(userId, fyStartYear, leaveTypeId, entitlement) {
   const ref = db.collection(COLLECTIONS.HR_LEAVE_BALANCES).doc(balanceDocId(userId, fyStartYear));
   await db.runTransaction(async (tx) => {
