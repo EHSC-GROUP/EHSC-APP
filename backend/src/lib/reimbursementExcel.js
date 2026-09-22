@@ -3,13 +3,13 @@ import { formatProjects } from "./reimbursementFormat.js";
 
 const COLUMNS = [
   { header: "Employee", key: "name", width: 20 },
+  { header: "Raised By (Employee ID)", key: "userId", width: 18 },
   { header: "Designation", key: "designation", width: 18 },
   { header: "Voucher Date", key: "voucherDate", width: 14 },
   { header: "Type", key: "type", width: 14 },
-  { header: "Paid To", key: "paidTo", width: 18 },
   { header: "Project(s)", key: "projects", width: 26 },
   { header: "Journey Purpose", key: "journeyPurpose", width: 22 },
-  { header: "Journey Station", key: "journeyStation", width: 16 },
+  { header: "Destination", key: "journeyStation", width: 16 },
   { header: "Travelling (A)", key: "travelTotal", width: 14 },
   { header: "Conveyance (B)", key: "conveyanceTotal", width: 14 },
   { header: "Other (C)", key: "otherTotal", width: 12 },
@@ -43,10 +43,10 @@ export async function buildReimbursementRegisterWorkbook(records) {
   for (const r of records) {
     sheet.addRow({
       name: r.name,
+      userId: r.userId,
       designation: r.designation || "",
       voucherDate: r.voucherDate,
       type: r.type || "GENERAL",
-      paidTo: r.paidTo,
       projects: formatProjects(r),
       journeyPurpose: r.journeyPurpose || "",
       journeyStation: r.journeyStation || "",

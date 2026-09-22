@@ -39,13 +39,13 @@ function drawClaimPage(doc, record) {
     ["Journey Date", record.voucherDate],
     ["Journey Purpose", record.journeyPurpose],
     ["Project(s)", formatProjects(record)],
-    ["Journey Station", record.journeyStation],
+    ["Destination", record.journeyStation],
   ];
   const right = [
     ["Designation", record.designation],
     ["Submission Date", submissionDate],
     ["Claim Type", record.type],
-    ["Paid To", record.paidTo],
+    ["Raised By", `${record.name || ""} (${record.userId || ""})`],
   ];
   doc.font("Helvetica").fontSize(9);
   left.forEach(([k, v], i) => doc.text(`${k}: ${v || "-"}`, PAGE_LEFT, infoTop + i * 14, { width: 260 }));

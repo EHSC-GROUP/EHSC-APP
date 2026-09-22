@@ -50,7 +50,7 @@ export default function MaterialIndentForm({ onSubmitted }) {
       {items.map((item, i) => (
         <div className="form-row" key={i} style={{ marginBottom: 6 }}>
           <div style={{ flex: "0 0 140px" }}><input type="date" value={item.requiredDate} onChange={(e) => updateItem(i, "requiredDate", e.target.value)} title="Required Date" /></div>
-          <div><input value={item.itemMaterial} onChange={(e) => updateItem(i, "itemMaterial", e.target.value)} placeholder="Item / Material" /></div>
+          <div style={{ flex: "3 1 320px" }}><input value={item.itemMaterial} onChange={(e) => updateItem(i, "itemMaterial", e.target.value)} placeholder="Item / Material description" /></div>
           <div style={{ flex: "0 0 80px" }}><input type="number" min="0" step="1" value={item.qty} onChange={(e) => updateItem(i, "qty", e.target.value)} placeholder="Qty" /></div>
           <div style={{ flex: "0 0 100px" }}><input type="number" min="0" step="0.01" value={item.rate} onChange={(e) => updateItem(i, "rate", e.target.value)} placeholder="Rate" /></div>
           <div style={{ flex: "0 0 100px", display: "flex", alignItems: "center" }}>₹{((Number(item.qty) || 0) * (Number(item.rate) || 0)).toFixed(2)}</div>

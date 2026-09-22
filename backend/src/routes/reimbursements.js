@@ -63,8 +63,10 @@ function computeTotal(travelItems, conveyanceItems, otherItems) {
 
 // A voucher can be split across several projects (free-text project IDs for
 // now — a dropdown replaces the text box once Project Management goes
-// live). One project: it simply gets the whole voucher total. Two or more:
-// each needs an explicit amount and the amounts must add up to the total.
+// live). One project: defaults to the whole voucher total, but an explicit
+// (smaller) amount is accepted — the rest of the voucher just isn't tied to
+// any project. Two or more: each needs an explicit amount and the amounts
+// must add up to the total.
 function normalizeProjects(rawProjects, totalAmount) {
   const projects = (rawProjects || [])
     .map((p) => ({ projectId: String(p.projectId || "").trim(), amountSpent: p.amountSpent }))
@@ -73,7 +75,17 @@ function normalizeProjects(rawProjects, totalAmount) {
     return { error: "The same project is listed more than once" };
   }
   if (projects.length === 0) return { projects: [] };
-  if (projects.length === 1) return { projects: [{ projectId: projects[0].projectId, amountSpent: totalAmount }] };
+  if (projects.length === 1) {
+    const raw = projects[0].amountSpent;
+    if (raw === undefined || raw === null || raw === "") {
+      return { projects: [{ projectId: projects[0].projectId, amountSpent: totalAmount }] };
+    }
+    const supplied = round2(Number(raw));
+    if (!(supplied > 0) || supplied > totalAmount + 0.01) {
+      return { error: `Amount spent on ${projects[0].projectId} must be more than 0 and no more than the voucher total (${totalAmount})` };
+    }
+    return { projects: [{ projectId: projects[0].projectId, amountSpent: supplied }] };
+  }
 
   let sum = 0;
   const out = [];
@@ -229,12 +241,12 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
       }
     }
 
-    const { voucherDate, paidTo, projectId, journeyPurpose, journeyStation } = req.body;
+    const { voucherDate, projectId, journeyPurpose, journeyStation } = req.body;
     const type = req.body.type || REIMBURSEMENT_TYPE.GENERAL;
     const travelItems = parseMaybeJSON(req.body.travelItems);
     const conveyanceItems = parseMaybeJSON(req.body.conveyanceItems);
     const otherItems = parseMaybeJSON(req.body.otherItems);
-    if (!voucherDate || !paidTo) return res.status(400).json({ error: "voucherDate and paidTo are required" });
+    if (!voucherDate) return res.status(400).json({ error: "voucherDate is required" });
     if (!Object.values(REIMBURSEMENT_TYPE).includes(type)) {
       return res.status(400).json({ error: `type must be one of ${Object.values(REIMBURSEMENT_TYPE).join(", ")}` });
     }
@@ -269,7 +281,6 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
       designation,
       department,
       voucherDate,
-      paidTo,
       type,
       projectId: resolvedProjectId,
       projects: projectResult.projects,

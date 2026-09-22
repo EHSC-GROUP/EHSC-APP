@@ -69,13 +69,12 @@ export default function MyReimbursements() {
           {!list ? <Loading /> : (
             <div className="card table-wrap">
               <table>
-                <thead><tr><th>Voucher Date</th><th>Type</th><th>Paid To</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {list.map((r) => (
                     <tr key={r.id}>
                       <td>{r.voucherDate}</td>
                       <td><StatusBadge status={r.type || "GENERAL"} /></td>
-                      <td>{r.paidTo}</td>
                       <td>₹{r.totalAmount.toFixed(2)} <BillLinks record={r} onError={setError} /></td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.advanceTaken || 0).toFixed(2)}` : "-"}</td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.payableAmount ?? r.totalAmount).toFixed(2)}` : "-"}</td>
