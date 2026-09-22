@@ -155,27 +155,29 @@ export async function computeMusterAndLeave(userId, period) {
 export function computeEarningsForPayableDays(structureVersion, payableDays, daysInMonth) {
   const ratio = daysInMonth > 0 ? payableDays / daysInMonth : 0;
   // Formula-driven components pro-rate with payable days. Versions created
-  // before Transportation/Special/Medical Allowance existed simply have none
-  // of those (their `others` still carries the remainder of gross).
+  // before Transportation/Special existed simply have none of those
+  // (their `others` still carries the remainder of gross).
   const prorate = (amount) => round2(Number(amount || 0) * ratio);
   const basic = prorate(structureVersion.basic);
   const hra = prorate(structureVersion.hra);
   const transportAllowance = prorate(structureVersion.transport);
   const specialAllowance = prorate(structureVersion.special);
-  const statutoryBonus = prorate(structureVersion.bonus);
+  // "Statutory Bonus-Others" — the remainder of gross after Basic/HRA/
+  // Transport/Special (folds what used to be a separate bonus line into
+  // this one).
   const others = prorate(structureVersion.others);
   // Flat amounts (not pro-rated): only zeroed when there are no payable days.
   const flat = (amount) => (payableDays > 0 ? Number(amount || 0) : 0);
   const pt = flat(structureVersion.pt);
   const medicalAllowance = flat(structureVersion.medicalAllowance);
   const tds = flat(structureVersion.tds);
-  return { ratio, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance, tds };
+  return { ratio, basic, hra, transportAllowance, specialAllowance, others, pt, medicalAllowance, tds };
 }
 
 export function computeTotals(p) {
   const totalEarnings = round2(
     Number(p.basic) + Number(p.hra) + Number(p.transportAllowance || 0) + Number(p.specialAllowance || 0) +
-    Number(p.statutoryBonus || 0) + Number(p.others) + Number(p.incentives || 0)
+    Number(p.others) + Number(p.incentives || 0)
   );
   const totalDeductions = round2(
     Number(p.pt || 0) + Number(p.medicalAllowance || 0) + Number(p.incomeTax || 0) + Number(p.othersDeduction || 0)
@@ -247,7 +249,6 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     hra: earnings.hra,
     transportAllowance: earnings.transportAllowance,
     specialAllowance: earnings.specialAllowance,
-    statutoryBonus: earnings.statutoryBonus,
     others: earnings.others,
     incentives: Number(incentives),
     pt: Number(pt),
@@ -266,7 +267,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
 // medicalAllowance/incomeTax/othersDeduction are applied only when
 // explicitly present in `updates` (undefined = keep as-is).
 export async function applyPayslipEdit(existing, updates) {
-  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, statutoryBonus, others, pt, medicalAllowance, incomeTax, ptManual, medicalManual, incomeTaxManual } = existing;
+  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, others, pt, medicalAllowance, incomeTax, ptManual, medicalManual, incomeTaxManual } = existing;
 
   // Payslips made before the flag existed count as manual if a value was entered.
   presentDaysManual = presentDaysManual ?? Number(existing.presentDays) > 0;
@@ -290,7 +291,6 @@ export async function applyPayslipEdit(existing, updates) {
     hra = earnings.hra;
     transportAllowance = earnings.transportAllowance;
     specialAllowance = earnings.specialAllowance;
-    statutoryBonus = earnings.statutoryBonus;
     others = earnings.others;
     if (!ptManual) pt = earnings.pt;
     if (!medicalManual) medicalAllowance = earnings.medicalAllowance;
@@ -315,7 +315,7 @@ export async function applyPayslipEdit(existing, updates) {
     updates.othersDeduction !== undefined ? Number(updates.othersDeduction) : existing.othersDeduction;
 
   const totals = computeTotals({
-    basic, hra, transportAllowance, specialAllowance, statutoryBonus, others,
+    basic, hra, transportAllowance, specialAllowance, others,
     incentives, pt, medicalAllowance, incomeTax, othersDeduction,
   });
 
@@ -328,7 +328,6 @@ export async function applyPayslipEdit(existing, updates) {
     hra,
     transportAllowance,
     specialAllowance,
-    statutoryBonus,
     others,
     incentives,
     pt,

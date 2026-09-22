@@ -128,8 +128,8 @@ export default function Settings() {
       <div className="card">
         <h3 className="mt-0">Earnings Formula</h3>
         <p className="hint-text mt-0">
-          Basic = Gross × Basic%. HRA, Transportation Allowance, Special Allowance and Medical Allowance are each a
-          percent of <strong>Basic</strong> (not of gross). Anything left over of gross shows as "Others".
+          Basic = Gross × Basic%. HRA, Transportation Allowance and Special Allowance are each a
+          percent of <strong>Basic</strong> (not of gross). Anything left over of gross shows as "Statutory Bonus-Others".
         </p>
         {!formula ? <Loading /> : (
           <form onSubmit={save}>
@@ -141,10 +141,6 @@ export default function Settings() {
               <div><label>Transportation Allowance % (of Basic)</label><input type="number" min="0" step="0.01" value={formula.transportPercent} onChange={(e) => setFormula({ ...formula, transportPercent: Number(e.target.value) })} /></div>
               <div><label>Special Allowance % (of Basic)</label><input type="number" min="0" step="0.01" value={formula.specialPercent} onChange={(e) => setFormula({ ...formula, specialPercent: Number(e.target.value) })} /></div>
             </div>
-            <div className="form-row">
-              <div><label>Medical Allowance % (of Basic)</label><input type="number" min="0" step="0.01" value={formula.bonusPercent} onChange={(e) => setFormula({ ...formula, bonusPercent: Number(e.target.value) })} /></div>
-              <div />
-            </div>
             <ErrorText>{error}</ErrorText>
             <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
           </form>
@@ -154,7 +150,7 @@ export default function Settings() {
       <div className="card">
         <h3 className="mt-0">Bulk Reset Salary Structures</h3>
         <p className="hint-text mt-0">
-          Recomputes every earnings component (Basic, HRA, Transportation, Special, Medical Allowance, Others) for every existing salary structure version using the current formula above.
+          Recomputes every earnings component (Basic, HRA, Transportation, Special, Statutory Bonus-Others) for every existing salary structure version using the current formula above.
           This is irreversible and does not touch already-generated payslips (each snapshots its own numbers).
         </p>
         <ConfirmButton

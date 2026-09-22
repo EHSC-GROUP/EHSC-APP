@@ -531,7 +531,7 @@ function SalaryTab({ userId }) {
       {showNew && <NewVersionForm userId={userId} gross={gross} setGross={setGross} preview={preview} onCreated={() => { setShowNew(false); setGross(""); load(); }} />}
 
       <table>
-        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Transport</th><th>Special</th><th>Medical Allow.</th><th>Others</th><th>PT</th><th>Medical Ins.</th><th>TDS</th></tr></thead>
+        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Transport</th><th>Special</th><th>Statutory Bonus-Others</th><th>PT</th><th>Medical Ins.</th><th>TDS</th></tr></thead>
         <tbody>
           {data.versions.map((v) => (
             <tr key={v.effectiveFrom}>
@@ -541,14 +541,13 @@ function SalaryTab({ userId }) {
               <td className="amt-hra">₹{v.hra}</td>
               <td className="amt-allow">₹{v.transport || 0}</td>
               <td className="amt-allow">₹{v.special || 0}</td>
-              <td className="amt-allow">₹{v.bonus || 0}</td>
               <td className="amt-others">₹{v.others}</td>
               <td className="amt-deduction">₹{v.pt}</td>
               <td className="amt-deduction">₹{v.medicalAllowance || 0}</td>
               <td className="amt-deduction">₹{v.tds || 0}</td>
             </tr>
           ))}
-          {data.versions.length === 0 && <tr><td colSpan={11} className="empty-state">No salary structure yet.</td></tr>}
+          {data.versions.length === 0 && <tr><td colSpan={10} className="empty-state">No salary structure yet.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -560,12 +559,11 @@ const COMPONENT_FIELDS = [
   ["hra", "HRA"],
   ["transport", "Transportation Allowance"],
   ["special", "Special Allowance"],
-  ["bonus", "Medical Allowance"],
 ];
 
 function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
   const [form, setForm] = useState({ effectiveFrom: "", pt: 0, medicalAllowance: 0, tds: 0 });
-  const [comps, setComps] = useState({ basic: "", hra: "", transport: "", special: "", bonus: "" });
+  const [comps, setComps] = useState({ basic: "", hra: "", transport: "", special: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -575,10 +573,10 @@ function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
   // changes (the parent debounces the preview request).
   useEffect(() => {
     if (!preview) {
-      setComps({ basic: "", hra: "", transport: "", special: "", bonus: "" });
+      setComps({ basic: "", hra: "", transport: "", special: "" });
       return;
     }
-    setComps({ basic: preview.basic, hra: preview.hra, transport: preview.transport, special: preview.special, bonus: preview.bonus });
+    setComps({ basic: preview.basic, hra: preview.hra, transport: preview.transport, special: preview.special });
   }, [preview]);
 
   const grossNum = Number(gross) || 0;
@@ -621,7 +619,7 @@ function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
           </div>
         ))}
         <div style={{ flex: "1 1 45%" }}>
-          <label>Others (remainder of gross)</label>
+          <label>Statutory Bonus-Others (remainder of gross)</label>
           <input value={grossNum ? others.toFixed(2) : ""} disabled style={others < 0 ? { borderColor: "var(--danger)" } : undefined} />
         </div>
       </div>

@@ -36,7 +36,6 @@ function formulaSnapshot(formula) {
     hraPercentUsed: formula.hraPercent,
     transportPercentUsed: formula.transportPercent,
     specialPercentUsed: formula.specialPercent,
-    bonusPercentUsed: formula.bonusPercent,
   };
 }
 
@@ -69,11 +68,13 @@ router.post("/reset-all", authenticate, requireAdmin, async (req, res, next) => 
 
     for (const doc of snap.docs) {
       const versions = doc.data().versions || [];
-      const newVersions = versions.map((v) => ({
-        ...v,
-        ...computeEarnings(v.gross, formula),
-        ...formulaSnapshot(formula),
-      }));
+      const newVersions = versions.map((v) => {
+        // bonus/bonusPercentUsed are retired fields (folded into
+        // "others"/Statutory Bonus-Others) — drop them on reset so old
+        // versions don't carry stale, no-longer-displayed data.
+        const { bonus, bonusPercentUsed, ...rest } = v;
+        return { ...rest, ...computeEarnings(v.gross, formula), ...formulaSnapshot(formula) };
+      });
       batch.update(doc.ref, { versions: newVersions });
       updated++;
       opsInBatch++;
@@ -126,7 +127,7 @@ router.post("/:userId", authenticate, requireAdmin, async (req, res, next) => {
     // them. When supplied, "Others" is whatever remains of gross, so the
     // components always add back up to it.
     if (components) {
-      const keys = ["basic", "hra", "transport", "special", "bonus"];
+      const keys = ["basic", "hra", "transport", "special"];
       const supplied = {};
       for (const k of keys) {
         const v = Number(components[k]);
@@ -134,7 +135,7 @@ router.post("/:userId", authenticate, requireAdmin, async (req, res, next) => {
         supplied[k] = Math.round(v * 100) / 100;
       }
       const others = Math.round((Number(gross) - keys.reduce((s, k) => s + supplied[k], 0)) * 100) / 100;
-      if (others < -0.005) return res.status(400).json({ error: "Basic + HRA + Transportation + Special + Medical Allowance can't exceed the gross" });
+      if (others < -0.005) return res.status(400).json({ error: "Basic + HRA + Transportation + Special can't exceed the gross" });
       earnings = { ...supplied, others: Math.max(0, others) };
     }
 

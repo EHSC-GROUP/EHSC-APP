@@ -65,7 +65,7 @@ function drawPage(doc, period, p) {
   doc.text("Amount", 420, tableTop);
   doc.moveTo(30, tableTop + 14).lineTo(770, tableTop + 14).stroke();
 
-  const earnings = [["Basic", p.basic], ["HRA", p.hra], ["Transportation Allowance", p.transportAllowance], ["Special Allowance", p.specialAllowance], ["Medical Allowance", p.statutoryBonus], ["Others", p.others], ["Incentives", p.incentives]];
+  const earnings = [["Basic", p.basic], ["HRA", p.hra], ["Transportation Allowance", p.transportAllowance], ["Special Allowance", p.specialAllowance], ["Statutory Bonus-Others", p.others], ["Incentives", p.incentives]];
   const deductions = [["PT", p.pt], ["TDS", p.incomeTax], ["Medical Insurance", p.medicalAllowance], ["Other Deductions", p.othersDeduction]];
   doc.font("Helvetica").fontSize(9);
   let rowY2 = tableTop + 20;

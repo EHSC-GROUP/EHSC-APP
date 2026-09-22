@@ -43,8 +43,7 @@ function drawPayslipPage(doc, payslip) {
       ["HRA", payslip.hra],
       ["Transportation Allowance", payslip.transportAllowance],
       ["Special Allowance", payslip.specialAllowance],
-      ["Medical Allowance", payslip.statutoryBonus],
-      ["Others", payslip.others],
+      ["Statutory Bonus-Others", payslip.others],
       ["Incentives", payslip.incentives],
     ];
     const deductions = [
