@@ -9,12 +9,10 @@ const emptyConveyanceItem = () => ({ date: "", from: "", to: "", mode: "", fare:
 const emptyOtherItem = () => ({ date: "", details: "", amount: "" });
 const emptyProject = () => ({ projectId: "", amountSpent: "" });
 
-// Cash advances are requested from the Advances tab now, not filed as a claim type.
-const TYPE_OPTIONS = [
-  { value: "GENERAL", label: "General" },
-  { value: "TRAVEL", label: "Travel" },
-  { value: "ACCOMMODATION", label: "Accommodation" },
-];
+// Cash advances are requested from the Advances tab now, not filed as a claim
+// type. Claim Type itself was dropped from this form — every voucher is
+// filed as GENERAL; the field still exists server-side/in admin filters.
+const type = "GENERAL";
 
 // One Reimbursement Claim Form (RCF) — mirrors the paper form: header
 // details, then Section A (outstation travel), B (local conveyance) and C
@@ -23,7 +21,6 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
   const { user } = useAuth();
   const [voucherDate, setVoucherDate] = useState(new Date().toISOString().slice(0, 10));
   const [paidTo, setPaidTo] = useState("");
-  const [type, setType] = useState("GENERAL");
   const [journeyPurpose, setJourneyPurpose] = useState("");
   const [journeyStation, setJourneyStation] = useState("");
 
@@ -126,16 +123,9 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
       </div>
 
       <div className="form-row">
-        <div>
-          <label>Claim Type</label>
-          <select value={type} onChange={(e) => setType(e.target.value)}>
-            {TYPE_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-          </select>
-        </div>
         <div><label>Journey Station</label><input value={journeyStation} onChange={(e) => setJourneyStation(e.target.value)} placeholder="Optional" /></div>
+        <div><label>Journey Purpose</label><input value={journeyPurpose} onChange={(e) => setJourneyPurpose(e.target.value)} placeholder="Optional" /></div>
       </div>
-      <label>Journey Purpose</label>
-      <input value={journeyPurpose} onChange={(e) => setJourneyPurpose(e.target.value)} placeholder="Optional" />
 
       <ItemSection
         title="A. Travelling Expenses (outstation travel)"
