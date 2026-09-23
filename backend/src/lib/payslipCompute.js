@@ -7,7 +7,7 @@ import {
   round1,
   round2,
 } from "./dateUtils.js";
-import { getHolidaySetForRange, getWeeklyOffDays } from "./calendar.js";
+import { getHolidaySetForRange, getWeeklyOffDays, getWfhDateSetForRange } from "./calendar.js";
 import { getLeaveTypes } from "./leaveBalances.js";
 import { attendanceWeightsForMonth } from "./attendanceQuery.js";
 import { getCurrentSalaryVersion } from "./salaryStructures.js";
@@ -51,13 +51,25 @@ export async function computeMusterAndLeave(userId, period) {
   const daysInMonthCount = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const isPresent = (date) => (attendanceWeights.get(date) || 0) > 0;
 
-  const [holidaySet, weeklyOffDays, leaveTypes, attendanceWeights, requests] = await Promise.all([
+  const [holidaySet, weeklyOffDays, leaveTypes, attendanceWeights, requests, wfhSet] = await Promise.all([
     getHolidaySetForRange(start, end),
     getWeeklyOffDays(),
     getLeaveTypes(),
     attendanceWeightsForMonth(userId, period),
     getApprovedLeaveRequestsOverlapping(userId, start, end),
+    getWfhDateSetForRange(start, end),
   ]);
+
+  // A predefined WFH day (e.g. "1st Saturday") counts as present
+  // automatically — unless this employee already has an explicit
+  // attendance record for that exact date (any status), which always wins
+  // over the automatic default.
+  let wfhAutoDates = new Set();
+  if (wfhSet.size > 0) {
+    const wfhDates = [...wfhSet];
+    const wfhSnaps = await db.getAll(...wfhDates.map((d) => db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(`${userId}_${d}`)));
+    wfhAutoDates = new Set(wfhDates.filter((d, i) => !wfhSnaps[i].exists));
+  }
 
   // Tally raw (pre-cap) leave days per type for this month.
   const leaveDayEntries = new Map(); // date -> { leaveType, amount }
@@ -105,7 +117,7 @@ export async function computeMusterAndLeave(userId, period) {
     }
   }
 
-  // Day-by-day muster string: Holiday > WeeklyOff > Leave > Present > Absent.
+  // Day-by-day muster string: Holiday > WeeklyOff > Leave > WFH (auto) > Present > Absent.
   let holidayDays = 0;
   let weeklyOffCount = 0;
   const dayMarks = [];
@@ -123,6 +135,8 @@ export async function computeMusterAndLeave(userId, period) {
       if (entry.leaveType === HALF_DAY) mark = "HD";
       else if (entry.amount === 0.5) mark = `${entry.leaveType}(H)`;
       else mark = entry.leaveType;
+    } else if (wfhAutoDates.has(date)) {
+      mark = "WFH";
     } else if (isPresent(date)) {
       mark = "P";
     } else {
@@ -133,9 +147,10 @@ export async function computeMusterAndLeave(userId, period) {
 
   const workingDays = daysInMonthCount - holidayDays - weeklyOffCount;
   const absentDays = dayMarks.filter((d) => d.mark === "A").length;
+  const wfhAutoCount = dayMarks.filter((d) => d.mark === "WFH").length;
   // Days present per the attendance records: Present / Out of Office / Travel
-  // count as a full day, Half Day as half.
-  const systemPresentDays = round1([...attendanceWeights.values()].reduce((sum, w) => sum + w, 0));
+  // count as a full day, Half Day as half, plus any automatic WFH-rule days.
+  const systemPresentDays = round1([...attendanceWeights.values()].reduce((sum, w) => sum + w, 0) + wfhAutoCount);
 
   return {
     daysInMonth: daysInMonthCount,
