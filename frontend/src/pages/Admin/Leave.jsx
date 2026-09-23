@@ -182,51 +182,76 @@ function RecordLeaveModal({ onClose, onCreated }) {
 
 function LeaveBalances() {
   const [fy, setFy] = useState(currentFY());
-  const [userId, setUserId] = useState("");
-  const [balances, setBalances] = useState(null);
+  const [search, setSearch] = useState("");
+  const [data, setData] = useState(null);
   const [error, setError] = useState("");
 
+  // Whole roster in one request — every employee's balances load together
+  // instead of one lookup at a time.
   async function load() {
-    if (!userId) return;
     setError("");
     try {
-      const { data } = await client.get(`/leave/balances/${userId.toUpperCase()}`, { params: { fy } });
-      setBalances(data.balances);
+      const { data } = await client.get("/leave/balances", { params: { fy } });
+      setData(data);
     } catch (err) {
       setError(errorMessage(err));
     }
   }
+  useEffect(() => { load(); }, [fy]);
 
-  async function adjust(leaveTypeId, current) {
+  async function adjust(userId, leaveTypeId, current) {
     const value = window.prompt(`New entitlement for ${leaveTypeId} (FY ${fy}):`, current);
     if (value === null) return;
     try {
-      await client.put(`/leave/balances/${userId.toUpperCase()}/${leaveTypeId}`, { fy, entitlement: Number(value) });
+      await client.put(`/leave/balances/${userId}/${leaveTypeId}`, { fy, entitlement: Number(value) });
       load();
     } catch (err) {
       setError(errorMessage(err));
     }
   }
 
+  const q = search.trim().toLowerCase();
+  const filtered = (data?.employees || []).filter(
+    (e) => !q || (e.name || "").toLowerCase().includes(q) || e.userId.toLowerCase().includes(q) || (e.department || "").toLowerCase().includes(q)
+  );
+
   return (
     <div>
       <div className="toolbar">
-        <input placeholder="Employee User ID" style={{ width: 200 }} value={userId} onChange={(e) => setUserId(e.target.value)} />
-        <input type="number" style={{ width: 100 }} value={fy} onChange={(e) => setFy(Number(e.target.value))} />
-        <button onClick={load}>Load</button>
+        <input placeholder="Search name, ID, department…" style={{ width: 240 }} value={search} onChange={(e) => setSearch(e.target.value)} />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+          FY <input type="number" style={{ width: 90 }} value={fy} onChange={(e) => setFy(Number(e.target.value))} />
+        </label>
       </div>
       <ErrorText>{error}</ErrorText>
-      {balances && (
+      {!data ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Leave Type</th><th>Entitlement</th><th>Used</th><th>Remaining</th><th></th></tr></thead>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Department</th>
+                {data.leaveTypes.map((lt) => <th key={lt.id}>{lt.name}</th>)}
+              </tr>
+            </thead>
             <tbody>
-              {Object.entries(balances).map(([id, b]) => (
-                <tr key={id}>
-                  <td>{id}</td><td>{b.entitlement}</td><td>{b.used}</td><td>{b.remaining}</td>
-                  <td><button className="btn-sm" onClick={() => adjust(id, b.entitlement)}>Adjust</button></td>
+              {filtered.map((e) => (
+                <tr key={e.userId}>
+                  <td>{e.name || e.userId}<div className="hint-text mt-0">{e.userId}</div></td>
+                  <td>{e.department || "-"}</td>
+                  {data.leaveTypes.map((lt) => {
+                    const b = e.balances[lt.id] || { entitlement: 0, used: 0, remaining: 0 };
+                    return (
+                      <td key={lt.id}>
+                        <span className={b.remaining <= 0 ? "wallet-amt-debit" : "wallet-amt-credit"}>{b.remaining}</span>
+                        <span className="hint-text"> / {b.entitlement} (used {b.used})</span>
+                        <button className="btn-sm" style={{ marginLeft: 8 }} onClick={() => adjust(e.userId, lt.id, b.entitlement)}>Adjust</button>
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
+              {filtered.length === 0 && <tr><td colSpan={2 + data.leaveTypes.length} className="empty-state">No employees found.</td></tr>}
             </tbody>
           </table>
         </div>

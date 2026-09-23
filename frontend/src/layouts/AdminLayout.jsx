@@ -1,7 +1,10 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useFeatureFlags } from "../context/FeatureFlagsContext";
 
+// Items with `children` render as a collapsible group instead of a direct
+// link — keeps the always-visible list short even as more pages get added.
 const NAV_GROUPS = [
   {
     label: "PM",
@@ -14,15 +17,30 @@ const NAV_GROUPS = [
   {
     label: "HR & Payroll",
     items: [
-      { to: "/admin/profiles", label: "Employee Profiles" },
-      { to: "/admin/associates", label: "Associate Profiles" },
+      {
+        label: "Profiles",
+        children: [
+          { to: "/admin/profiles", label: "Employee Profiles" },
+          { to: "/admin/associates", label: "Associate Profiles" },
+        ],
+      },
       { to: "/admin/attendance", label: "Attendance" },
-      { to: "/admin/leave", label: "Leave Management" },
-      { to: "/admin/holidays", label: "Holidays" },
-      { to: "/admin/reimbursements", label: "Reimbursements" },
+      {
+        label: "Leave Management",
+        children: [
+          { to: "/admin/leave", label: "Register & Balances" },
+          { to: "/admin/holidays", label: "Holidays" },
+        ],
+      },
+      {
+        label: "Finance",
+        children: [
+          { to: "/admin/company-wallet", label: "Company Wallet" },
+          { to: "/admin/reimbursements", label: "Reimbursements" },
+          { to: "/admin/material-indents", label: "Material Indents" },
+        ],
+      },
       { to: "/admin/payslips", label: "Payslips" },
-      { to: "/admin/material-indents", label: "Material Indents" },
-      { to: "/admin/company-wallet", label: "Company Wallet" },
       { to: "/admin/travel", label: "Travel" },
       { to: "/admin/documents", label: "Compliance" },
       { to: "/admin/settings", label: "Settings" },
@@ -35,14 +53,54 @@ const NAV_GROUPS = [
 // the nav (and StaffOnly blocks the routes directly too, see App.jsx).
 const TEAM_LEAD_PATHS = ["/admin/leave", "/admin/reimbursements"];
 
+function NavGroupItem({ item, currentPath }) {
+  const isParent = !!item.children;
+  const isActiveGroup = isParent && item.children.some((c) => c.to === currentPath);
+  const [open, setOpen] = useState(isActiveGroup);
+
+  if (!isParent) {
+    return (
+      <NavLink to={item.to} className={({ isActive }) => (isActive ? "active" : "")}>
+        {item.label}
+      </NavLink>
+    );
+  }
+
+  return (
+    <div className="nav-collapsible">
+      <button type="button" className={`nav-collapsible-toggle ${isActiveGroup ? "active-parent" : ""}`} onClick={() => setOpen((o) => !o)}>
+        <span>{item.label}</span>
+        <span className={`nav-chevron ${open ? "open" : ""}`}>▸</span>
+      </button>
+      {open && (
+        <div className="nav-collapsible-body">
+          {item.children.map((c) => (
+            <NavLink key={c.to} to={c.to} className={({ isActive }) => (isActive ? "active" : "")}>
+              {c.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminLayout() {
   const { user, logout } = useAuth();
   const { flags } = useFeatureFlags();
+  const { pathname } = useLocation();
   const isTeamLead = user?.role === "team_lead";
+
   const visibleGroups = NAV_GROUPS
     .filter((group) => group.label !== "PM" || (flags.projectManagement && !isTeamLead))
-    .map((group) => (isTeamLead ? { ...group, items: group.items.filter((item) => TEAM_LEAD_PATHS.includes(item.to)) } : group))
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .map((item) => (item.children ? { ...item, children: item.children.filter((c) => !isTeamLead || TEAM_LEAD_PATHS.includes(c.to)) } : item))
+        .filter((item) => (item.children ? item.children.length > 0 : !isTeamLead || TEAM_LEAD_PATHS.includes(item.to))),
+    }))
     .filter((group) => group.items.length > 0);
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -51,18 +109,18 @@ export default function AdminLayout() {
           <h1>EHSC</h1>
         </div>
         <nav>
-          {visibleGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <span className="nav-group-label">{group.label}</span>
-              {group.items.map((item) => (
-                <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? "active" : "")}>
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
-          <div style={{ borderTop: "1px solid #1f2937", marginTop: 12, paddingTop: 12 }}>
-            <span style={{ display: "block", padding: "6px 20px", fontSize: 12 }}>{user?.name} ({user?.role})</span>
+          <div className="sidebar-scroll">
+            {visibleGroups.map((group) => (
+              <div className="nav-group" key={group.label}>
+                <span className="nav-group-label">{group.label}</span>
+                {group.items.map((item) => (
+                  <NavGroupItem key={item.label || item.to} item={item} currentPath={pathname} />
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="sidebar-footer">
+            <span className="sidebar-user">{user?.name} ({user?.role})</span>
             <button className="btn-logout" onClick={logout}>Log out</button>
           </div>
         </nav>

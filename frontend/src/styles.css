@@ -35,17 +35,20 @@ a { color: var(--primary); text-decoration: none; }
   width: 230px;
   background: #111827;
   color: #d1d5db;
-  padding: 20px 0;
+  padding: 20px 0 0;
   flex-shrink: 0;
   height: 100vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 .sidebar h1 { font-size: 16px; color: #fff; margin: 0; }
-.sidebar .brand { display: flex; align-items: center; gap: 10px; padding: 0 20px 16px; }
+.sidebar .brand { display: flex; align-items: center; gap: 10px; padding: 0 20px 16px; flex-shrink: 0; }
 .sidebar .brand-logo { height: 34px; width: 34px; object-fit: contain; background: #fff; border-radius: 8px; padding: 3px; flex-shrink: 0; }
+.sidebar nav { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.sidebar-scroll { flex: 1; overflow-y: auto; padding-bottom: 8px; }
 .sidebar nav a, .sidebar nav button {
   display: block; width: 100%; text-align: left; background: none; border: none;
-  color: #d1d5db; padding: 10px 20px; font-size: 13px; cursor: pointer; text-decoration: none;
+  color: #d1d5db; padding: 9px 20px; font-size: 13px; cursor: pointer; text-decoration: none;
 }
 .sidebar nav a.active, .sidebar nav a:hover, .sidebar nav button:hover { background: #1f2937; color: #fff; }
 .sidebar .nav-group-label {
@@ -54,6 +57,23 @@ a { color: var(--primary); text-decoration: none; }
 }
 .sidebar .nav-group:first-child .nav-group-label { padding-top: 0; }
 .sidebar .badge { background: var(--danger); color: #fff; border-radius: 10px; padding: 1px 6px; font-size: 11px; margin-left: 6px; }
+
+/* Collapsible nav groups (Profiles / Leave Management / Finance) */
+.nav-collapsible-toggle { display: flex; align-items: center; justify-content: space-between; font-weight: 500; }
+.nav-collapsible-toggle.active-parent { color: #fff; }
+.nav-chevron { display: inline-block; font-size: 10px; color: #6b7280; transition: transform 0.15s ease; }
+.nav-chevron.open { transform: rotate(90deg); }
+.nav-collapsible-body { display: flex; flex-direction: column; }
+.nav-collapsible-body a { padding-left: 34px; font-size: 12.5px; }
+
+/* Footer: user line + logout, pinned below the scrollable nav list, never
+   stretched edge-to-edge like the full-bleed nav links above it. */
+.sidebar-footer {
+  flex-shrink: 0;
+  border-top: 1px solid #1f2937;
+  padding: 12px 20px 18px;
+}
+.sidebar-user { display: block; font-size: 12px; color: #9ca3af; margin-bottom: 10px; }
 
 .main-content { flex: 1; padding: 24px 32px; height: 100vh; overflow-y: auto; overflow-x: auto; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
@@ -283,5 +303,9 @@ label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom
 /* Logout is a destructive/session-ending action — make it read as one */
 .btn-logout { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn-logout:hover { background: #b91c1c; border-color: #b91c1c; }
-.sidebar nav button.btn-logout { background: var(--danger); color: #fff; }
+.sidebar nav button.btn-logout {
+  background: var(--danger); color: #fff;
+  width: auto; display: inline-block;
+  padding: 7px 16px; border-radius: 6px; font-size: 12.5px; font-weight: 600;
+}
 .sidebar nav button.btn-logout:hover { background: #b91c1c; color: #fff; }

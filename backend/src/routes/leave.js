@@ -9,6 +9,7 @@ import {
   HALF_DAY,
   LEAVE_STATUS,
   MEDICAL_CERT_THRESHOLD_DAYS,
+  STAFF_PROFILE_TYPES,
 } from "../lib/constants.js";
 import { authenticate, requireAdmin, requireApprover } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
@@ -421,6 +422,31 @@ router.get("/card/:userId/excel", authenticate, async (req, res, next) => {
 });
 
 // ---- balances -------------------------------------------------------------
+// Whole-roster view for the admin Balances tab — one request instead of a
+// separate round trip per employee. Leave types are fetched once and reused
+// for every employee's computation instead of being re-queried per row.
+router.get("/balances", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const fy = req.query.fy ? Number(req.query.fy) : financialYearOf(new Date().toISOString().slice(0, 10));
+    const [profilesSnap, usersSnap, leaveTypes] = await Promise.all([
+      db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", STAFF_PROFILE_TYPES).get(),
+      db.collection(COLLECTIONS.USERS).get(),
+      getLeaveTypes(),
+    ]);
+    const usersById = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
+    const roster = profilesSnap.docs
+      .map((d) => ({ userId: d.id, name: usersById.get(d.id)?.name, department: d.data().department || null, disabled: !!usersById.get(d.id)?.disabled }))
+      .filter((p) => !p.disabled)
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+    const balancesByUser = await Promise.all(roster.map((p) => getLeaveBalancesForYear(p.userId, fy)));
+    const employees = roster.map((p, i) => ({ userId: p.userId, name: p.name, department: p.department, balances: balancesByUser[i] }));
+    res.json({ year: fy, leaveTypes: leaveTypes.map((lt) => ({ id: lt.id, name: lt.name })), employees });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/balances/:userId", authenticate, async (req, res, next) => {
   try {
     const targetId = req.params.userId.toUpperCase();
