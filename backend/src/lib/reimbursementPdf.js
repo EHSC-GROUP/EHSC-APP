@@ -30,6 +30,9 @@ function drawClaimPage(doc, record) {
 
   drawLetterhead(doc, { left: PAGE_LEFT, right: PAGE_RIGHT });
   doc.font("Helvetica-Bold").fontSize(12).text("Reimbursement Claim Form (RCF)", { align: "center", width: PAGE_WIDTH });
+  if (record.voucherNo) {
+    doc.font("Helvetica-Bold").fontSize(10).text(`Voucher No: ${record.voucherNo}`, { align: "center", width: PAGE_WIDTH });
+  }
   doc.moveDown(0.6);
 
   const infoTop = doc.y;

@@ -8,6 +8,7 @@ import { round2 } from "../lib/dateUtils.js";
 import { renderMaterialIndentPdf } from "../lib/materialIndentPdf.js";
 import { buildMaterialIndentRegisterWorkbook } from "../lib/materialIndentExcel.js";
 import { applyWalletDelta } from "../lib/companyWallet.js";
+import { nextVoucherNumber } from "../lib/voucherNumber.js";
 
 const router = Router();
 
@@ -116,9 +117,11 @@ router.post("/", authenticate, async (req, res, next) => {
     const items = withAmounts(req.body.items);
     const totalAmount = computeTotal(items);
     const docId = uuid();
+    const voucherNo = await nextVoucherNumber("MI", raisedDate);
     const doc = {
       userId: req.user.userId,
       name: req.user.name,
+      voucherNo,
       raisedDate,
       purpose,
       items,

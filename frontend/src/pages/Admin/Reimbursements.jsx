@@ -132,10 +132,11 @@ export default function Reimbursements() {
           {!list ? <Loading /> : (
             <div className="card table-wrap">
               <table>
-                <thead><tr><th>Employee</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Voucher No</th><th>Employee</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {list.map((r) => (
                     <tr key={r.id}>
+                      <td>{r.voucherNo || "-"}</td>
                       <td>{r.name || r.userId}<div className="hint-text mt-0">{r.department || "no department"}</div></td>
                       <td>{r.voucherDate}</td>
                       <td><StatusBadge status={r.type || "GENERAL"} /></td>

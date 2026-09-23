@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { formatProjects } from "./reimbursementFormat.js";
 
 const COLUMNS = [
+  { header: "Voucher No", key: "voucherNo", width: 16 },
   { header: "Employee", key: "name", width: 20 },
   { header: "Raised By (Employee ID)", key: "userId", width: 18 },
   { header: "Designation", key: "designation", width: 18 },
@@ -42,6 +43,7 @@ export async function buildReimbursementRegisterWorkbook(records) {
 
   for (const r of records) {
     sheet.addRow({
+      voucherNo: r.voucherNo || "",
       name: r.name,
       userId: r.userId,
       designation: r.designation || "",

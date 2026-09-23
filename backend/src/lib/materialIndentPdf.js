@@ -12,9 +12,10 @@ function drawIndentPage(doc, record) {
   doc.font("Helvetica-Bold").fontSize(11).text("Material Indent Form (MIF)", PAGE_LEFT, top + 6, { align: "center", width: PAGE_WIDTH });
 
   doc.font("Helvetica").fontSize(9);
-  doc.text(`Raised Date: ${record.raisedDate || "-"}`, PAGE_LEFT, top + 32);
-  doc.text(`Indent By: ${record.name || record.userId}`, PAGE_LEFT + 280, top + 32);
-  doc.y = top + 50;
+  doc.text(`Voucher No: ${record.voucherNo || "-"}`, PAGE_LEFT, top + 32);
+  doc.text(`Raised Date: ${record.raisedDate || "-"}`, PAGE_LEFT + 280, top + 32);
+  doc.text(`Indent By: ${record.name || record.userId}`, PAGE_LEFT, top + 47);
+  doc.y = top + 65;
 
   const y = drawTable(
     doc,

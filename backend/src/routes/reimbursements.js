@@ -13,6 +13,7 @@ import { renderReimbursementPdf } from "../lib/reimbursementPdf.js";
 import { buildReimbursementRegisterWorkbook } from "../lib/reimbursementExcel.js";
 import { planWalletOffset, restoreWalletOffsets } from "../lib/advanceWallet.js";
 import { applyWalletDelta } from "../lib/companyWallet.js";
+import { nextVoucherNumber } from "../lib/voucherNumber.js";
 import {
   loadDepartmentMap, loadDepartmentAdmins, loadDepartmentTeamLeads, visibleDepartmentFor, filterByDepartment,
   canDeptApprove, canTeamLeadApprove, canFinalApprove, canAdminCancel, awaitingNote, reimbursementActions,
@@ -269,6 +270,7 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
     const department = profileSnap.exists ? profileSnap.data().department || null : null;
 
     const docId = uuid();
+    const voucherNo = await nextVoucherNumber("EV", voucherDate);
     const bills = [];
     for (const [i, file] of files.entries()) {
       const fileId = `reimbursement-bills/${docId}-${i}-${safeFileName(file.originalname)}`;
@@ -281,6 +283,7 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
       name: req.user.name,
       designation,
       department,
+      voucherNo,
       voucherDate,
       type,
       projectId: resolvedProjectId,

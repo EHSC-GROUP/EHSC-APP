@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 
 const COLUMNS = [
+  { header: "Voucher No", key: "voucherNo", width: 16 },
   { header: "Raised Date", key: "raisedDate", width: 14 },
   { header: "Indent By", key: "name", width: 20 },
   { header: "Item / Material", key: "itemMaterial", width: 28 },
@@ -25,6 +26,7 @@ export async function buildMaterialIndentRegisterWorkbook(records) {
   for (const r of records) {
     for (const item of r.items) {
       sheet.addRow({
+        voucherNo: r.voucherNo || "",
         raisedDate: r.raisedDate,
         name: r.name || r.userId,
         itemMaterial: item.itemMaterial,

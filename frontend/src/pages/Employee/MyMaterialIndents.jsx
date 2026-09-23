@@ -42,10 +42,11 @@ export default function MyMaterialIndents() {
       {!list ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Raised Date</th><th>Purpose</th><th>Amount</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Voucher No</th><th>Raised Date</th><th>Purpose</th><th>Amount</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {list.map((r) => (
                 <tr key={r.id}>
+                  <td>{r.voucherNo || "-"}</td>
                   <td>{r.raisedDate}</td>
                   <td>{r.purpose}</td>
                   <td>₹{r.totalAmount.toFixed(2)}</td>
