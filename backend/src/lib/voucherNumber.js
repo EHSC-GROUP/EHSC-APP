@@ -22,3 +22,17 @@ export async function nextVoucherNumber(prefix, dateStr) {
     return `${prefix} ${label}/${String(next).padStart(3, "0")}`;
   });
 }
+
+// Read-only preview of what the NEXT number would be, for showing on the
+// submission form before the voucher is actually created — doesn't touch
+// the counter, so opening/abandoning the form never burns a number. The
+// real one is only ever assigned atomically by nextVoucherNumber() above,
+// so this can drift by a number or two under concurrent submissions; it's
+// a preview, not a reservation.
+export async function peekNextVoucherNumber(prefix, dateStr) {
+  const fyStart = financialYearOf(dateStr);
+  const label = fyLabel(fyStart);
+  const snap = await db.collection(COLLECTIONS.HR_SETTINGS).doc(`voucher_seq_${prefix}_${fyStart}`).get();
+  const next = (snap.exists ? snap.data().last : 0) + 1;
+  return `${prefix} ${label}/${String(next).padStart(3, "0")}`;
+}

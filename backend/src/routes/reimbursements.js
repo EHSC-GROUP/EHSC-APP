@@ -13,7 +13,7 @@ import { renderReimbursementPdf } from "../lib/reimbursementPdf.js";
 import { buildReimbursementRegisterWorkbook } from "../lib/reimbursementExcel.js";
 import { planWalletOffset, restoreWalletOffsets } from "../lib/advanceWallet.js";
 import { applyWalletDelta } from "../lib/companyWallet.js";
-import { nextVoucherNumber } from "../lib/voucherNumber.js";
+import { nextVoucherNumber, peekNextVoucherNumber } from "../lib/voucherNumber.js";
 import {
   loadDepartmentMap, loadDepartmentAdmins, loadDepartmentTeamLeads, visibleDepartmentFor, filterByDepartment,
   canDeptApprove, canTeamLeadApprove, canFinalApprove, canAdminCancel, awaitingNote, reimbursementActions,
@@ -153,6 +153,18 @@ router.get("/mine", authenticate, async (req, res, next) => {
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     list.sort((a, b) => (a.voucherDate < b.voucherDate ? 1 : -1));
     res.json(await decorate(list, { ...req.user, role: ROLES.EMPLOYEE }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Read-only preview of the voucher number this claim would get if
+// submitted right now (for showing on the form before submission) — see
+// lib/voucherNumber.js for why this never actually reserves a number.
+router.get("/next-voucher-no", authenticate, async (req, res, next) => {
+  try {
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    res.json({ voucherNo: await peekNextVoucherNumber("EV", date) });
   } catch (err) {
     next(err);
   }

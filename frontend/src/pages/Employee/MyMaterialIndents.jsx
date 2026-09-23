@@ -65,7 +65,7 @@ export default function MyMaterialIndents() {
         </div>
       )}
       {showNew && (
-        <Modal title="New Material Indent" onClose={() => setShowNew(false)}>
+        <Modal title="New Material Indent" onClose={() => setShowNew(false)} wide>
           <MaterialIndentForm onSubmitted={() => { setShowNew(false); load(); }} />
         </Modal>
       )}

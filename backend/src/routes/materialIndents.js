@@ -8,7 +8,7 @@ import { round2 } from "../lib/dateUtils.js";
 import { renderMaterialIndentPdf } from "../lib/materialIndentPdf.js";
 import { buildMaterialIndentRegisterWorkbook } from "../lib/materialIndentExcel.js";
 import { applyWalletDelta } from "../lib/companyWallet.js";
-import { nextVoucherNumber } from "../lib/voucherNumber.js";
+import { nextVoucherNumber, peekNextVoucherNumber } from "../lib/voucherNumber.js";
 
 const router = Router();
 
@@ -60,6 +60,17 @@ router.get("/mine", authenticate, async (req, res, next) => {
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     list.sort((a, b) => (a.raisedDate < b.raisedDate ? 1 : -1));
     res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Read-only preview of the voucher number this indent would get if
+// submitted right now (for showing on the form before submission).
+router.get("/next-voucher-no", authenticate, async (req, res, next) => {
+  try {
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    res.json({ voucherNo: await peekNextVoucherNumber("MI", date) });
   } catch (err) {
     next(err);
   }

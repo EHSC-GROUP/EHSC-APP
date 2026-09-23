@@ -37,6 +37,15 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
   const [bills, setBills] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [voucherNo, setVoucherNo] = useState("");
+
+  // Preview only — the real number is assigned atomically on submit, so
+  // this can occasionally be off by one under concurrent submissions.
+  useEffect(() => {
+    client.get("/reimbursements/next-voucher-no", { params: { date: voucherDate } })
+      .then(({ data }) => setVoucherNo(data.voucherNo))
+      .catch(() => setVoucherNo(""));
+  }, [voucherDate]);
 
   // Until Project Management is live (feature flag off) a project is just a
   // typed Project ID; once it's switched on this becomes a dropdown.
@@ -118,8 +127,12 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
       )}
 
       <div className="form-row">
+        <div><label>Voucher No</label><input value={voucherNo || "…"} disabled title="Assigned automatically — this is a preview of the next number" /></div>
         <div><label>Journey / Voucher Date</label><input type="date" value={voucherDate} onChange={(e) => setVoucherDate(e.target.value)} required /></div>
+      </div>
+      <div className="form-row">
         <div><label>Raised By</label><input value={`${user?.name || ""} (${user?.userId || ""})`} disabled /></div>
+        <div />
       </div>
 
       <div className="form-row">
