@@ -107,7 +107,7 @@ const isStaff = (type) => type === "employee" || type === "admin" || type === "t
 function CreateProfileModal({ kind, onClose, onCreated }) {
   const [type, setType] = useState(kind === "associate" ? "associate" : "employee");
   const [form, setForm] = useState({
-    name: "", firstName: "", lastName: "", employeeId: "", designation: "", department: "",
+    name: "", firstName: "", lastName: "", designation: "", department: "",
     address: "", professionalEmail: "", personalEmail: "", email: "", phone: "",
     reportingManager: "", emergencyContactName: "", emergencyContactPhone: "",
   });
@@ -160,13 +160,7 @@ function CreateProfileModal({ kind, onClose, onCreated }) {
               <div><label>First Name</label><input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} required /></div>
               <div><label>Last Name</label><input value={form.lastName} onChange={(e) => set("lastName", e.target.value)} required /></div>
             </div>
-            <label>Employee ID</label>
-            <input
-              value={form.employeeId}
-              onChange={(e) => set("employeeId", e.target.value)}
-              placeholder="Also becomes the login User ID"
-              required
-            />
+            <p className="hint-text mt-0">Employee ID is auto-generated (EHSC123, EHSC124, ...) and becomes the login User ID.</p>
             <div className="form-row">
               <div><label>Designation</label><input value={form.designation} onChange={(e) => set("designation", e.target.value)} /></div>
               <div>

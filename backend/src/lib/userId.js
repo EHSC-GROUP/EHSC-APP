@@ -48,3 +48,37 @@ export async function generateAssociateId() {
     throw new Error("Could not find a free associate code");
   });
 }
+
+const EMPLOYEE_PREFIX = "EHSC";
+// Deliberately requires 3+ digits so this never matches an associate code
+// (EHSC-EXT001 has no digit right after "EHSC" — the "-" fails this pattern).
+const EMPLOYEE_ID_PATTERN = /^EHSC(\d{3,})$/;
+
+// Staff (employee/admin/team lead) get sequential IDs too: EHSC123,
+// EHSC124, ... Same belt-and-braces transactional pattern as
+// generateAssociateId — seeded from the highest ID already in use if the
+// counter doesn't exist yet (so it picks up right after whatever the last
+// manually-entered ID was, e.g. EHSC122 in use -> next is EHSC123).
+export async function generateEmployeeId() {
+  const counterRef = db.collection(COLLECTIONS.HR_SETTINGS).doc("employee_id_counter");
+  return db.runTransaction(async (tx) => {
+    const [counterSnap, usersSnap] = await Promise.all([
+      tx.get(counterRef),
+      tx.get(db.collection(COLLECTIONS.USERS).where("userId", ">=", EMPLOYEE_PREFIX).where("userId", "<", `${EMPLOYEE_PREFIX}~`)),
+    ]);
+    const highestInUse = usersSnap.docs.reduce((max, d) => {
+      const m = EMPLOYEE_ID_PATTERN.exec(d.id);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0);
+    let next = Math.max(counterSnap.exists ? counterSnap.data().last : 0, highestInUse) + 1;
+    for (let attempt = 0; attempt < 100; attempt++, next++) {
+      const id = `${EMPLOYEE_PREFIX}${String(next).padStart(3, "0")}`;
+      const taken = await tx.get(db.collection(COLLECTIONS.USERS).doc(id));
+      if (!taken.exists) {
+        tx.set(counterRef, { last: next });
+        return id;
+      }
+    }
+    throw new Error("Could not find a free employee code");
+  });
+}

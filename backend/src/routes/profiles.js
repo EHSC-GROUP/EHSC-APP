@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES, PROFILE_TYPE, STAFF_PROFILE_TYPES, DEPARTMENTS, TEMP_PASSWORD } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
-import { generateAssociateId } from "../lib/userId.js";
+import { generateAssociateId, generateEmployeeId } from "../lib/userId.js";
 import { isValidId } from "../lib/validateId.js";
 import { pickCurrentVersion } from "../lib/salaryStructures.js";
 
@@ -152,23 +152,10 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       return res.status(400).json({ error: "name is required" });
     }
 
-    // Staff (employee/admin) logins are keyed by the Employee ID HR assigns
-    // (not a randomly generated one) — it's required up front and becomes
-    // the userId outright, so login ID and employee ID can never diverge.
-    // Associates have no Employee ID; they get the next EHSC-EXT### code.
-    let userId;
-    if (isStaffType(body.type)) {
-      const employeeId = (body.employeeId || "").trim().toUpperCase();
-      if (!employeeId) return res.status(400).json({ error: "employeeId is required for employee and admin profiles" });
-      if (!/^[A-Z0-9_-]+$/.test(employeeId)) {
-        return res.status(400).json({ error: "employeeId may only contain letters, numbers, hyphens and underscores" });
-      }
-      const existing = await db.collection(COLLECTIONS.USERS).doc(employeeId).get();
-      if (existing.exists) return res.status(400).json({ error: `Employee ID ${employeeId} is already in use` });
-      userId = employeeId;
-    } else {
-      userId = await generateAssociateId();
-    }
+    // Staff (employee/admin/team lead) logins are keyed by an auto-generated
+    // sequential Employee ID (EHSC123, EHSC124, ...) — same pattern as
+    // associates' EHSC-EXT### codes, just a different prefix/shape.
+    const userId = isStaffType(body.type) ? await generateEmployeeId() : await generateAssociateId();
     const tempPassword = TEMP_PASSWORD;
     const hash = await bcrypt.hash(tempPassword, 10);
 
