@@ -36,7 +36,7 @@ async function getActiveEmployeeProfiles() {
 // Admin marks anyone's (or their own) status directly.
 router.post("/mark-status", authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const { userId, date, status, note } = req.body;
+    const { userId, date, status, note, leaveTypeId } = req.body;
     if (!date || !status) return res.status(400).json({ error: "date and status are required" });
     if (!Object.values(ATTENDANCE_STATUS_VALUES).includes(status)) {
       return res.status(400).json({ error: `status must be one of ${Object.values(ATTENDANCE_STATUS_VALUES).join(", ")}` });
@@ -53,6 +53,10 @@ router.post("/mark-status", authenticate, requireAdmin, async (req, res, next) =
       userId: targetUserId,
       date,
       status,
+      // Which leave type this day is — cosmetic/descriptive only (this
+      // ledger deliberately stays decoupled from the real leave-balance
+      // system in hr_leave_requests, see note above).
+      leaveTypeId: status === ATTENDANCE_STATUS_VALUES.LEAVE ? leaveTypeId || null : null,
       note: note || "",
       source: ATTENDANCE_SOURCE.ADMIN,
       markedAt: new Date().toISOString(),
@@ -443,6 +447,7 @@ router.get("/roster", authenticate, requireAdmin, async (req, res, next) => {
         status: record?.status || null,
         source: record?.source || null,
         note: record?.note || "",
+        leaveTypeId: record?.leaveTypeId || null,
       };
     });
     res.json({ date, roster });

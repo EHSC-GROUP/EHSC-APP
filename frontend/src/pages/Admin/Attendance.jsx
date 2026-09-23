@@ -51,6 +51,7 @@ function DailyStatusTab() {
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [leaveTypes, setLeaveTypes] = useState([]);
 
   async function loadRoster() {
     setError("");
@@ -62,6 +63,8 @@ function DailyStatusTab() {
     }
   }
   useEffect(() => { loadRoster(); }, [date]);
+  useEffect(() => { client.get("/leave-types").then(({ data }) => setLeaveTypes(data)).catch(() => {}); }, []);
+  const leaveTypeName = (id) => leaveTypes.find((lt) => lt.id === id)?.name || id;
 
   async function loadSummary() {
     try {
@@ -73,10 +76,10 @@ function DailyStatusTab() {
   }
   useEffect(() => { loadSummary(); }, [month]);
 
-  async function mark(userId, status) {
+  async function mark(userId, status, leaveTypeId) {
     setError("");
     try {
-      await client.post("/attendance/mark-status", { userId, date, status });
+      await client.post("/attendance/mark-status", { userId, date, status, leaveTypeId });
       loadRoster();
       if (month === date.slice(0, 7)) loadSummary();
     } catch (err) {
@@ -163,15 +166,30 @@ function DailyStatusTab() {
               {roster.map((r) => (
                 <tr key={r.userId}>
                   <td>{r.name} <span className="text-muted">({r.userId})</span></td>
-                  <td>{r.status ? <StatusBadge status={r.status} /> : <span className="text-muted">Not marked</span>}</td>
+                  <td>
+                    {r.status ? <StatusBadge status={r.status} /> : <span className="text-muted">Not marked</span>}
+                    {r.status === "LEAVE" && r.leaveTypeId && <div className="hint-text mt-0">{leaveTypeName(r.leaveTypeId)}</div>}
+                  </td>
                   <td className="text-muted">{r.source ? SOURCE_LABEL[r.source] : "-"}</td>
                   <td>
                     <div className="toolbar" style={{ margin: 0 }}>
-                      {STATUSES.map((s) => (
-                        <button key={s} className="btn-sm" disabled={r.status === s} onClick={() => mark(r.userId, s)}>
-                          {STATUS_LABEL[s]}
-                        </button>
-                      ))}
+                      {STATUSES.map((s) =>
+                        s === "LEAVE" ? (
+                          <select
+                            key={s}
+                            className="btn-sm"
+                            value={r.status === "LEAVE" ? r.leaveTypeId || "" : ""}
+                            onChange={(e) => e.target.value && mark(r.userId, "LEAVE", e.target.value)}
+                          >
+                            <option value="">Leave…</option>
+                            {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
+                          </select>
+                        ) : (
+                          <button key={s} className="btn-sm" disabled={r.status === s} onClick={() => mark(r.userId, s)}>
+                            {STATUS_LABEL[s]}
+                          </button>
+                        )
+                      )}
                     </div>
                   </td>
                 </tr>
