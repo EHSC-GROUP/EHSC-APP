@@ -19,6 +19,7 @@ import CompanyDocuments from "./pages/Admin/CompanyDocuments";
 import Travel from "./pages/Admin/Travel";
 import Settings from "./pages/Admin/Settings";
 import MaterialIndents from "./pages/Admin/MaterialIndents";
+import CompanyWallet from "./pages/Admin/CompanyWallet";
 
 import EmployeeLayout from "./layouts/EmployeeLayout";
 import Hub from "./pages/Employee/Hub";
@@ -99,6 +100,7 @@ export default function App() {
         <Route path="holidays" element={<StaffOnly><Holidays /></StaffOnly>} />
         <Route path="reimbursements" element={<Reimbursements />} />
         <Route path="material-indents" element={<StaffOnly><MaterialIndents /></StaffOnly>} />
+        <Route path="company-wallet" element={<StaffOnly><CompanyWallet /></StaffOnly>} />
         <Route path="attendance" element={<StaffOnly><Attendance /></StaffOnly>} />
         <Route path="documents" element={<StaffOnly><CompanyDocuments /></StaffOnly>} />
         <Route path="travel" element={<StaffOnly><Travel /></StaffOnly>} />

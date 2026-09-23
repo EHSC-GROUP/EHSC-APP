@@ -5,6 +5,7 @@ import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
 import VoucherForm from "../../components/VoucherForm";
 import AdvancesPanel from "../../components/AdvancesPanel";
+import WalletBalanceBanner from "../../components/WalletBalanceBanner";
 import { BillLinks } from "../Employee/MyReimbursements";
 import { openAuthedFile } from "../../lib/openFile";
 
@@ -81,6 +82,7 @@ export default function Reimbursements() {
           {tab === "Vouchers" && <button className="btn-primary" onClick={() => setShowNew(true)}>+ New Voucher</button>}
         </div>
       </div>
+      <WalletBalanceBanner />
       <div className="drawer-tabs">
         {["Vouchers", "Advances"].map((t) => (
           <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>

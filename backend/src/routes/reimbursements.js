@@ -2,7 +2,7 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, ROLES, REIMBURSEMENT_STATUS, REIMBURSEMENT_TYPE } from "../lib/constants.js";
+import { COLLECTIONS, ROLES, REIMBURSEMENT_STATUS, REIMBURSEMENT_TYPE, WALLET_TXN_TYPE } from "../lib/constants.js";
 import { authenticate, requireAdmin, requireApprover } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, safeFileName } from "../lib/storage.js";
@@ -12,6 +12,7 @@ import { getFeatureFlags } from "../lib/featureFlags.js";
 import { renderReimbursementPdf } from "../lib/reimbursementPdf.js";
 import { buildReimbursementRegisterWorkbook } from "../lib/reimbursementExcel.js";
 import { planWalletOffset, restoreWalletOffsets } from "../lib/advanceWallet.js";
+import { applyWalletDelta } from "../lib/companyWallet.js";
 import {
   loadDepartmentMap, loadDepartmentAdmins, loadDepartmentTeamLeads, visibleDepartmentFor, filterByDepartment,
   canDeptApprove, canTeamLeadApprove, canFinalApprove, canAdminCancel, awaitingNote, reimbursementActions,
@@ -446,17 +447,34 @@ router.put("/:id/final-approve", authenticate, requireAdmin, async (req, res, ne
       const payable = round2(voucher.totalAmount - wallet.total);
       const settled = payable <= 0;
       wallet.apply();
+
+      // Company wallet: only the part newly leaving the company is
+      // deducted here — the advance-offset portion (wallet.total, above)
+      // was already deducted from the company wallet when that advance
+      // itself was approved, so deducting it again here would double-count.
+      let companyWalletBalance = null;
+      if (payable > 0) {
+        companyWalletBalance = await applyWalletDelta(tx, {
+          delta: -payable,
+          type: WALLET_TXN_TYPE.REIMBURSEMENT,
+          sourceId: found.ref.id,
+          description: `Reimbursement ${found.ref.id.slice(0, 8)} — ${voucher.name || voucher.userId}`,
+          userId: req.user.userId,
+        });
+      }
+
       tx.update(found.ref, {
         status: settled ? REIMBURSEMENT_STATUS.SETTLED : REIMBURSEMENT_STATUS.APPROVED,
         advanceTaken: wallet.total,
         advanceOffsets: wallet.offsets,
         balance: payable,
         payableAmount: payable,
+        companyWalletDeducted: payable > 0 ? payable : 0,
         finalApprovedBy: req.user.userId,
         finalApprovedAt: admin.firestore.FieldValue.serverTimestamp(),
         comment: req.body.comment || null,
       });
-      outcome = { advanceApplied: wallet.total, payableAmount: payable, settled };
+      outcome = { advanceApplied: wallet.total, payableAmount: payable, settled, companyWalletBalance };
     });
     res.json({ ok: true, ...outcome });
   } catch (err) {
@@ -544,6 +562,19 @@ router.put("/:id/cancel", authenticate, requireAdmin, async (req, res, next) => 
       const offsets = voucher.advanceOffsets || [];
       const applyRestore = offsets.length ? await restoreWalletOffsets(tx, offsets) : null;
       if (applyRestore) applyRestore();
+
+      // Hand back whatever this voucher had deducted from the company
+      // wallet (only ever non-zero for a voucher that reached APPROVED).
+      if (Number(voucher.companyWalletDeducted) > 0) {
+        await applyWalletDelta(tx, {
+          delta: Number(voucher.companyWalletDeducted),
+          type: WALLET_TXN_TYPE.REVERSAL,
+          sourceId: found.ref.id,
+          description: `Cancelled reimbursement ${found.ref.id.slice(0, 8)} — ${voucher.name || voucher.userId}`,
+          userId: req.user.userId,
+        });
+      }
+
       tx.update(found.ref, {
         status: REIMBURSEMENT_STATUS.CANCELLED,
         cancelledBy: req.user.userId,

@@ -57,6 +57,20 @@ export const COLLECTIONS = Object.freeze({
   PROJECTS: "projects",
   MATERIAL_INDENTS: "material_indents",
   HR_ADVANCES: "hr_advances",
+  HR_WALLET_TRANSACTIONS: "hr_wallet_transactions",
+});
+
+// Company Wallet: a single running balance the superadmin tops up, tracking
+// only — approvals are never blocked by it, it's purely a statement of
+// actual committed spend against the budget. TOPUP credits it; the others
+// debit it at the point money is actually committed (see lib/companyWallet.js
+// for exactly when each source fires and why).
+export const WALLET_TXN_TYPE = Object.freeze({
+  TOPUP: "TOPUP",
+  ADVANCE: "ADVANCE",
+  REIMBURSEMENT: "REIMBURSEMENT",
+  MATERIAL_INDENT: "MATERIAL_INDENT",
+  REVERSAL: "REVERSAL",
 });
 
 // Reimbursement claim types (client requirement: Travel and Accommodation

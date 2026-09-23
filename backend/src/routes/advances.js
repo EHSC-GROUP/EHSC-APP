@@ -2,10 +2,11 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, ROLES, ADVANCE_STATUS } from "../lib/constants.js";
+import { COLLECTIONS, ROLES, ADVANCE_STATUS, WALLET_TXN_TYPE } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { round2 } from "../lib/dateUtils.js";
 import { getWalletBalance } from "../lib/advanceWallet.js";
+import { applyWalletDelta } from "../lib/companyWallet.js";
 import {
   loadDepartmentMap, loadDepartmentAdmins, visibleDepartmentFor, filterByDepartment,
   canDeptApprove, canFinalApprove, canAdminCancel, awaitingNote, moneyActions,
@@ -141,7 +142,8 @@ router.put("/:id/dept-approve", authenticate, requireAdmin, async (req, res, nex
 });
 
 // Final approval releases the money: the whole amount becomes the
-// employee's advance wallet balance.
+// employee's advance wallet balance, and is deducted from the company
+// wallet — this is real cash going out to the employee.
 router.put("/:id/final-approve", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const found = await loadOr404(req.params.id, res);
@@ -150,15 +152,30 @@ router.put("/:id/final-approve", authenticate, requireAdmin, async (req, res, ne
     if (!canFinalApprove(req.user, found.data)) {
       return res.status(403).json({ error: "Only the superadmin (and not on their own request) can give final approval" });
     }
-    await found.ref.update({
-      status: ADVANCE_STATUS.APPROVED,
-      remainingBalance: found.data.amount,
-      finalApprovedBy: req.user.userId,
-      finalApprovedAt: admin.firestore.FieldValue.serverTimestamp(),
-      finalApprovedMs: Date.now(),
-      comment: req.body.comment || null,
+    let companyWalletBalance;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(found.ref);
+      const advance = snap.data();
+      if (advance.status !== ADVANCE_STATUS.DEPT_APPROVED) {
+        throw Object.assign(new Error("Only department-approved advances can be finally approved"), { status: 400 });
+      }
+      companyWalletBalance = await applyWalletDelta(tx, {
+        delta: -advance.amount,
+        type: WALLET_TXN_TYPE.ADVANCE,
+        sourceId: found.ref.id,
+        description: `Advance ${found.ref.id.slice(0, 8)} — ${advance.name || advance.userId}`,
+        userId: req.user.userId,
+      });
+      tx.update(found.ref, {
+        status: ADVANCE_STATUS.APPROVED,
+        remainingBalance: advance.amount,
+        finalApprovedBy: req.user.userId,
+        finalApprovedAt: admin.firestore.FieldValue.serverTimestamp(),
+        finalApprovedMs: Date.now(),
+        comment: req.body.comment || null,
+      });
     });
-    res.json({ ok: true });
+    res.json({ ok: true, companyWalletBalance });
   } catch (err) {
     next(err);
   }

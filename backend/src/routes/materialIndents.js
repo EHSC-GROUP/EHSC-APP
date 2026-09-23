@@ -2,11 +2,12 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, ROLES, MATERIAL_INDENT_STATUS } from "../lib/constants.js";
+import { COLLECTIONS, ROLES, MATERIAL_INDENT_STATUS, WALLET_TXN_TYPE } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { round2 } from "../lib/dateUtils.js";
 import { renderMaterialIndentPdf } from "../lib/materialIndentPdf.js";
 import { buildMaterialIndentRegisterWorkbook } from "../lib/materialIndentExcel.js";
+import { applyWalletDelta } from "../lib/companyWallet.js";
 
 const router = Router();
 
@@ -153,19 +154,30 @@ router.get("/:id/pdf", authenticate, async (req, res, next) => {
 router.put("/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.MATERIAL_INDENTS).doc(req.params.id);
-    const snap = await ref.get();
-    if (!snap.exists) return res.status(404).json({ error: "Not found" });
-    if (snap.data().status !== MATERIAL_INDENT_STATUS.PENDING) {
-      return res.status(400).json({ error: "Only PENDING indents can be approved" });
-    }
-    await ref.update({
-      status: MATERIAL_INDENT_STATUS.APPROVED,
-      verifiedApprovedBy: req.user.name,
-      decidedBy: req.user.userId,
-      decidedAt: admin.firestore.FieldValue.serverTimestamp(),
-      comment: req.body.comment || null,
+    let companyWalletBalance;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const indent = snap.data();
+      if (indent.status !== MATERIAL_INDENT_STATUS.PENDING) {
+        throw Object.assign(new Error("Only PENDING indents can be approved"), { status: 400 });
+      }
+      companyWalletBalance = await applyWalletDelta(tx, {
+        delta: -indent.totalAmount,
+        type: WALLET_TXN_TYPE.MATERIAL_INDENT,
+        sourceId: ref.id,
+        description: `Material Indent ${ref.id.slice(0, 8)} — ${indent.name || indent.userId}`,
+        userId: req.user.userId,
+      });
+      tx.update(ref, {
+        status: MATERIAL_INDENT_STATUS.APPROVED,
+        verifiedApprovedBy: req.user.name,
+        decidedBy: req.user.userId,
+        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+        comment: req.body.comment || null,
+      });
     });
-    res.json({ ok: true });
+    res.json({ ok: true, companyWalletBalance });
   } catch (err) {
     next(err);
   }

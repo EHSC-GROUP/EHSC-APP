@@ -4,6 +4,7 @@ import Modal from "../../components/Modal";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
 import MaterialIndentForm from "../../components/MaterialIndentForm";
+import WalletBalanceBanner from "../../components/WalletBalanceBanner";
 import { openAuthedFile } from "../../lib/openFile";
 
 export default function MaterialIndents() {
@@ -50,6 +51,7 @@ export default function MaterialIndents() {
         <h2>Material Indents</h2>
         <button className="btn-primary" onClick={() => setShowNew(true)}>+ New Indent</button>
       </div>
+      <WalletBalanceBanner />
 
       <div className="stat-cards">
         <div className="stat-card"><div className="value">₹{total.toFixed(2)}</div><div className="label">Total Indented</div></div>

@@ -22,6 +22,7 @@ const NAV_GROUPS = [
       { to: "/admin/reimbursements", label: "Reimbursements" },
       { to: "/admin/payslips", label: "Payslips" },
       { to: "/admin/material-indents", label: "Material Indents" },
+      { to: "/admin/company-wallet", label: "Company Wallet" },
       { to: "/admin/travel", label: "Travel" },
       { to: "/admin/documents", label: "Compliance" },
       { to: "/admin/settings", label: "Settings" },
