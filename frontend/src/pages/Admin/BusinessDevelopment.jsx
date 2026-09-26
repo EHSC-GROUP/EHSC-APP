@@ -314,6 +314,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
 }
 
 const TABS = ["Details", "Actions", "Conversation Stage"];
+const TAB_LABELS = { Actions: "Next Steps" };
 
 function EnquiryDrawer({ id, onClose, onChanged }) {
   const [enquiry, setEnquiry] = useState(null);
@@ -343,7 +344,7 @@ function EnquiryDrawer({ id, onClose, onChanged }) {
           <div className="drawer-tabs">
             {TABS.map((t) => (
               <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
-                {t}{t === "Actions" && (enquiry.actions || []).filter((a) => !a.completed).length > 0 && (
+                {TAB_LABELS[t] || t}{t === "Actions" && (enquiry.actions || []).filter((a) => !a.completed).length > 0 && (
                   <span className="badge-pill badge-PENDING" style={{ marginLeft: 6 }}>{(enquiry.actions || []).filter((a) => !a.completed).length}</span>
                 )}
               </button>
@@ -391,7 +392,7 @@ function CompanyProfileFromEnquiryTab({ enquiry }) {
   if (project === null) return <div className="card empty-state">No project linked to this enquiry.</div>;
   if (error) return <ErrorText>{error}</ErrorText>;
 
-  return <ProjectEditor project={project} company={company} onChanged={load} showPhases={false} showPhase2 />;
+  return <ProjectEditor project={project} company={company} onChanged={load} showPhases={false} showPhase2 estimatedValue={enquiry.estimatedValue} />;
 }
 
 function DetailsTab({ enquiry, onSaved, onDeleted }) {
@@ -549,10 +550,10 @@ function ActionsTab({ enquiryId, actions, onChanged }) {
     <div>
       <div className="toolbar">
         <div className="spacer" />
-        <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Add Action</button>
+        <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Next Follow Up</button>
       </div>
       <ErrorText>{error}</ErrorText>
-      {sorted.length === 0 && <div className="empty-state">No actions logged yet.</div>}
+      {sorted.length === 0 && <div className="empty-state">No next steps logged yet.</div>}
       {sorted.map((a) => {
         const overdue = !a.completed && a.dueDate < todayISO();
         return (
@@ -560,6 +561,7 @@ function ActionsTab({ enquiryId, actions, onChanged }) {
             <div className="toolbar" style={{ marginBottom: 4 }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
                 <input type="checkbox" style={{ width: "auto" }} checked={a.completed} onChange={() => toggleComplete(a)} />
+                {a.actionType === "PROPOSAL_SUBMISSION" && <span className="badge-pill badge-PENDING">Proposal</span>}
                 <strong style={{ textDecoration: a.completed ? "line-through" : "none" }}>{a.description}</strong>
               </label>
               <div className="spacer" />
@@ -581,28 +583,39 @@ function ActionsTab({ enquiryId, actions, onChanged }) {
   );
 }
 
+const NEXT_STEP_TYPES = [
+  { value: "FOLLOW_UP", label: "Follow Up" },
+  { value: "PROPOSAL_SUBMISSION", label: "Proposal To Be Submitted" },
+];
+
 function AddActionModal({ enquiryId, onClose, onAdded }) {
-  const [employees, setEmployees] = useState([]);
-  const [form, setForm] = useState({ description: "", assignedTo: "", dueDate: "", startDate: todayISO() });
+  const [people, setPeople] = useState([]);
+  const [form, setForm] = useState({ actionType: "FOLLOW_UP", description: "", assignedTo: "", dueDate: "", startDate: todayISO() });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Assignable to anyone with a login, not just non-admin employees — the
+  // /profiles endpoint already returns admins alongside employees.
   useEffect(() => {
-    client.get("/profiles").then((r) => setEmployees(r.data.filter((p) => !p.disabled))).catch(() => {});
+    client.get("/profiles").then((r) => setPeople(r.data.filter((p) => !p.disabled))).catch(() => {});
   }, []);
 
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
+  const isFollowUp = form.actionType === "FOLLOW_UP";
+
   async function submit(e) {
     e.preventDefault();
     setError("");
-    if (!form.assignedTo) return setError("Assign this action to an employee");
+    if (isFollowUp && !form.description.trim()) return setError("Description is required for a Follow Up");
+    if (!form.assignedTo) return setError("Assign this to an employee or admin");
     setBusy(true);
     try {
-      const employee = employees.find((emp) => emp.userId === form.assignedTo);
+      const person = people.find((p) => p.userId === form.assignedTo);
       await client.post(`/business-development/${enquiryId}/actions`, {
         ...form,
-        assignedToName: employee?.name,
+        description: isFollowUp ? form.description : undefined,
+        assignedToName: person?.name,
       });
       onAdded();
     } catch (err) {
@@ -613,21 +626,36 @@ function AddActionModal({ enquiryId, onClose, onAdded }) {
   }
 
   return (
-    <Modal title="Add Action" onClose={onClose}>
+    <Modal title="Next Follow Up" onClose={onClose}>
       <form onSubmit={submit}>
-        <label>What action is to be taken</label>
-        <textarea rows={2} value={form.description} onChange={(e) => set("description", e.target.value)} required />
-        <label>Responsibility — assign to employee</label>
+        <label>Type</label>
+        <div className="toolbar" style={{ marginTop: 0 }}>
+          {NEXT_STEP_TYPES.map((t) => (
+            <label key={t.value} style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+              <input type="radio" style={{ width: "auto" }} checked={form.actionType === t.value} onChange={() => set("actionType", t.value)} />
+              {t.label}
+            </label>
+          ))}
+        </div>
+
+        {isFollowUp && (
+          <>
+            <label>What action is to be taken</label>
+            <textarea rows={2} value={form.description} onChange={(e) => set("description", e.target.value)} required />
+          </>
+        )}
+
+        <label>Responsibility — assign to</label>
         <select value={form.assignedTo} onChange={(e) => set("assignedTo", e.target.value)} required>
-          <option value="">Select employee…</option>
-          {employees.map((emp) => <option key={emp.userId} value={emp.userId}>{emp.name} ({emp.userId})</option>)}
+          <option value="">Select employee or admin…</option>
+          {people.map((p) => <option key={p.userId} value={p.userId}>{p.name} ({p.userId})</option>)}
         </select>
         <div className="form-row">
           <div><label>Action Start Date</label><input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
           <div><label>Due Date</label><input type="date" value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></div>
         </div>
         <ErrorText>{error}</ErrorText>
-        <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Action"}</button>
+        <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Next Follow Up"}</button>
       </form>
     </Modal>
   );

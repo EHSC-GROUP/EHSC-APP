@@ -278,9 +278,16 @@ router.delete("/:id", authenticate, requireAdmin, async (req, res, next) => {
 });
 
 // ---- action log: the running history of follow-ups on one enquiry -------
+const ACTION_TYPES = ["FOLLOW_UP", "PROPOSAL_SUBMISSION"];
+const DEFAULT_DESCRIPTION = { PROPOSAL_SUBMISSION: "Proposal to be submitted" };
+
 router.post("/:id/actions", authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const { description, assignedTo, assignedToName, dueDate, startDate } = req.body;
+    const { assignedTo, assignedToName, dueDate, startDate } = req.body;
+    const actionType = ACTION_TYPES.includes(req.body.actionType) ? req.body.actionType : "FOLLOW_UP";
+    // Follow Up needs a description of what's being followed up on; Proposal
+    // To Be Submitted doesn't ask for one, so it gets a fixed label instead.
+    const description = req.body.description || DEFAULT_DESCRIPTION[actionType];
     if (!description || !assignedTo || !dueDate) {
       return res.status(400).json({ error: "description, assignedTo and dueDate are required" });
     }
@@ -288,6 +295,7 @@ router.post("/:id/actions", authenticate, requireAdmin, async (req, res, next) =
     const ref = db.collection(COLLECTIONS.BD_ENQUIRIES).doc(req.params.id);
     const action = {
       id: uuid(),
+      actionType,
       description,
       assignedTo: assignedTo.toUpperCase(),
       assignedToName: assignedToName || assignedTo,
@@ -321,7 +329,7 @@ router.post("/:id/actions", authenticate, requireAdmin, async (req, res, next) =
 router.put("/:id/actions/:actionId", authenticate, async (req, res, next) => {
   try {
     const isAdmin = ADMIN_ROLES.includes(req.user.role);
-    const { description, assignedTo, assignedToName, dueDate, startDate, completed } = req.body;
+    const { description, assignedTo, assignedToName, dueDate, startDate, completed, actionType } = req.body;
     if (!isAdmin) {
       const onlyCompleted = Object.keys(req.body).every((k) => k === "completed");
       if (!onlyCompleted) return res.status(403).json({ error: "Admin access required" });
@@ -340,6 +348,7 @@ router.put("/:id/actions/:actionId", authenticate, async (req, res, next) => {
 
       const existing = actions[idx];
       const updated = { ...existing };
+      if (actionType !== undefined && ACTION_TYPES.includes(actionType)) updated.actionType = actionType;
       if (description !== undefined) updated.description = description;
       if (assignedTo !== undefined) updated.assignedTo = assignedTo.toUpperCase();
       if (assignedToName !== undefined) updated.assignedToName = assignedToName;

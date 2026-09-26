@@ -54,7 +54,7 @@ function toFormShape(project) {
 // shows (no tab bar, since it's the single section) — defaults to
 // following `showPhases` so any other caller keeps the old all-or-nothing
 // behavior.
-export default function ProjectEditor({ project, company, onChanged, showPhases = true, showPhase2 = showPhases }) {
+export default function ProjectEditor({ project, company, onChanged, showPhases = true, showPhase2 = showPhases, estimatedValue }) {
   // Project Costing (REQ-04) is a disabled-by-default feature — only add
   // the tab once an admin has switched it on in Settings.
   const [costingEnabled, setCostingEnabled] = useState(false);
@@ -181,6 +181,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
             <div>
               <table>
                 <tbody>
+                  {estimatedValue !== undefined && <tr><td>Estimated Value</td><td>{estimatedValue ?? "-"}</td></tr>}
                   <tr><td>Proposal No.</td><td>{project.phase2?.proposalNo || "-"}</td></tr>
                   <tr><td>Proposal Date</td><td>{project.phase2?.proposalDate || "-"}</td></tr>
                   <tr><td>Mode of Submission</td><td>{project.phase2?.modeOfSubmission || "-"}</td></tr>

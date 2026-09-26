@@ -2,7 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, ROLES, PROFILE_TYPE, STAFF_PROFILE_TYPES, DEPARTMENTS, TEMP_PASSWORD } from "../lib/constants.js";
+import { COLLECTIONS, ROLES, ADMIN_ROLES, PROFILE_TYPE, STAFF_PROFILE_TYPES, DEPARTMENTS, TEMP_PASSWORD } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { generateAssociateId, generateEmployeeId } from "../lib/userId.js";
 import { isValidId } from "../lib/validateId.js";
@@ -105,7 +105,29 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
       })
       .filter((p) => includeArchived || !p.disabled);
 
-    res.json(list);
+    // Admin/superadmin users always belong in assignment dropdowns (Business
+    // Development actions, Project Plan actions, etc.) even if they were
+    // seeded directly (e.g. the bootstrap superadmin) without an HR profile
+    // doc — synthesize a minimal entry for any such user so they never
+    // silently disappear from those lists.
+    const profiledIds = new Set(profilesSnap.docs.map((d) => d.id));
+    const extraAdmins = usersSnap.docs
+      .filter((d) => !profiledIds.has(d.id) && ADMIN_ROLES.includes(d.data().role))
+      .map((d) => {
+        const user = d.data();
+        return {
+          userId: d.id,
+          type: PROFILE_TYPE.ADMIN,
+          name: user.name,
+          role: user.role,
+          disabled: !!user.disabled,
+          status: "ACTIVE",
+          netSalary: null,
+        };
+      })
+      .filter((p) => includeArchived || !p.disabled);
+
+    res.json([...list, ...extraAdmins]);
   } catch (err) {
     next(err);
   }
