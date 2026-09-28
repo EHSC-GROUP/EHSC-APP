@@ -252,7 +252,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                       <tr><td>Value of Contract</td><td>{project.contractValue ?? "-"}</td></tr>
                     </tbody>
                   </table>
-                  <InvoiceStagesCard project={project} editable={false} onChanged={onChanged} />
+                  <InvoiceStagesCard project={project} editable onChanged={onChanged} />
                 </>
               )}
             </div>
@@ -391,6 +391,23 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <div className="form-row">
                     <div><label>Work Order Date</label><input type="date" value={form.phase2.workOrderDate} onChange={(e) => setPhase2("workOrderDate", e.target.value)} /></div>
                     <div><label>Work Order Number</label><input value={form.phase2.workOrderNumber} onChange={(e) => setPhase2("workOrderNumber", e.target.value)} /></div>
+                  </div>
+                  <label>Terms and Conditions</label>
+                  <textarea rows={3} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
+                  <label>Value of Contract</label>
+                  <input type="number" min="0" step="0.01" value={form.contractValue} onChange={(e) => set("contractValue", e.target.value)} />
+                  <p className="hint-text mt-0">Each stage below is a percentage of this value.</p>
+                  <div className="form-row">
+                    {INVOICE_STAGES.map((n) => (
+                      <div key={n}>
+                        <label>Stage {n} %</label>
+                        <input
+                          type="number" min="0" max="100" step="0.01"
+                          value={form[`invoiceStage${n}Percent`]}
+                          onChange={(e) => set(`invoiceStage${n}Percent`, e.target.value)}
+                        />
+                      </div>
+                    ))}
                   </div>
                 </>
               )}
