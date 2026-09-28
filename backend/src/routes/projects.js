@@ -7,6 +7,7 @@ import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages } from "../lib/companyProfile.js";
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { getProjectPlanTemplate, buildPlanActionsFromTemplate } from "../lib/projectPlanTemplate.js";
 
 const router = Router();
 
@@ -181,6 +182,24 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
       const merged = { ...(existing.phase2 || emptyPhase2()) };
       for (const f of PHASE2_FIELDS) if (phase2[f] !== undefined) merged[f] = phase2[f];
       updates.phase2 = merged;
+
+      // The contract just got confirmed (Responded in favour flipped on) —
+      // auto-populate the Project Plan from that project type's template,
+      // but only into a still-empty plan, so this never overwrites a plan
+      // someone already built by hand.
+      const justAccepted = merged.respondedInFavour && !existing.phase2?.respondedInFavour;
+      const planIsEmpty = (existing.phase3b?.actions || []).length === 0;
+      if (justAccepted && planIsEmpty && existing.projectType) {
+        const tasks = await getProjectPlanTemplate(existing.projectType);
+        if (tasks && tasks.length > 0) {
+          const actions = buildPlanActionsFromTemplate(tasks, {
+            userId: req.user.userId,
+            userName: req.user.name,
+            baseDateISO: new Date().toISOString().slice(0, 10),
+          });
+          updates.phase3b = { ...(existing.phase3b || emptyPhase3b()), actions };
+        }
+      }
     }
     if (phase3 !== undefined) {
       const merged = { ...(existing.phase3 || emptyPhase3()) };

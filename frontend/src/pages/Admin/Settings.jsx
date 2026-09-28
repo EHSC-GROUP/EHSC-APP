@@ -3,6 +3,91 @@ import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import { useFeatureFlags } from "../../context/FeatureFlagsContext";
 
+const PROJECT_TYPES = ["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"];
+
+// Editable per-project-type starter task list for the Project Plan —
+// applied automatically the moment a project's contract is confirmed
+// ("Responded in favour" ticked), but only into a still-empty plan.
+function ProjectPlanTemplatesCard() {
+  const [templates, setTemplates] = useState(null);
+  const [type, setType] = useState("GHG");
+  const [tasks, setTasks] = useState([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  async function load() {
+    try {
+      const { data } = await client.get("/settings/project-plan-templates");
+      setTemplates(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { load(); }, []);
+  useEffect(() => { if (templates) setTasks(templates[type] || []); }, [type, templates]);
+
+  function updateTask(i, field, value) {
+    setTasks((list) => list.map((t, idx) => (idx === i ? { ...t, [field]: value } : t)));
+  }
+  function addTask() { setTasks((list) => [...list, { description: "", dayOffset: 0 }]); }
+  function removeTask(i) { setTasks((list) => list.filter((_, idx) => idx !== i)); }
+
+  async function save() {
+    setError("");
+    setSavedMsg("");
+    setBusy(true);
+    try {
+      const { data } = await client.put("/settings/project-plan-templates", { [type]: tasks });
+      setTemplates(data);
+      setSavedMsg(`Saved — new "${type}" projects will use this task list once their contract is confirmed.`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3 className="mt-0">Project Plan Templates</h3>
+      <p className="hint-text mt-0">
+        Once a project's enquiry is confirmed (Responded in favour, on the Conversation Stage tab), its Project
+        Plan is auto-filled from the template below matching its Project Type — only if the Project Plan is still
+        empty, so it never overwrites a plan someone already built by hand. Due dates are set this many days after
+        the date it's confirmed.
+      </p>
+      {!templates ? <Loading /> : (
+        <>
+          <label>Project Type</label>
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+
+          {tasks.map((t, i) => (
+            <div key={i} className="form-row" style={{ marginTop: 8, alignItems: "flex-end" }}>
+              <div style={{ flex: "1 1 320px" }}>
+                <label className="hint-text mt-0">Task Description</label>
+                <input value={t.description} onChange={(e) => updateTask(i, "description", e.target.value)} />
+              </div>
+              <div style={{ flex: "0 0 140px" }}>
+                <label className="hint-text mt-0">Days After Confirmed</label>
+                <input type="number" min="0" step="1" value={t.dayOffset} onChange={(e) => updateTask(i, "dayOffset", Number(e.target.value))} />
+              </div>
+              <button type="button" className="btn-sm btn-danger" onClick={() => removeTask(i)}>Remove</button>
+            </div>
+          ))}
+          <button type="button" className="btn-sm" style={{ marginTop: 8 }} onClick={addTask}>+ Add Task</button>
+
+          <ErrorText>{error}</ErrorText>
+          {savedMsg && <p className="hint-text">{savedMsg}</p>}
+          <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy} onClick={save}>{busy ? "Saving…" : "Save"}</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const { refresh: refreshFlags } = useFeatureFlags();
   const [formula, setFormula] = useState(null);
@@ -124,6 +209,8 @@ export default function Settings() {
         )}
         <ErrorText>{flagsError}</ErrorText>
       </div>
+
+      {flags?.projectManagement && <ProjectPlanTemplatesCard />}
 
       <div className="card">
         <h3 className="mt-0">Earnings Formula</h3>

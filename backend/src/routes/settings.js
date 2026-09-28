@@ -6,7 +6,8 @@ import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { getWeeklyOffDays, getRecurringWeekdayRules } from "../lib/calendar.js";
 import { getEarningsFormula, validateFormula, pickFormulaFields } from "../lib/earningsFormula.js";
 import { getFeatureFlags, FLAGS_DOC } from "../lib/featureFlags.js";
-import { FEATURE_FLAG_DEFAULTS } from "../lib/constants.js";
+import { FEATURE_FLAG_DEFAULTS, PROJECT_TYPES } from "../lib/constants.js";
+import { getProjectPlanTemplates, templatesRef } from "../lib/projectPlanTemplate.js";
 
 const router = Router();
 
@@ -128,6 +129,46 @@ router.put("/earnings-formula", authenticate, requireAdmin, async (req, res, nex
       updatedBy: req.user.userId,
     });
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Per-project-type Project Plan starter tasks — applied automatically to a
+// project's (empty) Project Plan the moment its enquiry's contract gets
+// accepted (see routes/projects.js PUT /:id). Readable by any authenticated
+// user (same reasoning as feature-flags: a non-admin assignee viewing a
+// Project Plan doesn't need admin rights just to see what generated it).
+router.get("/project-plan-templates", authenticate, async (req, res, next) => {
+  try {
+    res.json(await getProjectPlanTemplates());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/project-plan-templates", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const updates = {};
+    for (const type of PROJECT_TYPES) {
+      const tasks = req.body[type];
+      if (tasks === undefined) continue;
+      if (!Array.isArray(tasks)) return res.status(400).json({ error: `${type} must be an array of tasks` });
+      for (const t of tasks) {
+        if (!t.description || typeof t.description !== "string") {
+          return res.status(400).json({ error: `${type}: every task needs a description` });
+        }
+        if (!Number.isFinite(Number(t.dayOffset)) || Number(t.dayOffset) < 0) {
+          return res.status(400).json({ error: `${type}: dayOffset must be a number >= 0` });
+        }
+      }
+      updates[type] = tasks.map((t) => ({ description: t.description, dayOffset: Number(t.dayOffset) }));
+    }
+    await templatesRef().set(
+      { ...updates, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId },
+      { merge: true }
+    );
+    res.json(await getProjectPlanTemplates());
   } catch (err) {
     next(err);
   }
