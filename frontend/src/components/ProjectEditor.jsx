@@ -562,16 +562,13 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
   const [error, setError] = useState("");
   const [busyStage, setBusyStage] = useState(null);
 
-  const rows = INVOICE_STAGES
-    .map((n) => ({
-      n,
-      percent: project[`invoiceStage${n}Percent`],
-      completed: !!project[`invoiceStage${n}Completed`],
-      completedAt: project[`invoiceStage${n}CompletedAt`],
-    }))
-    .filter((r) => r.percent !== null && r.percent !== undefined);
-
-  if (rows.length === 0) return null;
+  const rows = INVOICE_STAGES.map((n) => ({
+    n,
+    percent: project[`invoiceStage${n}Percent`],
+    completed: !!project[`invoiceStage${n}Completed`],
+    completedAt: project[`invoiceStage${n}CompletedAt`],
+  }));
+  const anySet = rows.some((r) => r.percent !== null && r.percent !== undefined);
 
   async function toggle(n, completed) {
     setError("");
@@ -592,8 +589,10 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
         <strong>Invoice Stages</strong>
         <div className="spacer" />
       </div>
+      {!anySet && <p className="hint-text mt-0">No stage percentages set yet — click Edit above to add Stage 1-4 %.</p>}
       {rows.map((r) => {
-        const amount = project.contractValue != null ? Math.round((Number(project.contractValue) * Number(r.percent) / 100) * 100) / 100 : null;
+        const isSet = r.percent !== null && r.percent !== undefined;
+        const amount = isSet && project.contractValue != null ? Math.round((Number(project.contractValue) * Number(r.percent) / 100) * 100) / 100 : null;
         return (
           <div key={r.n} className="toolbar" style={{ marginBottom: 4 }}>
             <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
@@ -601,10 +600,10 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
                 type="checkbox"
                 style={{ width: "auto" }}
                 checked={r.completed}
-                disabled={!editable || busyStage === r.n}
+                disabled={!editable || !isSet || busyStage === r.n}
                 onChange={(e) => toggle(r.n, e.target.checked)}
               />
-              <span>Stage {r.n} — {r.percent}%{amount !== null && ` (₹${amount})`}</span>
+              <span>Stage {r.n} — {isSet ? `${r.percent}%${amount !== null ? ` (₹${amount})` : ""}` : "not set"}</span>
             </label>
             {r.completed && r.completedAt && <span className="hint-text">Completed {new Date(r.completedAt).toLocaleDateString()}</span>}
           </div>
