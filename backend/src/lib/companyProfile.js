@@ -58,21 +58,39 @@ export function emptyPhase4() {
   };
 }
 
+// Contract value + invoice-stage defaults, shared by both project-creation
+// paths (see below) so a project is never missing these fields regardless
+// of how it was created.
+export function emptyInvoiceStages() {
+  const out = {};
+  for (let n = 1; n <= 4; n++) {
+    out[`invoiceStage${n}Percent`] = null;
+    out[`invoiceStage${n}Completed`] = false;
+    out[`invoiceStage${n}CompletedAt`] = null;
+  }
+  return out;
+}
+
 // A Project created alongside (or added under an existing company for) an
 // enquiry: `clientName` is denormalized from the company at creation time
 // (so the Project Tracker and lists don't need an extra join per row) —
-// a one-time copy, not a live sync.
-export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId }) {
+// a one-time copy, not a live sync. `projectType`/`projectSubType` are the
+// same one-time copy from the enquiry, when it came from one.
+export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId, projectType, projectSubType }) {
   return {
     projectId,
     companyId,
     branchId,
     companyCode,
     clientName,
+    projectType: projectType || null,
+    projectSubType: projectSubType || null,
     poNumber: "",
     poValue: null,
     deliveryDueDate: null,
     termsAndConditions: "",
+    contractValue: null,
+    ...emptyInvoiceStages(),
     sourceEnquiryId,
     sourceEnquiryNo,
     phase2: emptyPhase2(),

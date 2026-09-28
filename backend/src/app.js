@@ -23,6 +23,7 @@ import projectRoutes from "./routes/projects.js";
 import materialIndentRoutes from "./routes/materialIndents.js";
 import advanceRoutes from "./routes/advances.js";
 import companyWalletRoutes from "./routes/companyWallet.js";
+import notificationRoutes from "./routes/notifications.js";
 import { requireFeatureFlag } from "./lib/featureFlags.js";
 
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -96,6 +97,7 @@ app.use("/api/projects", pmGate, projectRoutes);
 app.use("/api/material-indents", materialIndentRoutes);
 app.use("/api/advances", advanceRoutes);
 app.use("/api/company-wallet", companyWalletRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {

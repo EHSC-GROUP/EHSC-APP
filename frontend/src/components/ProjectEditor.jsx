@@ -28,12 +28,19 @@ function withEmptyFallback(defaults, stored) {
   return out;
 }
 
+const INVOICE_STAGES = [1, 2, 3, 4];
+
 function toFormShape(project) {
   return {
     poNumber: project.poNumber || "",
     poValue: project.poValue ?? "",
     deliveryDueDate: project.deliveryDueDate || "",
     termsAndConditions: project.termsAndConditions || "",
+    contractValue: project.contractValue ?? "",
+    invoiceStage1Percent: project.invoiceStage1Percent ?? "",
+    invoiceStage2Percent: project.invoiceStage2Percent ?? "",
+    invoiceStage3Percent: project.invoiceStage3Percent ?? "",
+    invoiceStage4Percent: project.invoiceStage4Percent ?? "",
     phase2: withEmptyFallback(emptyPhase2(), project.phase2),
     phase3: withEmptyFallback(emptyPhase3(), project.phase3),
     phase4: withEmptyFallback(emptyPhase4(), project.phase4),
@@ -168,13 +175,19 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 <tr><td>Address</td><td>{branch?.address || "-"}</td></tr>
                 <tr><td>Contact Person</td><td>{branch?.contactPersonName || "-"}</td></tr>
                 <tr><td>Contact Phone</td><td>{branch?.contactPhone || "-"}</td></tr>
+                {showPhases && project.projectType && <tr><td>Project Type</td><td>{project.projectType}{project.projectSubType && ` — ${project.projectSubType}`}</td></tr>}
                 {showPhases && <tr><td>PO Number</td><td>{project.poNumber || "-"}</td></tr>}
                 {showPhases && <tr><td>PO Value</td><td>{project.poValue ?? "-"}</td></tr>}
                 {showPhases && <tr><td>Delivery Due Date</td><td>{project.deliveryDueDate || "-"}</td></tr>}
                 {showPhases && <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{project.termsAndConditions || "-"}</td></tr>}
+                {showPhases && <tr><td>Value of Contract</td><td>{project.contractValue ?? "-"}</td></tr>}
                 {showPhases && project.sourceEnquiryNo && <tr><td>Source Enquiry</td><td>{project.sourceEnquiryNo}</td></tr>}
               </tbody>
             </table>
+          )}
+
+          {showPhases && section === "Company Details" && (
+            <InvoiceStagesCard project={project} editable onChanged={onChanged} />
           )}
 
           {showPhase2 && section === "Conversation Stage" && (
@@ -229,13 +242,18 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 Responded in favour
               </label>
               {project.phase2?.respondedInFavour && (
-                <table>
-                  <tbody>
-                    <tr><td>Final Proposal After Negotiation</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase2?.finalProposalAfterNegotiation || "-"}</td></tr>
-                    <tr><td>Work Order Date</td><td>{project.phase2?.workOrderDate || "-"}</td></tr>
-                    <tr><td>Work Order Number</td><td>{project.phase2?.workOrderNumber || "-"}</td></tr>
-                  </tbody>
-                </table>
+                <>
+                  <table>
+                    <tbody>
+                      <tr><td>Final Proposal After Negotiation</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase2?.finalProposalAfterNegotiation || "-"}</td></tr>
+                      <tr><td>Work Order Date</td><td>{project.phase2?.workOrderDate || "-"}</td></tr>
+                      <tr><td>Work Order Number</td><td>{project.phase2?.workOrderNumber || "-"}</td></tr>
+                      <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{project.termsAndConditions || "-"}</td></tr>
+                      <tr><td>Value of Contract</td><td>{project.contractValue ?? "-"}</td></tr>
+                    </tbody>
+                  </table>
+                  <InvoiceStagesCard project={project} editable={false} onChanged={onChanged} />
+                </>
               )}
             </div>
           )}
@@ -293,6 +311,22 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   </div>
                   <label>Terms and Conditions</label>
                   <textarea rows={3} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
+
+                  <label>Value of Contract</label>
+                  <input type="number" min="0" step="0.01" value={form.contractValue} onChange={(e) => set("contractValue", e.target.value)} />
+                  <p className="hint-text mt-0">Set once the enquiry is confirmed (contract accepted / PO received) — each stage below is a percentage of this value.</p>
+                  <div className="form-row">
+                    {INVOICE_STAGES.map((n) => (
+                      <div key={n}>
+                        <label>Stage {n} %</label>
+                        <input
+                          type="number" min="0" max="100" step="0.01"
+                          value={form[`invoiceStage${n}Percent`]}
+                          onChange={(e) => set(`invoiceStage${n}Percent`, e.target.value)}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </>
               )}
             </div>
@@ -497,6 +531,72 @@ function AddClientReplyInline({ onAdd }) {
 }
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+// The 4 invoice-stage percentages (set from the Company Details edit form)
+// each get their own "mark complete" action here — a separate, always-live
+// control rather than something bundled into the whole-project Edit/Save
+// cycle, since marking a stage complete is a real business event (it fires
+// a notification to every admin to raise that stage's invoice) and needs to
+// stay a deliberate click, not a side effect of an unrelated field save.
+// `editable` gates whether the checkboxes are interactive — read-only when
+// shown as a mirror inside the BD enquiry's Conversation Stage tab, live
+// when shown from the full project view (Company Profiles/Project Tracker).
+function InvoiceStagesCard({ project, editable, onChanged }) {
+  const [error, setError] = useState("");
+  const [busyStage, setBusyStage] = useState(null);
+
+  const rows = INVOICE_STAGES
+    .map((n) => ({
+      n,
+      percent: project[`invoiceStage${n}Percent`],
+      completed: !!project[`invoiceStage${n}Completed`],
+      completedAt: project[`invoiceStage${n}CompletedAt`],
+    }))
+    .filter((r) => r.percent !== null && r.percent !== undefined);
+
+  if (rows.length === 0) return null;
+
+  async function toggle(n, completed) {
+    setError("");
+    setBusyStage(n);
+    try {
+      await client.put(`/projects/${project.id}/invoice-stages/${n}`, { completed });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyStage(null);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="toolbar" style={{ marginBottom: 8 }}>
+        <strong>Invoice Stages</strong>
+        <div className="spacer" />
+      </div>
+      {rows.map((r) => {
+        const amount = project.contractValue != null ? Math.round((Number(project.contractValue) * Number(r.percent) / 100) * 100) / 100 : null;
+        return (
+          <div key={r.n} className="toolbar" style={{ marginBottom: 4 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0 }}>
+              <input
+                type="checkbox"
+                style={{ width: "auto" }}
+                checked={r.completed}
+                disabled={!editable || busyStage === r.n}
+                onChange={(e) => toggle(r.n, e.target.checked)}
+              />
+              <span>Stage {r.n} — {r.percent}%{amount !== null && ` (₹${amount})`}</span>
+            </label>
+            {r.completed && r.completedAt && <span className="hint-text">Completed {new Date(r.completedAt).toLocaleDateString()}</span>}
+          </div>
+        );
+      })}
+      <ErrorText>{error}</ErrorText>
+    </div>
+  );
+}
 
 // Phase III(b) — Project Plan: a numbered action list, independent of the
 // rest of the project's Edit/Save toggle (same pattern as the Business

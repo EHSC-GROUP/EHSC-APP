@@ -282,18 +282,20 @@ function CompanyDrawer({ id, onClose, onChanged }) {
             {!projects ? <Loading /> : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Project ID</th><th>Branch</th><th>PO Number</th><th>PO Value</th><th>Source Enquiry</th></tr></thead>
+                  <thead><tr><th>Project ID</th><th>Branch</th><th>Type</th><th>PO Number</th><th>PO Value</th><th>Contract Value</th><th>Source Enquiry</th></tr></thead>
                   <tbody>
                     {projects.map((p) => (
                       <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelectedProjectId(p.id)}>
                         <td>{p.projectId}</td>
                         <td>{p.companyCode}</td>
+                        <td>{p.projectType ? `${p.projectType}${p.projectSubType ? ` — ${p.projectSubType}` : ""}` : "-"}</td>
                         <td>{p.poNumber || "-"}</td>
                         <td>{p.poValue ?? "-"}</td>
+                        <td>{p.contractValue ?? "-"}</td>
                         <td>{p.sourceEnquiryNo || "-"}</td>
                       </tr>
                     ))}
-                    {projects.length === 0 && <tr><td colSpan={5} className="empty-state">No projects yet.</td></tr>}
+                    {projects.length === 0 && <tr><td colSpan={7} className="empty-state">No projects yet.</td></tr>}
                   </tbody>
                 </table>
               </div>

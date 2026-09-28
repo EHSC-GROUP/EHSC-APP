@@ -4,8 +4,9 @@ import { v4 as uuid } from "uuid";
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
-import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4 } from "../lib/companyProfile.js";
+import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages } from "../lib/companyProfile.js";
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
+import { notifyAdmins } from "../lib/notifications.js";
 
 const router = Router();
 
@@ -104,10 +105,14 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
         branchId,
         companyCode: branch.companyCode,
         clientName: company.clientName,
+        projectType: null,
+        projectSubType: null,
         poNumber: "",
         poValue: null,
         deliveryDueDate: null,
         termsAndConditions: "",
+        contractValue: null,
+        ...emptyInvoiceStages(),
         sourceEnquiryId: null,
         sourceEnquiryNo: null,
         phase2: emptyPhase2(),
@@ -148,13 +153,26 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (!snap.exists) return res.status(404).json({ error: "Not found" });
     const existing = snap.data();
 
-    const { poNumber, poValue, deliveryDueDate, termsAndConditions, phase2, phase3, phase4 } = req.body;
+    const {
+      poNumber, poValue, deliveryDueDate, termsAndConditions, contractValue,
+      invoiceStage1Percent, invoiceStage2Percent, invoiceStage3Percent, invoiceStage4Percent,
+      phase2, phase3, phase4,
+    } = req.body;
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
     if (poNumber !== undefined) updates.poNumber = poNumber;
     if (poValue !== undefined) updates.poValue = poValue === "" ? null : Number(poValue);
     if (deliveryDueDate !== undefined) updates.deliveryDueDate = deliveryDueDate || null;
     if (termsAndConditions !== undefined) updates.termsAndConditions = termsAndConditions;
+    if (contractValue !== undefined) updates.contractValue = contractValue === "" ? null : Number(contractValue);
+    for (const [key, val] of Object.entries({ invoiceStage1Percent, invoiceStage2Percent, invoiceStage3Percent, invoiceStage4Percent })) {
+      if (val === undefined) continue;
+      const num = val === "" ? null : Number(val);
+      if (num !== null && (Number.isNaN(num) || num < 0 || num > 100)) {
+        return res.status(400).json({ error: `${key} must be a number between 0 and 100` });
+      }
+      updates[key] = num;
+    }
 
     // Partial merge into the nested phase objects — conversations are
     // managed by their own sub-resource endpoints below, never overwritten
@@ -176,6 +194,51 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     }
 
     await ref.update(updates);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Marking an invoice stage complete is deliberately its own endpoint rather
+// than folded into the general PUT /:id — it's the one action that fires a
+// notification (to every admin, to go raise that stage's invoice), so it
+// needs to be a controlled, explicit transition rather than something that
+// falls out of an arbitrary field edit.
+router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const stage = Number(req.params.stage);
+    if (![1, 2, 3, 4].includes(stage)) return res.status(400).json({ error: "stage must be 1, 2, 3 or 4" });
+    const completed = !!req.body.completed;
+    const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
+
+    let shouldNotify = false;
+    let project;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      project = snap.data();
+      const wasCompleted = !!project[`invoiceStage${stage}Completed`];
+      shouldNotify = completed && !wasCompleted;
+      tx.update(ref, {
+        [`invoiceStage${stage}Completed`]: completed,
+        [`invoiceStage${stage}CompletedAt`]: completed ? new Date().toISOString() : null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: req.user.userId,
+      });
+    });
+
+    if (shouldNotify) {
+      const percent = project[`invoiceStage${stage}Percent`];
+      const amount = percent != null && project.contractValue != null
+        ? Math.round((Number(project.contractValue) * Number(percent) / 100) * 100) / 100
+        : null;
+      await notifyAdmins({
+        message: `Stage ${stage} complete for ${project.clientName} (${project.projectId})${percent != null ? ` — ${percent}%` : ""}${amount != null ? ` (₹${amount})` : ""}. Raise the invoice.`,
+        link: `/admin/company-profiles?companyId=${project.companyId}`,
+      });
+    }
+
     res.json({ ok: true });
   } catch (err) {
     next(err);

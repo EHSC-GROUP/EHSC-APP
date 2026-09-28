@@ -58,6 +58,7 @@ export const COLLECTIONS = Object.freeze({
   MATERIAL_INDENTS: "material_indents",
   HR_ADVANCES: "hr_advances",
   HR_WALLET_TRANSACTIONS: "hr_wallet_transactions",
+  NOTIFICATIONS: "notifications",
 });
 
 // Company Wallet: a single running balance the superadmin tops up, tracking
@@ -101,6 +102,11 @@ export const REFERRAL_TYPE = Object.freeze({
   EMPLOYEE: "EMPLOYEE",
   EXTERNAL: "EXTERNAL",
 });
+
+// What kind of engagement the enquiry is for. ISO is further broken down
+// into which standard(s) — every other type has no sub-type.
+export const PROJECT_TYPES = Object.freeze(["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"]);
+export const ISO_SUB_TYPES = Object.freeze(["ISO9001Q", "ISO9001", "ISO14001E", "ISO45001", "ISO5001"]);
 
 // Synthetic, non-configurable leave types. Never stored in HR_LEAVE_TYPES,
 // never selectable in the self-service apply form.

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE, ADMIN_ROLES } from "../lib/constants.js";
+import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE, ADMIN_ROLES, PROJECT_TYPES, ISO_SUB_TYPES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { newProjectDoc } from "../lib/companyProfile.js";
 import { emptyBranch } from "./companyProfiles.js";
@@ -89,10 +89,20 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       referralType, referredByEmployeeId, referredByEmployeeName, referredByExternalName, referredByExternalPhone,
       approachedByName, approachDate, approachMode,
       contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, remarks,
+      projectType, projectSubType,
     } = req.body;
 
     if (!approachedByName || !approachDate || !approachMode) {
       return res.status(400).json({ error: "approachedByName, approachDate and approachMode are required" });
+    }
+    if (projectType && !PROJECT_TYPES.includes(projectType)) {
+      return res.status(400).json({ error: `projectType must be one of ${PROJECT_TYPES.join(", ")}` });
+    }
+    if (projectSubType && projectType !== "ISO") {
+      return res.status(400).json({ error: "projectSubType only applies when projectType is ISO" });
+    }
+    if (projectSubType && !ISO_SUB_TYPES.includes(projectSubType)) {
+      return res.status(400).json({ error: `projectSubType must be one of ${ISO_SUB_TYPES.join(", ")}` });
     }
     if (!validateApproachMode(approachMode)) {
       return res.status(400).json({ error: `approachMode must be one of ${Object.values(APPROACH_MODE).join(", ")}` });
@@ -189,6 +199,8 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       approachedByName,
       approachDate,
       approachMode,
+      projectType: projectType || null,
+      projectSubType: projectType === "ISO" ? (projectSubType || null) : null,
       contactPhone: contactPhone || "",
       contactEmail: contactEmail || "",
       topic: topic || "",
@@ -212,6 +224,8 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       sourceEnquiryId: id,
       sourceEnquiryNo: enquiryNo,
       userId: req.user.userId,
+      projectType: doc.projectType,
+      projectSubType: doc.projectSubType,
     });
 
     const batch = db.batch();
@@ -234,6 +248,7 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     const {
       clientName, address, marketingSource, approachedByName, approachDate, approachMode,
       contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, result, remarks,
+      projectType, projectSubType,
     } = req.body;
 
     if (approachMode !== undefined && !validateApproachMode(approachMode)) {
@@ -244,6 +259,12 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     }
     if (marketingSource !== undefined && marketingSource && !MARKETING_SOURCE_OPTIONS.includes(marketingSource)) {
       return res.status(400).json({ error: `marketingSource must be one of ${MARKETING_SOURCE_OPTIONS.join(", ")}` });
+    }
+    if (projectType !== undefined && projectType && !PROJECT_TYPES.includes(projectType)) {
+      return res.status(400).json({ error: `projectType must be one of ${PROJECT_TYPES.join(", ")}` });
+    }
+    if (projectSubType !== undefined && projectSubType && !ISO_SUB_TYPES.includes(projectSubType)) {
+      return res.status(400).json({ error: `projectSubType must be one of ${ISO_SUB_TYPES.join(", ")}` });
     }
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
@@ -260,6 +281,15 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (estimatedValue !== undefined) updates.estimatedValue = estimatedValue === "" ? null : Number(estimatedValue);
     if (result !== undefined) updates.result = result;
     if (remarks !== undefined) updates.remarks = remarks;
+    if (projectType !== undefined) updates.projectType = projectType || null;
+    const resultingType = projectType !== undefined ? projectType : snap.data().projectType;
+    if (projectSubType !== undefined) {
+      // Explicit subType in the payload — keep it only if the resulting type is ISO.
+      updates.projectSubType = resultingType === "ISO" ? (projectSubType || null) : null;
+    } else if (projectType !== undefined && resultingType !== "ISO") {
+      // No subType sent, but the type just changed away from ISO — clear any stale one.
+      updates.projectSubType = null;
+    }
 
     await ref.update(updates);
     res.json({ ok: true });

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useFeatureFlags } from "../context/FeatureFlagsContext";
+import NotificationBell from "../components/NotificationBell";
 
 // Items with `children` render as a collapsible group instead of a direct
 // link — keeps the always-visible list short even as more pages get added.
@@ -120,6 +121,7 @@ export default function AdminLayout() {
             ))}
           </div>
           <div className="sidebar-footer">
+            <NotificationBell />
             <span className="sidebar-user">{user?.name} ({user?.role})</span>
             <button className="btn-logout" onClick={logout}>Log out</button>
           </div>

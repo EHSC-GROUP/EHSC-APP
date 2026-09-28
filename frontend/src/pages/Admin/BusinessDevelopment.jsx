@@ -7,6 +7,8 @@ import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import ProjectEditor from "../../components/ProjectEditor";
 
 const APPROACH_MODES = ["EMAIL", "PHONE", "ON_SITE"];
+const PROJECT_TYPES = ["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"];
+const ISO_SUB_TYPES = ["ISO9001Q", "ISO9001", "ISO14001E", "ISO45001", "ISO5001"];
 const MARKETING_SOURCES = ["Email Campaign", "Referral", "Website", "Exhibition"];
 const RESULTS = ["IN_PROGRESS", "PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED", "ENQUIRY_ON_HOLD", "ENQUIRY_DROPPED"];
 const RESULT_LABELS = {
@@ -141,6 +143,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
     marketingSource: "", referralType: "", referredByEmployeeId: "", referredByExternalName: "", referredByExternalPhone: "",
     approachedByName: "", approachDate: todayISO(), approachMode: "EMAIL",
     contactPhone: "", contactEmail: "", topic: "", outcomeOfDiscussion: "", estimatedValue: "", remarks: "",
+    projectType: "", projectSubType: "",
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -189,6 +192,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
       } else if (payload.referralType === "EXTERNAL") {
         delete payload.referredByEmployeeId;
       }
+      if (payload.projectType !== "ISO") delete payload.projectSubType;
       const employee = employees.find((emp) => emp.userId === form.referredByEmployeeId);
       if (employee) payload.referredByEmployeeName = employee.name;
       await client.post("/business-development", payload);
@@ -245,6 +249,25 @@ function CreateEnquiryModal({ onClose, onCreated }) {
             <div><label>Address of the Company</label><input value={form.address} onChange={(e) => set("address", e.target.value)} /></div>
           </div>
         )}
+
+        <div className="form-row">
+          <div>
+            <label>Project Type</label>
+            <select value={form.projectType} onChange={(e) => { set("projectType", e.target.value); set("projectSubType", ""); }}>
+              <option value="">Select…</option>
+              {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          {form.projectType === "ISO" && (
+            <div>
+              <label>ISO Sub Type</label>
+              <select value={form.projectSubType} onChange={(e) => set("projectSubType", e.target.value)}>
+                <option value="">Select…</option>
+                {ISO_SUB_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
 
         <label>Marketing Source (how the enquiry was generated)</label>
         <select value={form.marketingSource} onChange={(e) => set("marketingSource", e.target.value)}>
@@ -450,6 +473,7 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
         <table>
           <tbody>
             <tr><td>Client / Company</td><td>{enquiry.clientName}</td></tr>
+            <tr><td>Project Type</td><td>{enquiry.projectType ? `${enquiry.projectType}${enquiry.projectSubType ? ` — ${enquiry.projectSubType}` : ""}` : "-"}</td></tr>
             <tr><td>Address</td><td>{enquiry.address || "-"}</td></tr>
             <tr><td>Marketing Source</td><td>{enquiry.marketingSource || "-"}</td></tr>
             {enquiry.marketingSource === "Referral" && (
@@ -485,6 +509,24 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
     <form onSubmit={save}>
       <label>Client / Company Name</label>
       <input value={form.clientName || ""} onChange={(e) => set("clientName", e.target.value)} required />
+      <div className="form-row">
+        <div>
+          <label>Project Type</label>
+          <select value={form.projectType || ""} onChange={(e) => { set("projectType", e.target.value); set("projectSubType", ""); }}>
+            <option value="">Select…</option>
+            {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        {form.projectType === "ISO" && (
+          <div>
+            <label>ISO Sub Type</label>
+            <select value={form.projectSubType || ""} onChange={(e) => set("projectSubType", e.target.value)}>
+              <option value="">Select…</option>
+              {ISO_SUB_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
       <label>Address</label>
       <input value={form.address || ""} onChange={(e) => set("address", e.target.value)} />
       <label>Marketing Source</label>
