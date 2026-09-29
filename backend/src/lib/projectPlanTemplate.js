@@ -6,12 +6,20 @@ import { COLLECTIONS, PROJECT_TYPES } from "./constants.js";
 // Starter/placeholder task list — every project type ships with this same
 // generic set until an admin customizes it per type in Settings. Kept
 // intentionally generic rather than guessing at real per-type methodology.
+// Each task's `stage` (1-4, optional) groups it under one of the 4 invoice
+// stages — completing every task tagged with a stage auto-marks that
+// invoice stage complete (see routes/projects.js plan-actions PUT). Tasks
+// keep real descriptive names; `stage` is just an internal grouping tag,
+// never the task's own name.
 export const DEFAULT_TEMPLATE_TASKS = Object.freeze([
-  { description: "Kickoff meeting with client", dayOffset: 3 },
-  { description: "Data collection / site assessment", dayOffset: 10 },
-  { description: "Draft deliverable preparation", dayOffset: 20 },
-  { description: "Client review and feedback", dayOffset: 25 },
-  { description: "Final submission / closeout", dayOffset: 30 },
+  { description: "Kickoff meeting with client", dayOffset: 3, stage: 1 },
+  { description: "Data collection / site assessment", dayOffset: 7, stage: 1 },
+  { description: "Draft deliverable preparation", dayOffset: 14, stage: 2 },
+  { description: "Internal quality review", dayOffset: 18, stage: 2 },
+  { description: "Client review and feedback", dayOffset: 24, stage: 3 },
+  { description: "Revisions based on feedback", dayOffset: 27, stage: 3 },
+  { description: "Final submission", dayOffset: 30, stage: 4 },
+  { description: "Project closeout", dayOffset: 32, stage: 4 },
 ]);
 
 function templatesRef() {
@@ -50,6 +58,7 @@ export function buildPlanActionsFromTemplate(tasks, { userId, userName, baseDate
     return {
       id: uuid(),
       description: t.description,
+      stage: [1, 2, 3, 4].includes(Number(t.stage)) ? Number(t.stage) : null,
       assignedTo: userId,
       assignedToName: userName || userId,
       startDate: baseDateISO,

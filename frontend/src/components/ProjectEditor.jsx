@@ -692,6 +692,7 @@ function PlanActionsSection({ projectId, actions, onChanged }) {
                 <input type="checkbox" style={{ width: "auto" }} checked={a.completed} onChange={() => toggleComplete(a)} />
                 <strong>Action #{i + 1}:</strong>
                 <span style={{ textDecoration: a.completed ? "line-through" : "none" }}>{a.description}</span>
+                {a.stage && <span className="badge-pill badge-PENDING" title="Counts toward this invoice stage">Stage {a.stage}</span>}
               </label>
               <div className="spacer" />
               {editingId !== a.id && (
@@ -851,7 +852,7 @@ function WorkflowModal({ projectId, actions, onClose, onSaved }) {
 
 function AddPlanActionModal({ projectId, onClose, onAdded }) {
   const [employees, setEmployees] = useState([]);
-  const [form, setForm] = useState({ description: "", assignedTo: "", startDate: todayISO(), dueDate: "" });
+  const [form, setForm] = useState({ description: "", assignedTo: "", startDate: todayISO(), dueDate: "", stage: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -895,7 +896,15 @@ function AddPlanActionModal({ projectId, onClose, onAdded }) {
           <div className="form-row">
             <div><label>Action Start Date</label><input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
             <div><label>Due Date</label><input type="date" value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></div>
+            <div>
+              <label>Invoice Stage (optional)</label>
+              <select value={form.stage} onChange={(e) => set("stage", e.target.value)}>
+                <option value="">None</option>
+                {INVOICE_STAGES.map((n) => <option key={n} value={n}>Stage {n}</option>)}
+              </select>
+            </div>
           </div>
+          <p className="hint-text mt-0">Tag this task to an invoice stage and, once every task tagged with that stage is checked off, it auto-completes — no need to mark it manually.</p>
           <ErrorText>{error}</ErrorText>
           <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Action"}</button>
         </form>

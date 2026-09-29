@@ -30,7 +30,7 @@ function ProjectPlanTemplatesCard() {
   function updateTask(i, field, value) {
     setTasks((list) => list.map((t, idx) => (idx === i ? { ...t, [field]: value } : t)));
   }
-  function addTask() { setTasks((list) => [...list, { description: "", dayOffset: 0 }]); }
+  function addTask() { setTasks((list) => [...list, { description: "", dayOffset: 0, stage: "" }]); }
   function removeTask(i) { setTasks((list) => list.filter((_, idx) => idx !== i)); }
 
   async function save() {
@@ -55,7 +55,9 @@ function ProjectPlanTemplatesCard() {
         Once a project's enquiry is confirmed (Responded in favour, on the Conversation Stage tab), its Project
         Plan is auto-filled from the template below matching its Project Type — only if the Project Plan is still
         empty, so it never overwrites a plan someone already built by hand. Due dates are set this many days after
-        the date it's confirmed.
+        the date it's confirmed. Tag a task to an Invoice Stage (optional) and, once every task tagged with that
+        stage is checked off in the Project Plan, that stage auto-completes and the superadmin is notified to
+        raise the invoice — no need to mark it manually.
       </p>
       {!templates ? <Loading /> : (
         <>
@@ -73,6 +75,13 @@ function ProjectPlanTemplatesCard() {
               <div style={{ flex: "0 0 140px" }}>
                 <label className="hint-text mt-0">Days After Confirmed</label>
                 <input type="number" min="0" step="1" value={t.dayOffset} onChange={(e) => updateTask(i, "dayOffset", Number(e.target.value))} />
+              </div>
+              <div style={{ flex: "0 0 120px" }}>
+                <label className="hint-text mt-0">Invoice Stage</label>
+                <select value={t.stage ?? ""} onChange={(e) => updateTask(i, "stage", e.target.value ? Number(e.target.value) : "")}>
+                  <option value="">None</option>
+                  {[1, 2, 3, 4].map((n) => <option key={n} value={n}>Stage {n}</option>)}
+                </select>
               </div>
               <button type="button" className="btn-sm btn-danger" onClick={() => removeTask(i)}>Remove</button>
             </div>

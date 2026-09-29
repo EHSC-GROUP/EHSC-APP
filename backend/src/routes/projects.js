@@ -6,7 +6,7 @@ import { COLLECTIONS, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages } from "../lib/companyProfile.js";
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
-import { notifyAdmins } from "../lib/notifications.js";
+import { notifySuperadmins } from "../lib/notifications.js";
 import { getProjectPlanTemplate, buildPlanActionsFromTemplate } from "../lib/projectPlanTemplate.js";
 
 const router = Router();
@@ -219,11 +219,25 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-// Marking an invoice stage complete is deliberately its own endpoint rather
-// than folded into the general PUT /:id — it's the one action that fires a
-// notification (to every admin, to go raise that stage's invoice), so it
-// needs to be a controlled, explicit transition rather than something that
-// falls out of an arbitrary field edit.
+// Shared by both the manual mark-complete endpoint below and the
+// auto-detection in plan-actions PUT (a stage is complete once every Project
+// Plan task tagged with it is done) — same message either way. References
+// the stage number so the superadmin knows which invoice to raise, never
+// the (real, descriptive) task names themselves.
+function stageNotificationMessage(project, stage) {
+  const percent = project[`invoiceStage${stage}Percent`];
+  const amount = percent != null && project.contractValue != null
+    ? Math.round((Number(project.contractValue) * Number(percent) / 100) * 100) / 100
+    : null;
+  return `Stage ${stage} complete for ${project.clientName} (${project.projectId})${percent != null ? ` — ${percent}%` : ""}${amount != null ? ` (₹${amount})` : ""}. Raise the invoice.`;
+}
+
+// Marking an invoice stage complete manually — a fallback/override for a
+// stage with no tasks tagged to it (or to force it early). It's its own
+// endpoint rather than folded into the general PUT /:id since it's the
+// action that fires a notification, so it needs to be a controlled,
+// explicit transition rather than something that falls out of an arbitrary
+// field edit.
 router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const stage = Number(req.params.stage);
@@ -248,12 +262,8 @@ router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req,
     });
 
     if (shouldNotify) {
-      const percent = project[`invoiceStage${stage}Percent`];
-      const amount = percent != null && project.contractValue != null
-        ? Math.round((Number(project.contractValue) * Number(percent) / 100) * 100) / 100
-        : null;
-      await notifyAdmins({
-        message: `Stage ${stage} complete for ${project.clientName} (${project.projectId})${percent != null ? ` — ${percent}%` : ""}${amount != null ? ` (₹${amount})` : ""}. Raise the invoice.`,
+      await notifySuperadmins({
+        message: stageNotificationMessage(project, stage),
         link: `/admin/company-profiles?companyId=${project.companyId}`,
       });
     }
@@ -354,15 +364,19 @@ router.delete("/:id/client-replies/:replyId", authenticate, requireAdmin, async 
 // ---- Phase III(b) project plan: a numbered action list --------------------
 router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const { description, assignedTo, assignedToName, startDate, dueDate } = req.body;
+    const { description, assignedTo, assignedToName, startDate, dueDate, stage } = req.body;
     if (!description || !assignedTo || !dueDate) {
       return res.status(400).json({ error: "description, assignedTo and dueDate are required" });
+    }
+    if (stage !== undefined && stage !== null && stage !== "" && ![1, 2, 3, 4].includes(Number(stage))) {
+      return res.status(400).json({ error: "stage must be 1, 2, 3, 4 or left blank" });
     }
 
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
     const action = {
       id: uuid(),
       description,
+      stage: stage !== undefined && stage !== null && stage !== "" ? Number(stage) : null,
       assignedTo: assignedTo.toUpperCase(),
       assignedToName: assignedToName || assignedTo,
       startDate: startDate || null,
@@ -409,17 +423,24 @@ function dependencyCycleExists(actions, startId, overrides) {
 router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) => {
   try {
     const isAdmin = ADMIN_ROLES.includes(req.user.role);
-    const { description, assignedTo, assignedToName, startDate, dueDate, completed, dependsOn } = req.body;
+    const { description, assignedTo, assignedToName, startDate, dueDate, completed, dependsOn, stage } = req.body;
     if (!isAdmin) {
       const onlyCompleted = Object.keys(req.body).every((k) => k === "completed");
       if (!onlyCompleted) return res.status(403).json({ error: "Admin access required" });
     }
+    if (stage !== undefined && stage !== null && stage !== "" && ![1, 2, 3, 4].includes(Number(stage))) {
+      return res.status(400).json({ error: "stage must be 1, 2, 3, 4 or left blank" });
+    }
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
+
+    let stageJustCompleted = null;
+    let projectForNotify = null;
 
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
-      const phase3b = snap.data().phase3b || emptyPhase3b();
+      const project = snap.data();
+      const phase3b = project.phase3b || emptyPhase3b();
       const actions = phase3b.actions || [];
       const idx = actions.findIndex((a) => a.id === req.params.actionId);
       if (idx === -1) throw Object.assign(new Error("Action not found"), { status: 404 });
@@ -433,6 +454,7 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
       if (assignedToName !== undefined) updated.assignedToName = assignedToName;
       if (startDate !== undefined) updated.startDate = startDate;
       if (dueDate !== undefined) updated.dueDate = dueDate;
+      if (stage !== undefined) updated.stage = stage !== null && stage !== "" ? Number(stage) : null;
       if (completed !== undefined) {
         updated.completed = !!completed;
         updated.completedAt = completed ? new Date().toISOString() : null;
@@ -449,8 +471,34 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
       }
       actions[idx] = updated;
 
-      tx.update(ref, { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+      const docUpdates = { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
+
+      // Auto-detect: this action just got checked off and belongs to a
+      // tagged stage — if every other action tagged with that same stage is
+      // also done, the stage itself counts as complete. Tasks keep their
+      // real names throughout; `stage` is only ever an internal tag.
+      if (completed && updated.stage) {
+        const stageNum = updated.stage;
+        const stageActions = actions.filter((a) => a.stage === stageNum);
+        const allDone = stageActions.length > 0 && stageActions.every((a) => a.completed);
+        const alreadyMarked = !!project[`invoiceStage${stageNum}Completed`];
+        if (allDone && !alreadyMarked) {
+          docUpdates[`invoiceStage${stageNum}Completed`] = true;
+          docUpdates[`invoiceStage${stageNum}CompletedAt`] = new Date().toISOString();
+          stageJustCompleted = stageNum;
+          projectForNotify = project;
+        }
+      }
+
+      tx.update(ref, docUpdates);
     });
+
+    if (stageJustCompleted) {
+      await notifySuperadmins({
+        message: stageNotificationMessage(projectForNotify, stageJustCompleted),
+        link: `/admin/company-profiles?companyId=${projectForNotify.companyId}`,
+      });
+    }
 
     res.json({ ok: true });
   } catch (err) {

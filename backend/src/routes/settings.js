@@ -161,8 +161,15 @@ router.put("/project-plan-templates", authenticate, requireAdmin, async (req, re
         if (!Number.isFinite(Number(t.dayOffset)) || Number(t.dayOffset) < 0) {
           return res.status(400).json({ error: `${type}: dayOffset must be a number >= 0` });
         }
+        if (t.stage !== undefined && t.stage !== null && t.stage !== "" && ![1, 2, 3, 4].includes(Number(t.stage))) {
+          return res.status(400).json({ error: `${type}: stage must be 1, 2, 3, 4 or left blank` });
+        }
       }
-      updates[type] = tasks.map((t) => ({ description: t.description, dayOffset: Number(t.dayOffset) }));
+      updates[type] = tasks.map((t) => ({
+        description: t.description,
+        dayOffset: Number(t.dayOffset),
+        stage: t.stage !== undefined && t.stage !== null && t.stage !== "" ? Number(t.stage) : null,
+      }));
     }
     await templatesRef().set(
       { ...updates, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId },
