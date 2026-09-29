@@ -92,6 +92,26 @@ a { color: var(--primary); text-decoration: none; }
 .notification-item.unread { background: #fef3c7; }
 .notification-item.unread:hover { background: #fde8a6; }
 
+.notification-toast-stack {
+  position: fixed; top: 20px; right: 20px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 10px; width: 320px; max-width: calc(100vw - 40px);
+}
+.notification-toast {
+  position: relative; background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-left: 4px solid #d97706; border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+  padding: 12px 28px 12px 14px; font-size: 13px; cursor: pointer; animation: notification-toast-in 0.2s ease-out;
+}
+.notification-toast strong { display: block; margin-bottom: 4px; font-size: 12px; }
+.notification-toast-close {
+  position: absolute; top: 6px; right: 8px; background: none; border: none; cursor: pointer;
+  font-size: 16px; line-height: 1; color: var(--text); opacity: 0.6; padding: 2px 4px;
+}
+.notification-toast-close:hover { opacity: 1; }
+@keyframes notification-toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .main-content { flex: 1; padding: 24px 32px; height: 100vh; overflow-y: auto; overflow-x: auto; }
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .page-header h2 { margin: 0; font-size: 20px; }
