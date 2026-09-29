@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import client, { errorMessage } from "../../api/client";
 import Modal from "../../components/Modal";
 import Drawer from "../../components/Drawer";
@@ -10,7 +11,11 @@ export default function CompanyProfiles() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [selected, setSelected] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // A stage-complete notification links here with ?companyId=... — open
+  // that company's drawer directly instead of landing on the plain list
+  // with no indication of which company it was about.
+  const [selected, setSelected] = useState(searchParams.get("companyId"));
 
   async function load() {
     setError("");
@@ -72,7 +77,13 @@ export default function CompanyProfiles() {
       )}
 
       {showCreate && <CreateCompanyModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
-      {selected && <CompanyDrawer id={selected} onClose={() => setSelected(null)} onChanged={load} />}
+      {selected && (
+        <CompanyDrawer
+          id={selected}
+          onClose={() => { setSelected(null); if (searchParams.get("companyId")) setSearchParams({}); }}
+          onChanged={load}
+        />
+      )}
     </div>
   );
 }
