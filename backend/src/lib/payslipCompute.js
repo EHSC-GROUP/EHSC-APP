@@ -121,9 +121,12 @@ export async function computeMusterAndLeave(userId, period) {
 
   // Day-by-day muster mark, one flat string per calendar day (day N = index
   // N-1), priority order: Holiday > WeeklyOff > Leave > "not yet due" (a
-  // future date never counts as absent) > actual attendance (Present, with
-  // Out of Office/Travel counted the same as Present, or Half Day, or an
-  // automatic WFH-rule day folded into Present) > Absent.
+  // future date never counts as absent) > actual attendance (Present /
+  // Half Day / Out of Office|Travel, or an automatic WFH-rule day folded
+  // into Present) > Absent. Out of Office/Travel keep their own "OOO"
+  // calendar tag, but count as full Present days in every payroll
+  // calculation (systemPresentDays below is driven by attendance weights,
+  // not by this mark string, so that's unaffected either way).
   let holidayDays = 0;
   let weeklyOffCount = 0;
   let wfhAutoCount = 0;
@@ -149,9 +152,7 @@ export async function computeMusterAndLeave(userId, period) {
       if (status === ATTENDANCE_STATUS_VALUES.HALF_DAY) mark = "P(H)";
       else if (status === ATTENDANCE_STATUS_VALUES.PRESENT) mark = "P";
       else if ([ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE, ATTENDANCE_STATUS_VALUES.TRAVEL].includes(status)) {
-        // Counted (and shown) the same as Present, at the employee's
-        // request — still tracked separately below for reference only.
-        mark = "P";
+        mark = "OOO";
         outOfOfficeCount++;
       } else if (wfhAutoDates.has(date)) {
         mark = "P";
