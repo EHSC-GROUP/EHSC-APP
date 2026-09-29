@@ -234,6 +234,14 @@ function tooltipLabel(dateStr, mark, leaveNameById) {
   return `${dateStr} — ${label}`;
 }
 
+// Payslips generated before this rebuild stored dayMarks as an array of
+// {day, date, mark} objects, not a flat string per day — tolerate both so
+// an old, already-finalized payslip doesn't crash the modal.
+function normalizeMark(entry) {
+  if (typeof entry === "string") return entry;
+  return entry?.mark ?? "-";
+}
+
 function AttendanceCalendar({ payslip }) {
   const [y, m] = payslip.period.split("-").map(Number);
   const leadingBlanks = new Date(y, m - 1, 1).getDay();
@@ -245,8 +253,9 @@ function AttendanceCalendar({ payslip }) {
       <div className="payslip-calendar">
         {WEEKDAY_HEADERS.map((h, i) => <div key={i} className="payslip-calendar-header">{h}</div>)}
         {Array.from({ length: leadingBlanks }).map((_, i) => <div key={`b${i}`} className="payslip-day-blank" />)}
-        {marks.map((mark, i) => {
+        {marks.map((entry, i) => {
           const day = i + 1;
+          const mark = normalizeMark(entry);
           const dateStr = `${payslip.period}-${String(day).padStart(2, "0")}`;
           const cat = categorize(mark);
           return (
