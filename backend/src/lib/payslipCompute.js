@@ -155,7 +155,11 @@ export async function computeMusterAndLeave(userId, period) {
         mark = "OOO";
         outOfOfficeCount++;
       } else if (wfhAutoDates.has(date)) {
-        mark = "P";
+        // A predefined WFH day (e.g. "1st Saturday") — shown as its own
+        // tag so it's visible which days were auto-credited by the
+        // recurring weekday rule rather than an actual attendance record;
+        // still counts fully toward systemPresentDays below either way.
+        mark = "WFH";
         wfhAutoCount++;
       } else {
         mark = "A";

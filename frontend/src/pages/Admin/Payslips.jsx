@@ -198,6 +198,7 @@ const LEGEND = [
   { key: "P", label: "Present" },
   { key: "HD", label: "Half Day" },
   { key: "OOO", label: "Out of Office" },
+  { key: "WFH", label: "Work From Home" },
   { key: "LEAVE", label: "Leave" },
   { key: "A", label: "Absent (LOP)" },
   { key: "H", label: "Holiday" },
@@ -209,6 +210,7 @@ function categorize(mark) {
   if (mark === "P") return "P";
   if (mark === "HD" || mark === "P(H)" || mark.endsWith("(H)")) return "HD";
   if (mark === "OOO") return "OOO";
+  if (mark === "WFH") return "WFH";
   if (mark === "A") return "A";
   if (mark === "H") return "H";
   if (mark === "W") return "W";
@@ -221,6 +223,7 @@ function tooltipLabel(dateStr, mark, leaveNameById) {
   if (mark === "P") label = "Present";
   else if (mark === "HD" || mark === "P(H)") label = "Half Day";
   else if (mark === "OOO") label = "Out of Office (approved)";
+  else if (mark === "WFH") label = "Work From Home (auto)";
   else if (mark === "A") label = "Absent (Loss of Pay)";
   else if (mark === "H") label = "Holiday";
   else if (mark === "W") label = "Weekly Off";

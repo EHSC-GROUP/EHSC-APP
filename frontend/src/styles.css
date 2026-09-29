@@ -107,6 +107,7 @@ a { color: var(--primary); text-decoration: none; }
 .payslip-day-H { background: #f1f5f9; color: #64748b; }
 .payslip-day-W { background: #f8fafc; color: #94a3b8; }
 .payslip-day-DUE { background: #f8fafc; color: #cbd5e1; }
+.payslip-day-WFH { background: #ccfbf1; color: #0f766e; }
 
 .payslip-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; font-size: 12px; color: var(--text-muted); }
 .payslip-legend-item { display: flex; align-items: center; gap: 6px; }
