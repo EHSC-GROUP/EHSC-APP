@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../api/client";
 import { ErrorText, Loading } from "./Misc";
 import StatusBadge from "./StatusBadge";
+import Modal from "./Modal";
 
 const emptyPhase2 = () => ({
   proposalNo: "", proposalDate: "", modeOfSubmission: "", submittedTo: "", submittedBy: "",
