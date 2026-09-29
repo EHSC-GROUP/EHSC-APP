@@ -6,7 +6,7 @@ import { COLLECTIONS, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages } from "../lib/companyProfile.js";
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
-import { notifySuperadmins } from "../lib/notifications.js";
+import { notifyAdmins } from "../lib/notifications.js";
 import { getProjectPlanTemplate, buildPlanActionsFromTemplate } from "../lib/projectPlanTemplate.js";
 
 const router = Router();
@@ -157,6 +157,7 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     const {
       poNumber, poValue, deliveryDueDate, termsAndConditions, contractValue,
       invoiceStage1Percent, invoiceStage2Percent, invoiceStage3Percent, invoiceStage4Percent,
+      invoiceStage1TaskThreshold, invoiceStage2TaskThreshold, invoiceStage3TaskThreshold, invoiceStage4TaskThreshold,
       phase2, phase3, phase4,
     } = req.body;
 
@@ -171,6 +172,16 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
       const num = val === "" ? null : Number(val);
       if (num !== null && (Number.isNaN(num) || num < 0 || num > 100)) {
         return res.status(400).json({ error: `${key} must be a number between 0 and 100` });
+      }
+      updates[key] = num;
+    }
+    for (const [key, val] of Object.entries({
+      invoiceStage1TaskThreshold, invoiceStage2TaskThreshold, invoiceStage3TaskThreshold, invoiceStage4TaskThreshold,
+    })) {
+      if (val === undefined) continue;
+      const num = val === "" ? null : Number(val);
+      if (num !== null && (!Number.isInteger(num) || num < 0)) {
+        return res.status(400).json({ error: `${key} must be a whole number >= 0` });
       }
       updates[key] = num;
     }
@@ -262,7 +273,7 @@ router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req,
     });
 
     if (shouldNotify) {
-      await notifySuperadmins({
+      await notifyAdmins({
         message: stageNotificationMessage(project, stage),
         link: `/admin/company-profiles?companyId=${project.companyId}`,
       });
@@ -433,7 +444,7 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
     }
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
 
-    let stageJustCompleted = null;
+    let stagesJustCompleted = [];
     let projectForNotify = null;
 
     await db.runTransaction(async (tx) => {
@@ -473,29 +484,39 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
 
       const docUpdates = { phase3b: { ...phase3b, actions }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
 
-      // Auto-detect: this action just got checked off and belongs to a
-      // tagged stage — if every other action tagged with that same stage is
-      // also done, the stage itself counts as complete. Tasks keep their
-      // real names throughout; `stage` is only ever an internal tag.
-      if (completed && updated.stage) {
-        const stageNum = updated.stage;
-        const stageActions = actions.filter((a) => a.stage === stageNum);
-        const allDone = stageActions.length > 0 && stageActions.every((a) => a.completed);
-        const alreadyMarked = !!project[`invoiceStage${stageNum}Completed`];
-        if (allDone && !alreadyMarked) {
-          docUpdates[`invoiceStage${stageNum}Completed`] = true;
-          docUpdates[`invoiceStage${stageNum}CompletedAt`] = new Date().toISOString();
-          stageJustCompleted = stageNum;
-          projectForNotify = project;
+      // Auto-detect a stage's completion two ways, either of which can mark
+      // it: (a) every action explicitly tagged with that stage is done, or
+      // (b) the total count of completed actions in the whole plan has
+      // reached that stage's configured threshold — for a hand-built plan
+      // where nobody tagged individual tasks. Tasks keep their real names
+      // throughout; the stage number is only ever an internal tag/count.
+      if (completed) {
+        const completedCount = actions.filter((a) => a.completed).length;
+        for (const n of [1, 2, 3, 4]) {
+          if (project[`invoiceStage${n}Completed`]) continue;
+          let trigger = false;
+          if (updated.stage === n) {
+            const stageActions = actions.filter((a) => a.stage === n);
+            if (stageActions.length > 0 && stageActions.every((a) => a.completed)) trigger = true;
+          }
+          const threshold = project[`invoiceStage${n}TaskThreshold`];
+          if (!trigger && threshold != null && completedCount >= Number(threshold)) trigger = true;
+
+          if (trigger) {
+            docUpdates[`invoiceStage${n}Completed`] = true;
+            docUpdates[`invoiceStage${n}CompletedAt`] = new Date().toISOString();
+            stagesJustCompleted.push(n);
+          }
         }
+        if (stagesJustCompleted.length > 0) projectForNotify = project;
       }
 
       tx.update(ref, docUpdates);
     });
 
-    if (stageJustCompleted) {
-      await notifySuperadmins({
-        message: stageNotificationMessage(projectForNotify, stageJustCompleted),
+    for (const stageNum of stagesJustCompleted) {
+      await notifyAdmins({
+        message: stageNotificationMessage(projectForNotify, stageNum),
         link: `/admin/company-profiles?companyId=${projectForNotify.companyId}`,
       });
     }

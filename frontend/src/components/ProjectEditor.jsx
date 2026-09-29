@@ -29,6 +29,7 @@ function withEmptyFallback(defaults, stored) {
 }
 
 const INVOICE_STAGES = [1, 2, 3, 4];
+const PROJECT_TYPES = ["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"];
 
 function toFormShape(project) {
   return {
@@ -162,7 +163,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
       </div>
 
       {isProjectPlan ? (
-        <PlanActionsSection projectId={project.id} actions={project.phase3b?.actions || []} onChanged={onChanged} />
+        <PlanActionsSection project={project} actions={project.phase3b?.actions || []} onChanged={onChanged} />
       ) : isCosting ? (
         <ProjectCostingTab projectId={project.id} />
       ) : !editing ? (
@@ -617,10 +618,13 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
 // Phase III(b) — Project Plan: a numbered action list, independent of the
 // rest of the project's Edit/Save toggle (same pattern as the Business
 // Development action log — each add/toggle/delete saves immediately).
-function PlanActionsSection({ projectId, actions, onChanged }) {
+function PlanActionsSection({ project, actions, onChanged }) {
+  const projectId = project.id;
   const [error, setError] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [showStages, setShowStages] = useState(false);
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [dateForm, setDateForm] = useState({ startDate: "", dueDate: "" });
   const [savingDates, setSavingDates] = useState(false);
@@ -677,6 +681,7 @@ function PlanActionsSection({ projectId, actions, onChanged }) {
         {actions.length > 1 && (
           <button className="btn-sm" onClick={() => setShowWorkflow(true)}>Define Workflow</button>
         )}
+        <button className="btn-sm" onClick={() => setShowStages(true)}>Invoice Stages</button>
         <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Add Action</button>
       </div>
       <ErrorText>{error}</ErrorText>
@@ -732,13 +737,172 @@ function PlanActionsSection({ projectId, actions, onChanged }) {
         );
       })}
 
+      {actions.length > 0 && (
+        <div className="toolbar" style={{ marginTop: 16 }}>
+          <div className="spacer" />
+          <button type="button" className="btn-sm" onClick={() => setShowSaveTemplate(true)}>Save as Template</button>
+        </div>
+      )}
+
       {showAdd && (
         <AddPlanActionModal projectId={projectId} onClose={() => setShowAdd(false)} onAdded={() => { setShowAdd(false); onChanged(); }} />
       )}
       {showWorkflow && (
         <WorkflowModal projectId={projectId} actions={actions} onClose={() => setShowWorkflow(false)} onSaved={() => { setShowWorkflow(false); onChanged(); }} />
       )}
+      {showStages && (
+        <InvoiceStageThresholdsModal project={project} onClose={() => setShowStages(false)} onSaved={() => { setShowStages(false); onChanged(); }} />
+      )}
+      {showSaveTemplate && (
+        <SaveAsTemplateModal project={project} actions={actions} onClose={() => setShowSaveTemplate(false)} />
+      )}
     </div>
+  );
+}
+
+// Configures the cumulative-count alternative to per-task stage tagging —
+// "once N actions in this plan are done, treat Stage X as complete" —
+// useful for a plan built by hand (like this one) where nobody tagged
+// individual tasks. Either path (this, or every tagged task for a stage
+// being done) can mark a stage; whichever happens first wins.
+function InvoiceStageThresholdsModal({ project, onClose, onSaved }) {
+  const [form, setForm] = useState(() => {
+    const out = {};
+    for (const n of INVOICE_STAGES) out[n] = project[`invoiceStage${n}TaskThreshold`] ?? "";
+    return out;
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setError("");
+    setBusy(true);
+    try {
+      const payload = {};
+      for (const n of INVOICE_STAGES) payload[`invoiceStage${n}TaskThreshold`] = form[n] === "" ? "" : Number(form[n]);
+      await client.put(`/projects/${project.id}`, payload);
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Invoice Stages" onClose={onClose}>
+      <p className="hint-text mt-0">
+        Define, for each stage, how many completed actions in this Project Plan count as that stage being done.
+        Once the total reaches the number you set, the stage auto-completes and every admin is notified to raise
+        that stage's invoice — no need to mark it manually. Leave a stage blank to not auto-trigger it this way.
+      </p>
+      {INVOICE_STAGES.map((n) => (
+        <div key={n} className="form-row" style={{ alignItems: "flex-end" }}>
+          <div>
+            <label>Stage {n}{project[`invoiceStage${n}Percent`] != null ? ` (${project[`invoiceStage${n}Percent`]}%)` : ""}</label>
+            <input
+              type="number" min="0" step="1"
+              placeholder="Not set"
+              value={form[n]}
+              onChange={(e) => setForm((f) => ({ ...f, [n]: e.target.value }))}
+              disabled={project[`invoiceStage${n}Completed`]}
+            />
+          </div>
+          {project[`invoiceStage${n}Completed`] && <span className="badge-pill badge-APPROVED" style={{ marginBottom: 10 }}>Already complete</span>}
+        </div>
+      ))}
+      <ErrorText>{error}</ErrorText>
+      <button className="btn-primary" style={{ marginTop: 12 }} onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+    </Modal>
+  );
+}
+
+function daysBetween(fromISO, toISO) {
+  const ms = new Date(toISO).getTime() - new Date(fromISO).getTime();
+  return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+}
+
+// Turns this project's own (real, already-dated) Project Plan into a
+// reusable template for future projects of the same type — day offsets are
+// computed relative to the earliest date among these actions, and every
+// row stays editable here before saving, same as editing a template
+// directly in Settings.
+function SaveAsTemplateModal({ project, actions, onClose }) {
+  const [type, setType] = useState(project.projectType || "GHG");
+  const [tasks, setTasks] = useState(() => {
+    const baseline = actions.reduce((min, a) => {
+      const d = a.startDate || a.dueDate;
+      return !min || d < min ? d : min;
+    }, null);
+    return actions
+      .slice()
+      .sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1))
+      .map((a) => ({ description: a.description, dayOffset: baseline ? daysBetween(baseline, a.dueDate) : 0, stage: a.stage || "" }));
+  });
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  function updateTask(i, field, value) {
+    setTasks((list) => list.map((t, idx) => (idx === i ? { ...t, [field]: value } : t)));
+  }
+  function removeTask(i) { setTasks((list) => list.filter((_, idx) => idx !== i)); }
+
+  async function save() {
+    setError("");
+    setSavedMsg("");
+    setBusy(true);
+    try {
+      const payload = tasks.map((t) => ({ description: t.description, dayOffset: Number(t.dayOffset) || 0, stage: t.stage === "" ? null : Number(t.stage) }));
+      await client.put("/settings/project-plan-templates", { [type]: payload });
+      setSavedMsg(`Saved — future "${type}" projects will start from this plan once their contract is confirmed.`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Save as Template" onClose={onClose} wide>
+      <p className="hint-text mt-0">
+        Saves this Project Plan as the starter template for every future project of the type you pick below — due
+        dates are converted to days-after-confirmed, relative to this plan's earliest date. Review and adjust the
+        description, days, or stage of any task before saving; this replaces that type's current template.
+      </p>
+      <label>Project Type</label>
+      <select value={type} onChange={(e) => setType(e.target.value)}>
+        {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+
+      {tasks.map((t, i) => (
+        <div key={i} className="form-row" style={{ marginTop: 8, alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 280px" }}>
+            <label className="hint-text mt-0">Task Description</label>
+            <input value={t.description} onChange={(e) => updateTask(i, "description", e.target.value)} />
+          </div>
+          <div style={{ flex: "0 0 130px" }}>
+            <label className="hint-text mt-0">Days After Confirmed</label>
+            <input type="number" min="0" step="1" value={t.dayOffset} onChange={(e) => updateTask(i, "dayOffset", Number(e.target.value))} />
+          </div>
+          <div style={{ flex: "0 0 110px" }}>
+            <label className="hint-text mt-0">Invoice Stage</label>
+            <select value={t.stage} onChange={(e) => updateTask(i, "stage", e.target.value ? Number(e.target.value) : "")}>
+              <option value="">None</option>
+              {INVOICE_STAGES.map((n) => <option key={n} value={n}>Stage {n}</option>)}
+            </select>
+          </div>
+          <button type="button" className="btn-sm btn-danger" onClick={() => removeTask(i)}>Remove</button>
+        </div>
+      ))}
+
+      <ErrorText>{error}</ErrorText>
+      {savedMsg && <p className="hint-text">{savedMsg}</p>}
+      <div className="toolbar" style={{ marginTop: 16 }}>
+        <button className="btn-primary" onClick={save} disabled={busy}>{busy ? "Saving…" : "Save Template"}</button>
+        <button type="button" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
   );
 }
 

@@ -67,6 +67,11 @@ export function emptyInvoiceStages() {
     out[`invoiceStage${n}Percent`] = null;
     out[`invoiceStage${n}Completed`] = false;
     out[`invoiceStage${n}CompletedAt`] = null;
+    // Cumulative-count alternative to tagging individual tasks: once this
+    // many Project Plan actions are done (in total), the stage auto-
+    // completes on its own — set from the project's Project Plan tab, for
+    // a hand-built plan where tagging every task isn't worth the effort.
+    out[`invoiceStage${n}TaskThreshold`] = null;
   }
   return out;
 }
