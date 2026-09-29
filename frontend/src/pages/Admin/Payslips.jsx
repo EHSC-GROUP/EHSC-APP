@@ -126,6 +126,7 @@ export default function Payslips() {
                     <div className="toolbar" style={{ margin: 0, flexWrap: "wrap" }}>
                       {p.status === "NOT_GENERATED" && <button className="btn-sm" onClick={() => generateOne(p.userId)}>Generate</button>}
                       {p.status !== "NOT_GENERATED" && <button className="btn-sm" onClick={() => setEditing(p)}>Edit</button>}
+                      {p.status === "DRAFT" && <button className="btn-sm" onClick={() => generateOne(p.userId)}>Regenerate</button>}
                       {p.status === "DRAFT" && <button className="btn-sm" onClick={() => action(p.userId, "finalize")}>Finalize</button>}
                       {p.status === "FINALIZED" && <button className="btn-sm" onClick={() => action(p.userId, "publish")}>Publish</button>}
                       {(p.status === "FINALIZED" || p.status === "PUBLISHED") && <button className="btn-sm" onClick={() => viewPdf(p.userId)}>View PDF</button>}
