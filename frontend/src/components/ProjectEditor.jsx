@@ -752,7 +752,7 @@ function PlanActionsSection({ project, actions, onChanged }) {
         <WorkflowModal projectId={projectId} actions={actions} onClose={() => setShowWorkflow(false)} onSaved={() => { setShowWorkflow(false); onChanged(); }} />
       )}
       {showStages && (
-        <InvoiceStageThresholdsModal project={project} onClose={() => setShowStages(false)} onSaved={() => { setShowStages(false); onChanged(); }} />
+        <InvoiceStageActionsModal project={project} actions={actions} onClose={() => setShowStages(false)} onSaved={() => { setShowStages(false); onChanged(); }} />
       )}
       {showSaveTemplate && (
         <SaveAsTemplateModal project={project} actions={actions} onClose={() => setShowSaveTemplate(false)} />
@@ -761,27 +761,50 @@ function PlanActionsSection({ project, actions, onChanged }) {
   );
 }
 
-// Configures the cumulative-count alternative to per-task stage tagging —
-// "once N actions in this plan are done, treat Stage X as complete" —
-// useful for a plan built by hand (like this one) where nobody tagged
-// individual tasks. Either path (this, or every tagged task for a stage
-// being done) can mark a stage; whichever happens first wins.
-function InvoiceStageThresholdsModal({ project, onClose, onSaved }) {
-  const [form, setForm] = useState(() => {
+// Lets an admin pick, per stage, which of this plan's actions count toward
+// it — naturally capped at however many actions actually exist, since it's
+// a checklist, not a free-typed number. An action belongs to at most one
+// stage (matches the single `stage` field each action carries), so
+// checking it under one stage clears it from any other. Saved as a plain
+// `stage` tag on each changed action — the same tag AddPlanActionModal
+// sets one at a time; this just edits all of them from one place.
+function InvoiceStageActionsModal({ project, actions, onClose, onSaved }) {
+  const [activeStage, setActiveStage] = useState(1);
+  const [selections, setSelections] = useState(() => {
     const out = {};
-    for (const n of INVOICE_STAGES) out[n] = project[`invoiceStage${n}TaskThreshold`] ?? "";
+    for (const n of INVOICE_STAGES) out[n] = new Set(actions.filter((a) => a.stage === n).map((a) => a.id));
     return out;
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  function toggle(actionId) {
+    setSelections((cur) => {
+      const next = {};
+      for (const n of INVOICE_STAGES) next[n] = new Set(cur[n]);
+      if (next[activeStage].has(actionId)) {
+        next[activeStage].delete(actionId);
+      } else {
+        for (const n of INVOICE_STAGES) next[n].delete(actionId);
+        next[activeStage].add(actionId);
+      }
+      return next;
+    });
+  }
+
   async function save() {
     setError("");
     setBusy(true);
     try {
-      const payload = {};
-      for (const n of INVOICE_STAGES) payload[`invoiceStage${n}TaskThreshold`] = form[n] === "" ? "" : Number(form[n]);
-      await client.put(`/projects/${project.id}`, payload);
+      for (const a of actions) {
+        let newStage = null;
+        for (const n of INVOICE_STAGES) {
+          if (selections[n].has(a.id)) { newStage = n; break; }
+        }
+        if (newStage !== (a.stage || null)) {
+          await client.put(`/projects/${project.id}/plan-actions/${a.id}`, { stage: newStage });
+        }
+      }
       onSaved();
     } catch (err) {
       setError(errorMessage(err));
@@ -790,27 +813,37 @@ function InvoiceStageThresholdsModal({ project, onClose, onSaved }) {
     }
   }
 
+  const activeCompleted = !!project[`invoiceStage${activeStage}Completed`];
+
   return (
-    <Modal title="Invoice Stages" onClose={onClose}>
+    <Modal title="Invoice Stages" onClose={onClose} wide>
       <p className="hint-text mt-0">
-        Define, for each stage, how many completed actions in this Project Plan count as that stage being done.
-        Once the total reaches the number you set, the stage auto-completes and every admin is notified to raise
-        that stage's invoice — no need to mark it manually. Leave a stage blank to not auto-trigger it this way.
+        Pick which actions in this Project Plan count toward each stage. Once every action ticked for a stage is
+        checked off in the plan, that stage auto-completes and every admin is notified to raise that stage's
+        invoice — no need to mark it manually.
       </p>
-      {INVOICE_STAGES.map((n) => (
-        <div key={n} className="form-row" style={{ alignItems: "flex-end" }}>
-          <div>
-            <label>Stage {n}{project[`invoiceStage${n}Percent`] != null ? ` (${project[`invoiceStage${n}Percent`]}%)` : ""}</label>
-            <input
-              type="number" min="0" step="1"
-              placeholder="Not set"
-              value={form[n]}
-              onChange={(e) => setForm((f) => ({ ...f, [n]: e.target.value }))}
-              disabled={project[`invoiceStage${n}Completed`]}
-            />
-          </div>
-          {project[`invoiceStage${n}Completed`] && <span className="badge-pill badge-APPROVED" style={{ marginBottom: 10 }}>Already complete</span>}
-        </div>
+      <div className="drawer-tabs" style={{ marginBottom: 12, borderBottom: "none" }}>
+        {INVOICE_STAGES.map((n) => (
+          <button key={n} type="button" className={activeStage === n ? "active" : ""} onClick={() => setActiveStage(n)}>
+            Stage {n}{project[`invoiceStage${n}Percent`] != null ? ` (${project[`invoiceStage${n}Percent`]}%)` : ""}
+            {selections[n].size > 0 && <span className="badge-pill badge-PENDING" style={{ marginLeft: 6 }}>{selections[n].size}</span>}
+          </button>
+        ))}
+      </div>
+      {activeCompleted && <p className="hint-text mt-0"><span className="badge-pill badge-APPROVED">Stage {activeStage} already complete</span></p>}
+      {actions.length === 0 && <div className="empty-state">No actions in this Project Plan yet.</div>}
+      {actions.map((a) => (
+        <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+          <input
+            type="checkbox"
+            style={{ width: "auto" }}
+            checked={selections[activeStage].has(a.id)}
+            disabled={activeCompleted}
+            onChange={() => toggle(a.id)}
+          />
+          <span style={{ textDecoration: a.completed ? "line-through" : "none" }}>{a.description}</span>
+          {a.stage && a.stage !== activeStage && <span className="hint-text">(currently Stage {a.stage})</span>}
+        </label>
       ))}
       <ErrorText>{error}</ErrorText>
       <button className="btn-primary" style={{ marginTop: 12 }} onClick={save} disabled={busy}>{busy ? "Saving…" : "Save"}</button>
