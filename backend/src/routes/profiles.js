@@ -90,8 +90,11 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
         // deductions on the current salary version) — not the same as a
         // specific payslip's net pay, which prorates with payable days.
         const version = pickCurrentVersion(salaryById.get(d.id));
+        const versionEsi = version?.esiApplicable
+          ? (Number(version.basic || 0) + Number(version.hra || 0) + Number(version.others || 0)) * Number(version.esiPercent || 0) / 100
+          : 0;
         const netSalary = version
-          ? Math.round((Number(version.gross || 0) - Number(version.pt || 0) - Number(version.medicalAllowance || 0) - Number(version.tds || 0)) * 100) / 100
+          ? Math.round((Number(version.gross || 0) - Number(version.pt || 0) - versionEsi - Number(version.tds || 0)) * 100) / 100
           : null;
         return {
           ...profile,

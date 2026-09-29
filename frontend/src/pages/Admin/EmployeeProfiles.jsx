@@ -467,7 +467,7 @@ function SalaryTab({ userId }) {
       {showNew && <NewVersionForm userId={userId} gross={gross} setGross={setGross} preview={preview} onCreated={() => { setShowNew(false); setGross(""); load(); }} />}
 
       <table>
-        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Special Allow.</th><th>Transport</th><th>Statutory Bonus-Others</th><th>PT</th><th>Medical Ins.</th><th>TDS</th><th>Net Salary</th></tr></thead>
+        <thead><tr><th>Effective From</th><th>Gross</th><th>Basic</th><th>HRA</th><th>Special Allow.</th><th>Transport</th><th>Statutory Bonus-Others</th><th>PT</th><th>ESI</th><th>TDS</th><th>Net Salary</th></tr></thead>
         <tbody>
           {data.versions.map((v) => (
             <tr key={v.effectiveFrom}>
@@ -479,7 +479,7 @@ function SalaryTab({ userId }) {
               <td className="amt-allow">₹{v.transport || 0}</td>
               <td className="amt-others">₹{v.others}</td>
               <td className="amt-deduction">₹{v.pt}</td>
-              <td className="amt-deduction">₹{v.medicalAllowance || 0}</td>
+              <td className="amt-deduction">{v.esiApplicable ? `${v.esiPercent}%` : "—"}</td>
               <td className="amt-deduction">₹{v.tds || 0}</td>
               <td className="amt-gross">₹{netSalaryOf(v).toFixed(2)}</td>
             </tr>
@@ -495,7 +495,8 @@ function SalaryTab({ userId }) {
 // proration — gross minus the flat deductions on that version. The actual
 // payslip's net pay can differ (it prorates with payable days).
 function netSalaryOf(v) {
-  return Number(v.gross || 0) - Number(v.pt || 0) - Number(v.medicalAllowance || 0) - Number(v.tds || 0);
+  const esi = v.esiApplicable ? (Number(v.basic || 0) + Number(v.hra || 0) + Number(v.others || 0)) * Number(v.esiPercent || 0) / 100 : 0;
+  return Number(v.gross || 0) - Number(v.pt || 0) - esi - Number(v.tds || 0);
 }
 
 const COMPONENT_FIELDS = [
@@ -506,7 +507,7 @@ const COMPONENT_FIELDS = [
 ];
 
 function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
-  const [form, setForm] = useState({ effectiveFrom: "", pt: 0, medicalAllowance: 0, tds: 0 });
+  const [form, setForm] = useState({ effectiveFrom: "", pt: 0, medicalAllowance: 0, tds: 0, esiApplicable: false, esiPercent: 0 });
   const [comps, setComps] = useState({ basic: "", hra: "", special: "", transport: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -568,14 +569,21 @@ function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
         </div>
       </div>
 
-      <h4 style={{ margin: "12px 0 4px" }}>Deductions (enter amounts)</h4>
+      <h4 style={{ margin: "12px 0 4px" }}>Deductions</h4>
       <div className="form-row">
         <div><label>PT (flat)</label><input type="number" min="0" step="0.01" value={form.pt} onChange={(e) => set("pt", e.target.value)} /></div>
-        <div><label>Medical Insurance (flat)</label><input type="number" min="0" step="0.01" value={form.medicalAllowance} onChange={(e) => set("medicalAllowance", e.target.value)} /></div>
-      </div>
-      <div className="form-row">
         <div><label>TDS (flat)</label><input type="number" min="0" step="0.01" value={form.tds} onChange={(e) => set("tds", e.target.value)} /></div>
-        <div />
+      </div>
+      <div className="form-row" style={{ alignItems: "flex-end" }}>
+        <div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="checkbox" style={{ width: "auto" }} checked={form.esiApplicable} onChange={(e) => set("esiApplicable", e.target.checked)} />
+            ESI Applicable
+          </label>
+        </div>
+        {form.esiApplicable && (
+          <div><label>ESI % (of Basic+HRA+Others)</label><input type="number" min="0" step="0.01" value={form.esiPercent} onChange={(e) => set("esiPercent", e.target.value)} /></div>
+        )}
       </div>
       <ErrorText>{error}</ErrorText>
       <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Version"}</button>

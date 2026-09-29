@@ -19,7 +19,7 @@ const COLUMNS = [
   { header: "Total Earnings", key: "totalEarnings", width: 14 },
   { header: "PT", key: "pt", width: 10 },
   { header: "TDS", key: "incomeTax", width: 12 },
-  { header: "Medical Insurance", key: "medicalAllowance", width: 14 },
+  { header: "ESI", key: "esi", width: 14 },
   { header: "Other Deductions", key: "othersDeduction", width: 14 },
   { header: "Total Deductions", key: "totalDeductions", width: 14 },
   { header: "Net Pay", key: "netPay", width: 14 },

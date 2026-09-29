@@ -112,8 +112,9 @@ router.post("/:userId", authenticate, requireAdmin, async (req, res, next) => {
     if (typeError) return res.status(400).json({ error: typeError });
 
     // pt, medicalAllowance and tds are flat deduction amounts entered
-    // directly (not percentages).
-    const { effectiveFrom, gross, pt, medicalAllowance, tds, components } = req.body;
+    // directly (not percentages). ESI is a percentage of Basic+HRA+Others,
+    // only charged when the employee is ESI-applicable.
+    const { effectiveFrom, gross, pt, medicalAllowance, tds, esiApplicable, esiPercent, components } = req.body;
     if (!effectiveFrom || !(Number(gross) > 0)) {
       return res.status(400).json({ error: "effectiveFrom and a positive gross are required" });
     }
@@ -154,6 +155,8 @@ router.post("/:userId", authenticate, requireAdmin, async (req, res, next) => {
         pt: Number(pt) || 0,
         medicalAllowance: Number(medicalAllowance) || 0,
         tds: Number(tds) || 0,
+        esiApplicable: !!esiApplicable,
+        esiPercent: Number(esiPercent) || 0,
         addedBy: req.user.userId,
         addedAt: new Date().toISOString(),
       };

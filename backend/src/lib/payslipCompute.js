@@ -1,5 +1,5 @@
 import { db } from "../config/firebase.js";
-import { COLLECTIONS, LOP, HALF_DAY } from "./constants.js";
+import { COLLECTIONS, LOP, HALF_DAY, ATTENDANCE_STATUS_VALUES } from "./constants.js";
 import {
   eachDate,
   monthBounds,
@@ -9,8 +9,9 @@ import {
 } from "./dateUtils.js";
 import { getHolidaySetForRange, getWeeklyOffDays, getWfhDateSetForRange } from "./calendar.js";
 import { getLeaveTypes } from "./leaveBalances.js";
-import { attendanceWeightsForMonth } from "./attendanceQuery.js";
+import { attendanceWeightsForMonth, attendanceStatusForMonth } from "./attendanceQuery.js";
 import { getCurrentSalaryVersion } from "./salaryStructures.js";
+import { getSystemLoginDays } from "./systemLoginDays.js";
 
 // Expands one APPROVED leave request into per-day contributions, clipped to
 // the payroll period, skipping holidays/weekly-offs (those never consume a
@@ -49,13 +50,14 @@ async function getApprovedLeaveRequestsOverlapping(userId, periodStart, periodEn
 export async function computeMusterAndLeave(userId, period) {
   const { year, month, start, end } = monthBounds(period);
   const daysInMonthCount = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const isPresent = (date) => (attendanceWeights.get(date) || 0) > 0;
+  const todayISO = new Date().toISOString().slice(0, 10);
 
-  const [holidaySet, weeklyOffDays, leaveTypes, attendanceWeights, requests, wfhSet] = await Promise.all([
+  const [holidaySet, weeklyOffDays, leaveTypes, attendanceWeights, attendanceStatuses, requests, wfhSet] = await Promise.all([
     getHolidaySetForRange(start, end),
     getWeeklyOffDays(),
     getLeaveTypes(),
     attendanceWeightsForMonth(userId, period),
+    attendanceStatusForMonth(userId, period),
     getApprovedLeaveRequestsOverlapping(userId, start, end),
     getWfhDateSetForRange(start, end),
   ]);
@@ -117,12 +119,16 @@ export async function computeMusterAndLeave(userId, period) {
     }
   }
 
-  // Day-by-day muster string: Holiday > WeeklyOff > Leave > WFH (auto) > Present > Absent.
+  // Day-by-day muster mark, one flat string per calendar day (day N = index
+  // N-1), priority order: Holiday > WeeklyOff > Leave > "not yet due" (a
+  // future date never counts as absent) > actual attendance (Present /
+  // Half Day / Out of Office|Travel, or an automatic WFH-rule day folded
+  // into Present) > Absent.
   let holidayDays = 0;
   let weeklyOffCount = 0;
+  let wfhAutoCount = 0;
   const dayMarks = [];
   for (const date of eachDate(start, end)) {
-    const dayNum = Number(date.slice(-2));
     let mark;
     if (holidaySet.has(date)) {
       mark = "H";
@@ -135,22 +141,31 @@ export async function computeMusterAndLeave(userId, period) {
       if (entry.leaveType === HALF_DAY) mark = "HD";
       else if (entry.amount === 0.5) mark = `${entry.leaveType}(H)`;
       else mark = entry.leaveType;
-    } else if (wfhAutoDates.has(date)) {
-      mark = "WFH";
-    } else if (isPresent(date)) {
-      mark = "P";
+    } else if (date > todayISO) {
+      mark = "-";
     } else {
-      mark = "A";
+      const status = attendanceStatuses.get(date);
+      if (status === ATTENDANCE_STATUS_VALUES.HALF_DAY) mark = "P(H)";
+      else if ([ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE, ATTENDANCE_STATUS_VALUES.TRAVEL].includes(status)) mark = "OOO";
+      else if (status === ATTENDANCE_STATUS_VALUES.PRESENT) mark = "P";
+      else if (wfhAutoDates.has(date)) {
+        mark = "P";
+        wfhAutoCount++;
+      } else {
+        mark = "A";
+      }
     }
-    dayMarks.push({ day: dayNum, date, mark });
+    dayMarks.push(mark);
   }
 
   const workingDays = daysInMonthCount - holidayDays - weeklyOffCount;
-  const absentDays = dayMarks.filter((d) => d.mark === "A").length;
-  const wfhAutoCount = dayMarks.filter((d) => d.mark === "WFH").length;
+  const absentDays = dayMarks.filter((m) => m === "A").length;
   // Days present per the attendance records: Present / Out of Office / Travel
   // count as a full day, Half Day as half, plus any automatic WFH-rule days.
   const systemPresentDays = round1([...attendanceWeights.values()].reduce((sum, w) => sum + w, 0) + wfhAutoCount);
+  // Every plain Absent day is unpaid, same as leave taken past its monthly
+  // cap — folded into the same LOP total.
+  lopDays = round1(lopDays + absentDays);
 
   return {
     daysInMonth: daysInMonthCount,
@@ -186,7 +201,13 @@ export function computeEarningsForPayableDays(structureVersion, payableDays, day
   const pt = flat(structureVersion.pt);
   const medicalAllowance = flat(structureVersion.medicalAllowance);
   const tds = flat(structureVersion.tds);
-  return { ratio, basic, hra, transportAllowance, specialAllowance, others, pt, medicalAllowance, tds };
+  // ESI is a percentage of (prorated) Basic+HRA+Others, only when the
+  // employee is ESI-applicable — naturally zero once those three are zero
+  // (payableDays 0), no separate flat-zero guard needed.
+  const esiApplicable = !!structureVersion.esiApplicable;
+  const esiPercent = Number(structureVersion.esiPercent || 0);
+  const esi = esiApplicable ? round2((basic + hra + others) * esiPercent / 100) : 0;
+  return { ratio, basic, hra, transportAllowance, specialAllowance, others, pt, medicalAllowance, tds, esiApplicable, esiPercent, esi };
 }
 
 export function computeTotals(p) {
@@ -195,7 +216,7 @@ export function computeTotals(p) {
     Number(p.others) + Number(p.incentives || 0)
   );
   const totalDeductions = round2(
-    Number(p.pt || 0) + Number(p.medicalAllowance || 0) + Number(p.incomeTax || 0) + Number(p.othersDeduction || 0)
+    Number(p.pt || 0) + Number(p.incomeTax || 0) + Number(p.esi || 0) + Number(p.othersDeduction || 0)
   );
   const netPay = round2(totalEarnings - totalDeductions);
   return { totalEarnings, totalDeductions, netPay };
@@ -210,7 +231,10 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     return { skipped: true, reason: "No salary structure defined as of this period" };
   }
 
-  const muster = await computeMusterAndLeave(userId, period);
+  const [muster, systemLoginDays] = await Promise.all([
+    computeMusterAndLeave(userId, period),
+    getSystemLoginDays(userId, period),
+  ]);
 
   // Present Days comes from the attendance records. If an admin overrode it by
   // hand (or, for payslips made before this flag existed, entered a value), that
@@ -222,19 +246,19 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
   const incentives = existing ? existing.incentives ?? 0 : 0;
   const othersDeduction = existing ? existing.othersDeduction ?? 0 : 0;
   const ptManual = existing?.ptManual || false;
-  const medicalManual = existing?.medicalManual || false;
+  const esiManual = existing?.esiManual || false;
   const incomeTaxManual = existing?.incomeTaxManual || false;
 
   const payableDays = Math.min(muster.daysInMonth, round2(Number(presentDays) + muster.paidLeaveDays));
   const earnings = computeEarningsForPayableDays(structureVersion, payableDays, muster.daysInMonth);
 
   const pt = ptManual ? existing.pt : earnings.pt;
-  const medicalAllowance = medicalManual ? existing.medicalAllowance : earnings.medicalAllowance;
-  // TDS defaults from the salary structure (like PT/Medical Insurance); a
-  // manually-edited figure on this payslip survives regeneration.
+  const esi = esiManual ? existing.esi : earnings.esi;
+  // TDS defaults from the salary structure (like PT/ESI); a manually-edited
+  // figure on this payslip survives regeneration.
   const incomeTax = incomeTaxManual ? existing.incomeTax : earnings.tds;
 
-  const totals = computeTotals({ ...earnings, incentives, pt, medicalAllowance, incomeTax, othersDeduction });
+  const totals = computeTotals({ ...earnings, incentives, pt, esi, incomeTax, othersDeduction });
 
   return {
     skipped: false,
@@ -250,7 +274,9 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     workingDays: muster.workingDays,
     presentDays: Number(presentDays),
     presentDaysManual,
+    attendancePresentDays: muster.systemPresentDays,
     systemPresentDays: muster.systemPresentDays,
+    systemLoginDays,
     paidLeaveDays: muster.paidLeaveDays,
     payableDays,
     lopDays: muster.lopDays,
@@ -258,6 +284,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     weeklyOffDays: muster.weeklyOffDays,
     absentDays: muster.absentDays,
     halfDays: muster.halfDays,
+    outOfOfficeDays: muster.dayMarks.filter((m) => m === "OOO").length,
     leaveBreakdown: muster.leaveBreakdown,
     dayMarks: muster.dayMarks,
     basic: earnings.basic,
@@ -267,11 +294,13 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     others: earnings.others,
     incentives: Number(incentives),
     pt: Number(pt),
-    medicalAllowance: Number(medicalAllowance),
+    esiApplicable: earnings.esiApplicable,
+    esiPercent: earnings.esiPercent,
+    esi: Number(esi),
     incomeTax: Number(incomeTax),
     othersDeduction: Number(othersDeduction),
     ptManual,
-    medicalManual,
+    esiManual,
     incomeTaxManual,
     ...totals,
   };
@@ -279,10 +308,10 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
 
 // Edit: recompute payable days and the earnings components only if
 // presentDays changed; always recompute totals. incentives/pt/
-// medicalAllowance/incomeTax/othersDeduction are applied only when
-// explicitly present in `updates` (undefined = keep as-is).
+// esi/incomeTax/othersDeduction are applied only when explicitly present in
+// `updates` (undefined = keep as-is).
 export async function applyPayslipEdit(existing, updates) {
-  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, others, pt, medicalAllowance, incomeTax, ptManual, medicalManual, incomeTaxManual } = existing;
+  let { presentDaysManual, presentDays, payableDays, basic, hra, transportAllowance, specialAllowance, others, pt, esi, incomeTax, ptManual, esiManual, incomeTaxManual } = existing;
 
   // Payslips made before the flag existed count as manual if a value was entered.
   presentDaysManual = presentDaysManual ?? Number(existing.presentDays) > 0;
@@ -308,7 +337,7 @@ export async function applyPayslipEdit(existing, updates) {
     specialAllowance = earnings.specialAllowance;
     others = earnings.others;
     if (!ptManual) pt = earnings.pt;
-    if (!medicalManual) medicalAllowance = earnings.medicalAllowance;
+    if (!esiManual) esi = earnings.esi;
     if (!incomeTaxManual) incomeTax = earnings.tds;
   }
 
@@ -316,9 +345,9 @@ export async function applyPayslipEdit(existing, updates) {
     pt = Number(updates.pt);
     ptManual = true;
   }
-  if (updates.medicalAllowance !== undefined) {
-    medicalAllowance = Number(updates.medicalAllowance);
-    medicalManual = true;
+  if (updates.esi !== undefined) {
+    esi = Number(updates.esi);
+    esiManual = true;
   }
   if (updates.incomeTax !== undefined) {
     incomeTax = Number(updates.incomeTax);
@@ -331,7 +360,7 @@ export async function applyPayslipEdit(existing, updates) {
 
   const totals = computeTotals({
     basic, hra, transportAllowance, specialAllowance, others,
-    incentives, pt, medicalAllowance, incomeTax, othersDeduction,
+    incentives, pt, esi, incomeTax, othersDeduction,
   });
 
   return {
@@ -346,11 +375,11 @@ export async function applyPayslipEdit(existing, updates) {
     others,
     incentives,
     pt,
-    medicalAllowance,
+    esi,
     incomeTax,
     othersDeduction,
     ptManual,
-    medicalManual,
+    esiManual,
     incomeTaxManual,
     ...totals,
   };

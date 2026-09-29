@@ -59,6 +59,7 @@ export const COLLECTIONS = Object.freeze({
   HR_ADVANCES: "hr_advances",
   HR_WALLET_TRANSACTIONS: "hr_wallet_transactions",
   NOTIFICATIONS: "notifications",
+  LOGIN_DAYS: "login_days",
 });
 
 // Company Wallet: a single running balance the superadmin tops up, tracking

@@ -32,3 +32,20 @@ export async function attendanceMarksForMonth(userId, period) {
   const weights = await attendanceWeightsForMonth(userId, period);
   return new Map([...weights].map(([date, w]) => [date, w > 0]));
 }
+
+// Map<dateStr, status> — the raw attendance status (or undefined if no
+// record), for callers that need to distinguish Present / Half Day / Out
+// of Office / Travel from each other, not just "present at all" (the
+// payslip muster mark needs this; attendanceWeightsForMonth above only
+// gives a payroll weight, which collapses that distinction).
+export async function attendanceStatusForMonth(userId, period) {
+  const { start, end } = monthBounds(period);
+  const dates = [...eachDate(start, end)];
+  const refs = dates.map((d) => db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(`${userId}_${d}`));
+  const snaps = await db.getAll(...refs);
+  const statuses = new Map();
+  snaps.forEach((snap, i) => {
+    if (snap.exists) statuses.set(dates[i], snap.data().status);
+  });
+  return statuses;
+}

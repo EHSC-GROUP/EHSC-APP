@@ -35,6 +35,16 @@ router.post("/login", async (req, res, next) => {
     if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
     const token = signToken({ userId: snap.id, name: user.name, role: user.role });
+
+    // Reference-only login-day tracking for the payslip's "System login
+    // (reference only)" figure — never read by any payroll calculation,
+    // just a data point shown to the admin. One doc per user per day
+    // (idempotent — logging in twice in a day doesn't double-count).
+    const today = new Date().toISOString().slice(0, 10);
+    db.collection(COLLECTIONS.LOGIN_DAYS).doc(`${snap.id}_${today}`)
+      .set({ userId: snap.id, date: today }, { merge: true })
+      .catch(() => {});
+
     res.json({
       token,
       user: { userId: snap.id, name: user.name, role: user.role, mustReset: !!user.mustReset },

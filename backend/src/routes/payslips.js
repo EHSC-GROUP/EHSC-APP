@@ -58,19 +58,20 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
     const period = req.query.period;
     if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
 
-    const [profiles, payslipsSnap] = await Promise.all([
+    const [profilesSnap, payslipsSnap] = await Promise.all([
       db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get(),
       db.collection(COLLECTIONS.HR_PAYSLIPS).where("period", "==", period).get(),
     ]);
+    const profiles = await attachNames(profilesSnap.docs.map((d) => ({ userId: d.id, ...d.data() })));
     const payslipsByUser = new Map(payslipsSnap.docs.map((d) => [d.data().userId, { id: d.id, ...d.data() }]));
 
-    const list = profiles.docs.map((d) => {
-      const existing = payslipsByUser.get(d.id);
+    const list = profiles.map((p) => {
+      const existing = payslipsByUser.get(p.userId);
       if (existing) return existing;
       return {
-        userId: d.id,
+        userId: p.userId,
         period,
-        name: null,
+        name: p.name,
         status: "NOT_GENERATED",
       };
     });
@@ -124,7 +125,11 @@ router.post("/generate", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-// ---- edit (DRAFT only) ----------------------------------------------------
+// ---- edit (any generated status) ------------------------------------------
+// A FINALIZED/PUBLISHED payslip can be edited directly — no separate
+// un-finalize step — but its PDF is regenerated in place immediately after,
+// so the document on file always matches the current numbers. The frontend
+// confirms this with the admin before saving (see the Edit Draft modal).
 router.put("/:userId/:period", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
@@ -133,9 +138,6 @@ router.put("/:userId/:period", authenticate, requireAdmin, async (req, res, next
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: "Payslip not found. Generate it first." });
     const existing = { userId, period, ...snap.data() };
-    if (existing.status !== PAYSLIP_STATUS.DRAFT) {
-      return res.status(400).json({ error: "Only DRAFT payslips can be edited. Un-finalize it first." });
-    }
 
     const updated = await applyPayslipEdit(existing, req.body);
     await ref.update({
@@ -143,6 +145,12 @@ router.put("/:userId/:period", authenticate, requireAdmin, async (req, res, next
       editedAt: admin.firestore.FieldValue.serverTimestamp(),
       editedBy: req.user.userId,
     });
+
+    if ([PAYSLIP_STATUS.FINALIZED, PAYSLIP_STATUS.PUBLISHED].includes(updated.status)) {
+      const pdfBuffer = await renderPayslipPdf({ userId, period, ...updated });
+      await uploadBuffer(pdfStoragePath(userId, period), pdfBuffer, "application/pdf");
+    }
+
     res.json({ ok: true, payslip: updated });
   } catch (err) {
     next(err);
