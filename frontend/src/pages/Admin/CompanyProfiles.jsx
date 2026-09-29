@@ -293,7 +293,7 @@ function CompanyDrawer({ id, onClose, onChanged }) {
             {!projects ? <Loading /> : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Project ID</th><th>Branch</th><th>Type</th><th>PO Number</th><th>PO Value</th><th>Contract Value</th><th>Source Enquiry</th></tr></thead>
+                  <thead><tr><th>Project ID</th><th>Branch</th><th>Type</th><th>PO Number</th><th>PO Value</th><th>Contract Value</th><th>Invoice Stages</th><th>Source Enquiry</th></tr></thead>
                   <tbody>
                     {projects.map((p) => (
                       <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelectedProjectId(p.id)}>
@@ -303,10 +303,13 @@ function CompanyDrawer({ id, onClose, onChanged }) {
                         <td>{p.poNumber || "-"}</td>
                         <td>{p.poValue ?? "-"}</td>
                         <td>{p.contractValue ?? "-"}</td>
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <InlineStageChecklist project={p} onChanged={loadProjects} />
+                        </td>
                         <td>{p.sourceEnquiryNo || "-"}</td>
                       </tr>
                     ))}
-                    {projects.length === 0 && <tr><td colSpan={7} className="empty-state">No projects yet.</td></tr>}
+                    {projects.length === 0 && <tr><td colSpan={8} className="empty-state">No projects yet.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -425,5 +428,57 @@ function ProjectDrawerContent({ projectId, company, onBack, onChanged }) {
         </>
       )}
     </>
+  );
+}
+
+const INVOICE_STAGES = [1, 2, 3, 4];
+
+// A compact, always-visible version of the same stage checkboxes shown
+// inside the project editor's Company Details tab — lets an admin tick a
+// stage complete (which fires the "raise the invoice" notification to the
+// superadmin) straight from the company's project list, without opening
+// the project first. Only shows stages that actually have a percentage
+// set; a project with none set shows nothing here.
+function InlineStageChecklist({ project, onChanged }) {
+  const [busyStage, setBusyStage] = useState(null);
+
+  const rows = INVOICE_STAGES
+    .map((n) => ({ n, percent: project[`invoiceStage${n}Percent`], completed: !!project[`invoiceStage${n}Completed`] }))
+    .filter((r) => r.percent !== null && r.percent !== undefined);
+
+  if (rows.length === 0) return <span className="hint-text">-</span>;
+
+  async function toggle(n, completed) {
+    setBusyStage(n);
+    try {
+      await client.put(`/projects/${project.id}/invoice-stages/${n}`, { completed });
+      onChanged();
+    } catch {
+      // Best-effort from a table row — the project's own Company Details
+      // tab has the full InvoiceStagesCard with error text if this fails.
+    } finally {
+      setBusyStage(null);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {rows.map((r) => (
+        <label
+          key={r.n}
+          title={`Stage ${r.n} — ${r.percent}%`}
+          style={{ display: "flex", alignItems: "center", gap: 3, margin: 0, fontSize: 12 }}
+        >
+          <input
+            type="checkbox"
+            style={{ width: "auto" }}
+            checked={r.completed}
+            disabled={busyStage === r.n}
+            onChange={(e) => toggle(r.n, e.target.checked)}
+          />
+          {r.n}
+        </label>
+      ))}
+    </div>
   );
 }
