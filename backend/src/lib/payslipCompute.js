@@ -121,12 +121,13 @@ export async function computeMusterAndLeave(userId, period) {
 
   // Day-by-day muster mark, one flat string per calendar day (day N = index
   // N-1), priority order: Holiday > WeeklyOff > Leave > "not yet due" (a
-  // future date never counts as absent) > actual attendance (Present /
-  // Half Day / Out of Office|Travel, or an automatic WFH-rule day folded
-  // into Present) > Absent.
+  // future date never counts as absent) > actual attendance (Present, with
+  // Out of Office/Travel counted the same as Present, or Half Day, or an
+  // automatic WFH-rule day folded into Present) > Absent.
   let holidayDays = 0;
   let weeklyOffCount = 0;
   let wfhAutoCount = 0;
+  let outOfOfficeCount = 0;
   const dayMarks = [];
   for (const date of eachDate(start, end)) {
     let mark;
@@ -146,9 +147,13 @@ export async function computeMusterAndLeave(userId, period) {
     } else {
       const status = attendanceStatuses.get(date);
       if (status === ATTENDANCE_STATUS_VALUES.HALF_DAY) mark = "P(H)";
-      else if ([ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE, ATTENDANCE_STATUS_VALUES.TRAVEL].includes(status)) mark = "OOO";
       else if (status === ATTENDANCE_STATUS_VALUES.PRESENT) mark = "P";
-      else if (wfhAutoDates.has(date)) {
+      else if ([ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE, ATTENDANCE_STATUS_VALUES.TRAVEL].includes(status)) {
+        // Counted (and shown) the same as Present, at the employee's
+        // request — still tracked separately below for reference only.
+        mark = "P";
+        outOfOfficeCount++;
+      } else if (wfhAutoDates.has(date)) {
         mark = "P";
         wfhAutoCount++;
       } else {
@@ -174,6 +179,7 @@ export async function computeMusterAndLeave(userId, period) {
     weeklyOffDays: weeklyOffCount,
     absentDays,
     halfDays,
+    outOfOfficeDays: outOfOfficeCount,
     systemPresentDays,
     paidLeaveDays: round1(paidLeaveDays),
     lopDays: round1(lopDays),
@@ -284,7 +290,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     weeklyOffDays: muster.weeklyOffDays,
     absentDays: muster.absentDays,
     halfDays: muster.halfDays,
-    outOfOfficeDays: muster.dayMarks.filter((m) => m === "OOO").length,
+    outOfOfficeDays: muster.outOfOfficeDays,
     leaveBreakdown: muster.leaveBreakdown,
     dayMarks: muster.dayMarks,
     basic: earnings.basic,
