@@ -35,73 +35,6 @@ export default function MyAttendance() {
   );
 }
 
-// Explains location access before the browser's own permission prompt
-// appears, so the first check-in doesn't feel like a random popup. Shows
-// the fix in plain words if the browser has already blocked it.
-function LocationPermissionNotice() {
-  const [state, setState] = useState(null); // "granted" | "prompt" | "denied" | null (unknown)
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let status;
-    let cancelled = false;
-    if (!navigator.permissions?.query) {
-      setState("prompt");
-      return;
-    }
-    navigator.permissions.query({ name: "geolocation" }).then((s) => {
-      if (cancelled) return;
-      status = s;
-      setState(s.state);
-      s.onchange = () => setState(s.state);
-    }).catch(() => setState("prompt"));
-    return () => { cancelled = true; if (status) status.onchange = null; };
-  }, []);
-
-  async function enable() {
-    setBusy(true);
-    setError("");
-    try {
-      await getCurrentPosition();
-      setState("granted");
-    } catch (err) {
-      setError(err.message);
-      setState((s) => (s === "granted" ? "prompt" : s));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (state === "granted" || state === null) return null;
-
-  if (state === "denied") {
-    return (
-      <div className="card" style={{ borderLeft: "4px solid #d97706" }}>
-        <strong>Location is blocked for this site</strong>
-        <p className="hint-text mt-0">
-          Check-in needs your location to confirm you're at the office. Click the lock icon in the address bar,
-          open Site settings, set Location to <em>Allow</em>, then refresh this page.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="card" style={{ borderLeft: "4px solid #1d4ed8" }}>
-      <strong>Turn on location to mark attendance</strong>
-      <p className="hint-text mt-0">
-        Check-in uses your location only at the moment you tap it, to confirm you're inside the office area.
-        Your browser will ask for permission next — tap <em>Allow</em>.
-      </p>
-      <button className="btn-primary" onClick={enable} disabled={busy}>
-        {busy ? "Waiting for permission…" : "Enable location"}
-      </button>
-      <ErrorText>{error}</ErrorText>
-    </div>
-  );
-}
-
 function DailyStatusSection() {
   const [month, setMonth] = useState(currentMonth());
   const [history, setHistory] = useState(null);
@@ -228,9 +161,7 @@ function DailyStatusSection() {
   const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday && !pendingTravelToday;
 
   return (
-    <>
-      {canCheckIn && <LocationPermissionNotice />}
-      <div className="card">
+    <div className="card">
       <div className="hint-text" style={{ textTransform: "uppercase", fontWeight: 700, fontSize: 11, letterSpacing: "0.05em" }}>Today</div>
       <div className="toolbar" style={{ marginTop: 4 }}>
         <span className={`status-dot status-dot-${todayRecord?.status || "none"}`} />
@@ -324,7 +255,6 @@ function DailyStatusSection() {
         </table>
       )}
     </div>
-    </>
   );
 }
 
