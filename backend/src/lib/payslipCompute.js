@@ -193,6 +193,16 @@ export async function computeMusterAndLeave(userId, period) {
   };
 }
 
+// Paid days: days present (incl. Out of Office, Travel, WFH and half days),
+// paid leave, plus holidays and weekly-offs. Absent days and LOP leave are
+// unpaid. Capped at the calendar day count.
+export function computePayableDays({ presentDays, paidLeaveDays, holidayDays, weeklyOffDays, daysInMonth }) {
+  return Math.min(
+    Number(daysInMonth),
+    round2(Number(presentDays || 0) + Number(paidLeaveDays || 0) + Number(holidayDays || 0) + Number(weeklyOffDays || 0))
+  );
+}
+
 export function computeEarningsForPayableDays(structureVersion, payableDays, daysInMonth) {
   const ratio = daysInMonth > 0 ? payableDays / daysInMonth : 0;
   // Formula-driven components pro-rate with payable days. Versions created
@@ -260,7 +270,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
   const esiManual = existing?.esiManual || false;
   const incomeTaxManual = existing?.incomeTaxManual || false;
 
-  const payableDays = Math.min(muster.daysInMonth, round2(Number(presentDays) + muster.paidLeaveDays));
+  const payableDays = computePayableDays({ presentDays, paidLeaveDays: muster.paidLeaveDays, holidayDays: muster.holidayDays, weeklyOffDays: muster.weeklyOffDays, daysInMonth: muster.daysInMonth });
   const earnings = computeEarningsForPayableDays(structureVersion, payableDays, muster.daysInMonth);
 
   const pt = ptManual ? existing.pt : earnings.pt;
@@ -340,7 +350,13 @@ export async function applyPayslipEdit(existing, updates) {
   if (newPresentDays !== null && newPresentDays !== existing.presentDays) {
     presentDays = newPresentDays;
     const structureVersion = await getCurrentSalaryVersion(existing.userId, monthBounds(existing.period).end);
-    payableDays = Math.min(existing.daysInMonth, round2(presentDays + existing.paidLeaveDays));
+    payableDays = computePayableDays({
+      presentDays,
+      paidLeaveDays: existing.paidLeaveDays,
+      holidayDays: existing.holidayDays,
+      weeklyOffDays: existing.weeklyOffDays,
+      daysInMonth: existing.daysInMonth,
+    });
     const earnings = computeEarningsForPayableDays(structureVersion, payableDays, existing.daysInMonth);
     basic = earnings.basic;
     hra = earnings.hra;
