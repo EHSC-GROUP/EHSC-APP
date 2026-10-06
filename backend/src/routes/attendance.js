@@ -7,7 +7,7 @@ import {
   ATTENDANCE_STATUS_VALUES, ATTENDANCE_SOURCE, GEOFENCE_RADIUS_MIN_METERS, GEOFENCE_RADIUS_MAX_METERS,
   OOO_REQUEST_STATUS,
 } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { haversineMeters, isValidCoordinate } from "../lib/geo.js";
 import { eachDate } from "../lib/dateUtils.js";
 
@@ -153,7 +153,57 @@ router.post("/check-in", authenticate, async (req, res, next) => {
       source: ATTENDANCE_SOURCE.SELF_GEOFENCE,
       markedAt: new Date().toISOString(),
       markedBy: req.user.userId,
+      checkedInAt: new Date().toISOString(),
       distanceMeters: Math.round(distanceMeters),
+    });
+
+    res.json({ ok: true, distanceMeters: Math.round(distanceMeters) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Self checkout uses the same server-side geofence validation as check-in.
+// It only updates a PRESENT record created for the current day and never
+// changes the attendance status itself.
+router.post("/check-out", authenticate, async (req, res, next) => {
+  try {
+    const { date, lat, lng } = req.body;
+    const today = new Date().toISOString().slice(0, 10);
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    if (date !== today || !isValidCoordinate(latNum, lngNum)) {
+      return res.status(400).json({ error: "A valid current-day date and lat/lng are required" });
+    }
+
+    const geofenceSnap = await GEOFENCE_DOC().get();
+    if (!geofenceSnap.exists || !geofenceSnap.data().enabled) {
+      return res.status(400).json({ error: "Self check-out isn't available. Ask your admin to mark your attendance." });
+    }
+    const geofence = geofenceSnap.data();
+    const distanceMeters = haversineMeters(latNum, lngNum, geofence.lat, geofence.lng);
+    if (distanceMeters > geofence.radiusMeters) {
+      return res.status(403).json({
+        error: `You're ${Math.round(distanceMeters)}m from the office — check-out requires being within ${geofence.radiusMeters}m.`,
+        distanceMeters: Math.round(distanceMeters),
+        radiusMeters: geofence.radiusMeters,
+      });
+    }
+
+    const ref = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(req.user.userId, date));
+    const snap = await ref.get();
+    if (!snap.exists || snap.data().status !== ATTENDANCE_STATUS_VALUES.PRESENT) {
+      return res.status(400).json({ error: "You must check in at the office before checking out." });
+    }
+    if (snap.data().checkedOutAt) {
+      return res.status(400).json({ error: "You have already checked out today." });
+    }
+
+    await ref.update({
+      checkedOutAt: new Date().toISOString(),
+      checkOutLat: latNum,
+      checkOutLng: lngNum,
+      checkOutDistanceMeters: Math.round(distanceMeters),
     });
 
     res.json({ ok: true, distanceMeters: Math.round(distanceMeters) });
@@ -170,8 +220,26 @@ const OOO_DOC = (id) => db.collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS).doc(i
 
 router.post("/ooo-requests", authenticate, async (req, res, next) => {
   try {
-    const { date, reason, lat, lng } = req.body;
-    if (!date || !reason) return res.status(400).json({ error: "date and reason are required" });
+    const { date, startTime, endTime, reason, lat, lng } = req.body;
+    const today = new Date().toISOString().slice(0, 10);
+    if (!date || !startTime || !endTime || !reason) {
+      return res.status(400).json({ error: "date, startTime, endTime and reason are required" });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
+      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
+    }
+    if (date < today) return res.status(400).json({ error: "Out of Office can only be requested for today or a future date" });
+    const startMinutes = /^\d{2}:\d{2}$/.test(startTime)
+      ? Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3))
+      : NaN;
+    const endMinutes = /^\d{2}:\d{2}$/.test(endTime)
+      ? Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3))
+      : NaN;
+    if (!Number.isInteger(startMinutes) || !Number.isInteger(endMinutes)
+      || startMinutes < 0 || startMinutes > 1439 || endMinutes < 1 || endMinutes > 1439
+      || startMinutes >= endMinutes) {
+      return res.status(400).json({ error: "startTime and endTime must be valid, and endTime must be later than startTime" });
+    }
 
     const existingSnap = await db
       .collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS)
@@ -199,6 +267,8 @@ router.post("/ooo-requests", authenticate, async (req, res, next) => {
       userId: req.user.userId,
       name: req.user.name,
       date,
+      startTime,
+      endTime,
       reason,
       lat: isValidCoordinate(latNum, lngNum) ? latNum : null,
       lng: isValidCoordinate(latNum, lngNum) ? lngNum : null,
@@ -225,7 +295,7 @@ router.get("/ooo-requests/mine", authenticate, async (req, res, next) => {
   }
 });
 
-router.get("/ooo-requests", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/ooo-requests", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     let query = db.collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS);
     if (req.query.status) query = query.where("status", "==", req.query.status);
@@ -238,7 +308,7 @@ router.get("/ooo-requests", authenticate, requireAdmin, async (req, res, next) =
   }
 });
 
-router.put("/ooo-requests/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/ooo-requests/:id/approve", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const ref = OOO_DOC(req.params.id);
     await db.runTransaction(async (tx) => {
@@ -264,6 +334,8 @@ router.put("/ooo-requests/:id/approve", authenticate, requireAdmin, async (req, 
         source: ATTENDANCE_SOURCE.SELF_OOO_REQUEST,
         markedAt: new Date().toISOString(),
         markedBy: req.user.userId,
+        startTime: request.startTime,
+        endTime: request.endTime,
       });
     });
     res.json({ ok: true });
@@ -272,7 +344,7 @@ router.put("/ooo-requests/:id/approve", authenticate, requireAdmin, async (req, 
   }
 });
 
-router.put("/ooo-requests/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/ooo-requests/:id/reject", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const ref = OOO_DOC(req.params.id);
     const snap = await ref.get();

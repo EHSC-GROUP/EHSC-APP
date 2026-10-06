@@ -47,6 +47,12 @@ const NAV_GROUPS = [
       { to: "/admin/settings", label: "Settings" },
     ],
   },
+  {
+    label: "Self Service",
+    items: [
+      { to: "/me/attendance", label: "My Attendance" },
+    ],
+  },
 ];
 
 // A Team Lead only ever needs these two pages — approving their

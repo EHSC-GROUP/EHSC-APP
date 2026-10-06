@@ -42,15 +42,16 @@ function DailyStatusSection() {
   const [oooRequests, setOooRequests] = useState(null);
   const [error, setError] = useState("");
   const [checkingIn, setCheckingIn] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   const [checkInResult, setCheckInResult] = useState(null);
+  const [checkOutResult, setCheckOutResult] = useState(null);
   const [lastCoords, setLastCoords] = useState(null);
   const [showOooForm, setShowOooForm] = useState(false);
   const [oooReason, setOooReason] = useState("");
+  const [oooDate, setOooDate] = useState(todayISO());
+  const [oooStartTime, setOooStartTime] = useState("09:00");
+  const [oooEndTime, setOooEndTime] = useState("17:00");
   const [submittingOoo, setSubmittingOoo] = useState(false);
-  const [travelRequests, setTravelRequests] = useState(null);
-  const [showTravelForm, setShowTravelForm] = useState(false);
-  const [travelReason, setTravelReason] = useState("");
-  const [submittingTravel, setSubmittingTravel] = useState(false);
 
   async function loadHistory() {
     setError("");
@@ -83,20 +84,9 @@ function DailyStatusSection() {
   }
   useEffect(() => { loadOooRequests(); }, []);
 
-  async function loadTravelRequests() {
-    try {
-      const { data } = await client.get("/attendance/travel-requests/mine");
-      setTravelRequests(data);
-    } catch (err) {
-      setError(errorMessage(err));
-    }
-  }
-  useEffect(() => { loadTravelRequests(); }, []);
-
   const today = todayISO();
   const todayRecord = (history || []).find((h) => h.date === today);
   const pendingOooToday = (oooRequests || []).find((r) => r.date === today && r.status === "PENDING");
-  const pendingTravelToday = (travelRequests || []).find((r) => r.date === today && r.status === "PENDING");
 
   async function checkIn() {
     setCheckingIn(true);
@@ -120,19 +110,47 @@ function DailyStatusSection() {
     }
   }
 
+  async function checkOut() {
+    setCheckingOut(true);
+    setCheckOutResult(null);
+    setError("");
+    try {
+      const { lat, lng } = await getCurrentPosition();
+      const { data } = await client.post("/attendance/check-out", { date: today, lat, lng });
+      setCheckOutResult({ ok: true, distanceMeters: data.distanceMeters });
+      loadHistory();
+    } catch (err) {
+      if (err?.response?.data?.error) {
+        setCheckOutResult({ ok: false, message: err.response.data.error });
+      } else {
+        setError(err.message || errorMessage(err));
+      }
+    } finally {
+      setCheckingOut(false);
+    }
+  }
+
   async function submitOoo() {
     if (!oooReason.trim()) return setError("Please give a reason for the Out of Office request.");
+    if (!oooDate || !oooStartTime || !oooEndTime || oooEndTime <= oooStartTime) {
+      return setError("Choose a date and valid hours. End time must be later than start time.");
+    }
     setSubmittingOoo(true);
     setError("");
     try {
       await client.post("/attendance/ooo-requests", {
-        date: today,
+        date: oooDate,
+        startTime: oooStartTime,
+        endTime: oooEndTime,
         reason: oooReason,
         lat: lastCoords?.lat,
         lng: lastCoords?.lng,
       });
       setShowOooForm(false);
       setOooReason("");
+      setOooDate(today);
+      setOooStartTime("09:00");
+      setOooEndTime("17:00");
       setCheckInResult(null);
       loadOooRequests();
     } catch (err) {
@@ -142,23 +160,8 @@ function DailyStatusSection() {
     }
   }
 
-  async function submitTravel() {
-    if (!travelReason.trim()) return setError("Please give a reason for the travel request.");
-    setSubmittingTravel(true);
-    setError("");
-    try {
-      await client.post("/attendance/travel-requests", { date: today, reason: travelReason });
-      setShowTravelForm(false);
-      setTravelReason("");
-      loadTravelRequests();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSubmittingTravel(false);
-    }
-  }
-
-  const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday && !pendingTravelToday;
+  const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday;
+  const canCheckOut = geofence?.enabled && todayRecord?.status === "PRESENT" && !todayRecord.checkedOutAt;
 
   return (
     <div className="card">
@@ -169,8 +172,6 @@ function DailyStatusSection() {
           <StatusBadge status={todayRecord.status} />
         ) : pendingOooToday ? (
           <span className="badge-pill badge-PENDING_OOO">Out of Office — pending approval</span>
-        ) : pendingTravelToday ? (
-          <span className="badge-pill badge-PENDING_TRAVEL">Travel — pending approval</span>
         ) : (
           <span className="text-muted">Not marked yet</span>
         )}
@@ -180,28 +181,50 @@ function DailyStatusSection() {
             {checkingIn ? "Checking in…" : "Check in"}
           </button>
         )}
+        {canCheckOut && (
+          <button className="btn-primary" onClick={checkOut} disabled={checkingOut}>
+            {checkingOut ? "Checking out…" : "Check out"}
+          </button>
+        )}
       </div>
 
       {geofence && !geofence.enabled && !todayRecord && !pendingOooToday && (
         <p className="hint-text">Self check-in isn't enabled. Ask your admin to mark your attendance.</p>
       )}
 
-      {!todayRecord && !pendingOooToday && !pendingTravelToday && (
+      {!pendingOooToday && (
         <div style={{ marginTop: 8 }}>
-          {!showTravelForm ? (
-            <button className="btn-sm" onClick={() => setShowTravelForm(true)}>Request to Travel</button>
-          ) : (
-            <div className="form-row" style={{ marginTop: 8, alignItems: "flex-start" }}>
-              <div style={{ flex: 1 }}>
+          <div className="toolbar" style={{ margin: 0 }}>
+            {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>Request Out of Office</button>}
+          </div>
+          {showOooForm && (
+            <div style={{ marginTop: 8 }}>
+              <div className="form-row" style={{ alignItems: "flex-start" }}>
+                <div>
+                  <label>Date</label>
+                  <input type="date" min={today} value={oooDate} onChange={(e) => setOooDate(e.target.value)} />
+                </div>
+                <div>
+                  <label>From</label>
+                  <input type="time" value={oooStartTime} onChange={(e) => setOooStartTime(e.target.value)} />
+                </div>
+                <div>
+                  <label>To</label>
+                  <input type="time" value={oooEndTime} onChange={(e) => setOooEndTime(e.target.value)} />
+                </div>
+              </div>
+              <div style={{ marginTop: 8 }}>
                 <textarea
                   rows={2}
-                  placeholder="Where are you traveling for work, and why? (e.g. client site visit)"
-                  value={travelReason}
-                  onChange={(e) => setTravelReason(e.target.value)}
+                  placeholder="Why will you be out of office? (e.g. client site visit, field work)"
+                  value={oooReason}
+                  onChange={(e) => setOooReason(e.target.value)}
                 />
               </div>
-              <button className="btn-sm btn-primary" onClick={submitTravel} disabled={submittingTravel}>{submittingTravel ? "Submitting…" : "Submit Request"}</button>
-              <button className="btn-sm" onClick={() => setShowTravelForm(false)}>Cancel</button>
+              <div className="toolbar" style={{ marginTop: 8 }}>
+                <button className="btn-sm btn-primary" onClick={submitOoo} disabled={submittingOoo}>{submittingOoo ? "Submitting…" : "Submit Request"}</button>
+                <button className="btn-sm" onClick={() => setShowOooForm(false)}>Cancel</button>
+              </div>
             </div>
           )}
         </div>
@@ -215,24 +238,15 @@ function DailyStatusSection() {
       {checkInResult && !checkInResult.ok && (
         <div style={{ marginTop: 8 }}>
           <ErrorText>{checkInResult.message}</ErrorText>
-          {!showOooForm ? (
-            <button className="btn-sm" onClick={() => setShowOooForm(true)}>Request Out of Office</button>
-          ) : (
-            <div className="form-row" style={{ marginTop: 8, alignItems: "flex-start" }}>
-              <div style={{ flex: 1 }}>
-                <textarea
-                  rows={2}
-                  placeholder="Why are you out of office today? (e.g. client site visit, field work)"
-                  value={oooReason}
-                  onChange={(e) => setOooReason(e.target.value)}
-                />
-              </div>
-              <button className="btn-sm btn-primary" onClick={submitOoo} disabled={submittingOoo}>{submittingOoo ? "Submitting…" : "Submit Request"}</button>
-              <button className="btn-sm" onClick={() => setShowOooForm(false)}>Cancel</button>
-            </div>
-          )}
+          {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>Request Out of Office</button>}
         </div>
       )}
+      {checkOutResult?.ok && (
+        <p className="hint-text" style={{ color: "var(--good, #0ca30c)" }}>
+          Checked out — you were {checkOutResult.distanceMeters}m from the office.
+        </p>
+      )}
+      {checkOutResult && !checkOutResult.ok && <ErrorText>{checkOutResult.message}</ErrorText>}
       <ErrorText>{error}</ErrorText>
 
       <div className="toolbar" style={{ marginTop: 16 }}>
@@ -254,7 +268,24 @@ function DailyStatusSection() {
           </tbody>
         </table>
       )}
+      {oooRequests?.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h3>My Out of Office Requests</h3>
+          <table>
+            <thead><tr><th>Date</th><th>Hours</th><th>Reason</th><th>Status</th></tr></thead>
+            <tbody>
+              {oooRequests.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.date}</td>
+                  <td>{r.startTime} - {r.endTime}</td>
+                  <td>{r.reason}</td>
+                  <td><span className={`badge-pill badge-${r.status}`}>{r.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
-

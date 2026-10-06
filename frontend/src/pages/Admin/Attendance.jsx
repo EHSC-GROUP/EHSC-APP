@@ -3,6 +3,7 @@ import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
 import StatusBadge from "../../components/StatusBadge";
 import { getCurrentPosition } from "../../lib/geolocation";
+import { useAuth } from "../../context/AuthContext";
 
 function currentMonth() {
   const d = new Date();
@@ -36,15 +37,16 @@ const STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", LEAVE: "Leave", HAL
 const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "OOO request approved", SELF_TRAVEL_REQUEST: "Travel request approved" };
 
 export default function Attendance() {
+  const { user } = useAuth();
   return (
     <div>
       <div className="page-header"><h2>Attendance</h2></div>
-      <DailyStatusTab />
+      <DailyStatusTab canApproveOoo={user?.role === "superadmin"} />
     </div>
   );
 }
 
-function DailyStatusTab() {
+function DailyStatusTab({ canApproveOoo }) {
   const [date, setDate] = useState(todayISO());
   const [roster, setRoster] = useState(null);
   const [month, setMonth] = useState(currentMonth());
@@ -128,7 +130,7 @@ function DailyStatusTab() {
 
       <GeofenceSettings />
 
-      <OooRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />
+      {canApproveOoo && <OooRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />}
 
       <div className="card">
         <div className="toolbar">
@@ -366,12 +368,13 @@ function OooRequestsQueue({ onDecided }) {
       <ErrorText>{error}</ErrorText>
       {!requests ? <Loading /> : (
         <table>
-          <thead><tr><th>Employee</th><th>Date</th><th>Reason</th><th>Distance from office</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date</th><th>Hours</th><th>Reason</th><th>Distance from office</th><th></th></tr></thead>
           <tbody>
             {requests.map((r) => (
               <tr key={r.id}>
                 <td>{r.name} <span className="text-muted">({r.userId})</span></td>
                 <td>{r.date}</td>
+                <td>{r.startTime} - {r.endTime}</td>
                 <td>{r.reason}</td>
                 <td className="text-muted">{r.distanceMeters != null ? `${r.distanceMeters}m` : "-"}</td>
                 <td>
