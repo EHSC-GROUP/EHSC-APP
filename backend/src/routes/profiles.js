@@ -130,7 +130,9 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
       })
       .filter((p) => includeArchived || !p.disabled);
 
-    res.json([...list, ...extraAdmins]);
+    // Salary figures are for the superadmin only — strip them for regular admins.
+    const all = [...list, ...extraAdmins];
+    res.json(req.user.role === ROLES.SUPERADMIN ? all : all.map(({ netSalary, ...rest }) => rest));
   } catch (err) {
     next(err);
   }

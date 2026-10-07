@@ -6,10 +6,13 @@ import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
 import Form22 from "./Form22";
+import { useAuth } from "../../context/AuthContext";
 
 // kind "staff" = employees and admins; kind "associate" = external parties.
 export default function EmployeeProfiles({ kind = "staff" }) {
   const isAssociateList = kind === "associate";
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "superadmin";
   const [showForm22, setShowForm22] = useState(false);
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
@@ -62,7 +65,7 @@ export default function EmployeeProfiles({ kind = "staff" }) {
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>User ID</th><th>Type</th><th>Designation</th><th>Department</th><th>Net Salary</th><th>Status</th>
+                <th>Name</th><th>User ID</th><th>Type</th><th>Designation</th><th>Department</th>{isSuperAdmin && <th>Net Salary</th>}<th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -73,11 +76,11 @@ export default function EmployeeProfiles({ kind = "staff" }) {
                   <td>{p.type}</td>
                   <td>{p.designation || "-"}</td>
                   <td>{p.department || "-"}</td>
-                  <td className="amt-gross">{p.netSalary != null ? `₹${p.netSalary.toFixed(2)}` : "-"}</td>
+                  {isSuperAdmin && <td className="amt-gross">{p.netSalary != null ? `₹${p.netSalary.toFixed(2)}` : "-"}</td>}
                   <td><StatusBadge status={p.status} /></td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={7} className="empty-state">No profiles found.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={isSuperAdmin ? 7 : 6} className="empty-state">No profiles found.</td></tr>}
             </tbody>
           </table>
         </div>

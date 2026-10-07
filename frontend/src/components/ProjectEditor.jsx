@@ -626,6 +626,7 @@ function PlanActionsSection({ project, actions, onChanged }) {
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [showStages, setShowStages] = useState(false);
   const [showSaveTemplate, setShowSaveTemplate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [dateForm, setDateForm] = useState({ startDate: "", dueDate: "" });
   const [savingDates, setSavingDates] = useState(false);
@@ -682,6 +683,7 @@ function PlanActionsSection({ project, actions, onChanged }) {
         {actions.length > 1 && (
           <button className="btn-sm" onClick={() => setShowWorkflow(true)}>Define Workflow</button>
         )}
+        <button className="btn-sm" onClick={() => setShowImport(true)}>Import Template</button>
         <button className="btn-sm" onClick={() => setShowStages(true)}>Invoice Stages</button>
         <button className="btn-sm" onClick={() => setShowAdd(true)}>+ Add Action</button>
       </div>
@@ -753,6 +755,9 @@ function PlanActionsSection({ project, actions, onChanged }) {
       )}
       {showStages && (
         <InvoiceStageActionsModal project={project} actions={actions} onClose={() => setShowStages(false)} onSaved={() => { setShowStages(false); onChanged(); }} />
+      )}
+      {showImport && (
+        <ImportTemplateModal project={project} onClose={() => setShowImport(false)} onImported={() => { setShowImport(false); onChanged(); }} />
       )}
       {showSaveTemplate && (
         <SaveAsTemplateModal project={project} actions={actions} onClose={() => setShowSaveTemplate(false)} />
@@ -854,6 +859,153 @@ function InvoiceStageActionsModal({ project, actions, onClose, onSaved }) {
 function daysBetween(fromISO, toISO) {
   const ms = new Date(toISO).getTime() - new Date(fromISO).getTime();
   return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+}
+
+function addDaysISO(iso, days) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + (Number(days) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+// Pulls a project type's template (as edited in Settings) into this project's
+// Project Plan. Every row stays editable before importing - days after the
+// start date and the resulting due date move together - and the (possibly
+// adjusted) rows can also be written back to the template from here.
+function ImportTemplateModal({ project, onClose, onImported }) {
+  const [type, setType] = useState(project.projectType || PROJECT_TYPES[0]);
+  const [templates, setTemplates] = useState(null);
+  const [startDate, setStartDate] = useState(todayISO());
+  const [tasks, setTasks] = useState([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [savedMsg, setSavedMsg] = useState("");
+
+  useEffect(() => {
+    client.get("/settings/project-plan-templates").then((r) => setTemplates(r.data)).catch((err) => setError(errorMessage(err)));
+  }, []);
+
+  useEffect(() => {
+    if (!templates) return;
+    setTasks((templates[type] || []).map((t) => ({
+      description: t.description,
+      dayOffset: Number(t.dayOffset) || 0,
+      stage: t.stage || "",
+      dueDate: addDaysISO(startDate, t.dayOffset),
+    })));
+    setSavedMsg("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templates, type]);
+
+  function changeStart(value) {
+    setStartDate(value);
+    if (value) setTasks((list) => list.map((t) => ({ ...t, dueDate: addDaysISO(value, t.dayOffset) })));
+  }
+  function updateTask(i, field, value) {
+    setTasks((list) => list.map((t, idx) => (idx === i ? { ...t, [field]: value } : t)));
+  }
+  function changeDays(i, days) {
+    const n = Math.max(0, Number(days) || 0);
+    setTasks((list) => list.map((t, idx) => (idx === i ? { ...t, dayOffset: n, dueDate: addDaysISO(startDate, n) } : t)));
+  }
+  function changeDue(i, due) {
+    setTasks((list) => list.map((t, idx) => (idx === i ? { ...t, dueDate: due, dayOffset: due ? daysBetween(startDate, due) : t.dayOffset } : t)));
+  }
+  function removeTask(i) { setTasks((list) => list.filter((_, idx) => idx !== i)); }
+  function addTask() {
+    setTasks((list) => [...list, { description: "", dayOffset: 0, stage: "", dueDate: startDate }]);
+  }
+
+  async function doImport() {
+    if (!startDate) return setError("Pick a start date.");
+    if (tasks.length === 0) return setError("Nothing to import.");
+    if (tasks.some((t) => !t.description.trim() || !t.dueDate)) return setError("Every action needs a description and a due date.");
+    setError("");
+    setBusy(true);
+    try {
+      await client.post(`/projects/${project.id}/plan-actions/import`, {
+        tasks: tasks.map((t) => ({ description: t.description.trim(), startDate, dueDate: t.dueDate, stage: t.stage === "" ? null : Number(t.stage) })),
+      });
+      onImported();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTemplate() {
+    if (tasks.some((t) => !t.description.trim())) return setError("Every action needs a description.");
+    setError("");
+    setSavedMsg("");
+    setBusy(true);
+    try {
+      const payload = tasks.map((t) => ({ description: t.description.trim(), dayOffset: Number(t.dayOffset) || 0, stage: t.stage === "" ? null : Number(t.stage) }));
+      const res = await client.put("/settings/project-plan-templates", { [type]: payload });
+      setTemplates(res.data);
+      setSavedMsg(`Template for "${type}" updated.`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal title="Import Project Plan Template" onClose={onClose} wide>
+      <p className="hint-text mt-0">
+        Adds these actions to the end of this Project Plan. Change the days or the due date of any action (they
+        stay in sync), edit or remove rows, then import. "Save to Template" writes your changes back to the
+        template for future projects.
+      </p>
+      <div className="form-row" style={{ alignItems: "flex-end" }}>
+        <div>
+          <label>Template (Project Type)</label>
+          <select value={type} onChange={(e) => setType(e.target.value)}>
+            {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Start Date</label>
+          <input type="date" value={startDate} onChange={(e) => changeStart(e.target.value)} />
+        </div>
+      </div>
+
+      {!templates && !error && <p className="hint-text">Loading template...</p>}
+      {tasks.map((t, i) => (
+        <div key={i} className="form-row" style={{ marginTop: 8, alignItems: "flex-end" }}>
+          <div style={{ flex: "1 1 240px" }}>
+            <label className="hint-text mt-0">Action</label>
+            <input value={t.description} onChange={(e) => updateTask(i, "description", e.target.value)} />
+          </div>
+          <div style={{ flex: "0 0 90px" }}>
+            <label className="hint-text mt-0">Days</label>
+            <input type="number" min="0" step="1" value={t.dayOffset} onChange={(e) => changeDays(i, e.target.value)} />
+          </div>
+          <div style={{ flex: "0 0 150px" }}>
+            <label className="hint-text mt-0">Due Date</label>
+            <input type="date" value={t.dueDate} onChange={(e) => changeDue(i, e.target.value)} />
+          </div>
+          <div style={{ flex: "0 0 100px" }}>
+            <label className="hint-text mt-0">Stage</label>
+            <select value={t.stage} onChange={(e) => updateTask(i, "stage", e.target.value ? Number(e.target.value) : "")}>
+              <option value="">None</option>
+              {INVOICE_STAGES.map((n) => <option key={n} value={n}>Stage {n}</option>)}
+            </select>
+          </div>
+          <button type="button" className="btn-sm btn-danger" onClick={() => removeTask(i)}>Remove</button>
+        </div>
+      ))}
+      {templates && <button type="button" className="btn-sm" style={{ marginTop: 10 }} onClick={addTask}>+ Add Row</button>}
+
+      <ErrorText>{error}</ErrorText>
+      {savedMsg && <p className="hint-text">{savedMsg}</p>}
+      <div className="toolbar" style={{ marginTop: 16 }}>
+        <button className="btn-primary" onClick={doImport} disabled={busy || !templates}>{busy ? "Working..." : "Import to Plan"}</button>
+        <button type="button" onClick={saveTemplate} disabled={busy || !templates}>Save to Template</button>
+        <button type="button" onClick={onClose}>Cancel</button>
+      </div>
+    </Modal>
+  );
 }
 
 // Turns this project's own (real, already-dated) Project Plan into a

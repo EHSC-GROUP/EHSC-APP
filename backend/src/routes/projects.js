@@ -402,6 +402,46 @@ router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, ne
   }
 });
 
+// Bulk-appends several already-dated actions at once - used by the Project
+// Plan's "Import Template" flow, where the admin has reviewed/adjusted every
+// row's days and dates in the browser before importing.
+router.post("/:id/plan-actions/import", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const { tasks } = req.body;
+    if (!Array.isArray(tasks) || tasks.length === 0) return res.status(400).json({ error: "tasks must be a non-empty array" });
+    for (const t of tasks) {
+      if (!t.description || !t.dueDate) return res.status(400).json({ error: "every task needs a description and dueDate" });
+      if (t.stage !== undefined && t.stage !== null && t.stage !== "" && ![1, 2, 3, 4].includes(Number(t.stage))) {
+        return res.status(400).json({ error: "stage must be 1, 2, 3, 4 or left blank" });
+      }
+    }
+    const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
+    const actions = tasks.map((t) => ({
+      id: uuid(),
+      description: t.description,
+      stage: t.stage !== undefined && t.stage !== null && t.stage !== "" ? Number(t.stage) : null,
+      assignedTo: req.user.userId,
+      assignedToName: req.user.name || req.user.userId,
+      startDate: t.startDate || null,
+      dueDate: t.dueDate,
+      completed: false,
+      completedAt: null,
+      dependsOn: [],
+      addedAt: new Date().toISOString(),
+      addedBy: req.user.userId,
+    }));
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const phase3b = snap.data().phase3b || emptyPhase3b();
+      tx.update(ref, { phase3b: { ...phase3b, actions: [...(phase3b.actions || []), ...actions] }, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    });
+    res.status(201).json({ ok: true, added: actions.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // True if `startId` can reach itself by following `dependsOn` edges in
 // `actions` (with `overrides` layered on top for the node being saved,
 // since that node's new dependsOn isn't committed to the array yet).
