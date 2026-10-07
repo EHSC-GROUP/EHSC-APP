@@ -53,6 +53,14 @@ function StaffOnly({ children }) {
   return children;
 }
 
+// Employee/Associate profiles are for the superadmin only — regular admins
+// get sent to Attendance instead of a page full of 403s.
+function SuperAdminOnly({ children }) {
+  const { user } = useAuth();
+  if (user.role !== "superadmin") return <Navigate to="/admin/attendance" replace />;
+  return children;
+}
+
 // Guards a route behind a feature flag — used for the PM suite, which
 // ships disabled for the HR/Payroll go-live. Shows a plain notice instead
 // of redirecting, so a bookmarked/typed URL doesn't just bounce silently.
@@ -89,12 +97,12 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to={user?.role === "team_lead" ? "leave" : "profiles"} replace />} />
+        <Route index element={<Navigate to={user?.role === "team_lead" ? "leave" : user?.role === "superadmin" ? "profiles" : "attendance"} replace />} />
         <Route path="business-development" element={<StaffOnly><RequireFeature flag="projectManagement"><BusinessDevelopment /></RequireFeature></StaffOnly>} />
         <Route path="company-profiles" element={<StaffOnly><RequireFeature flag="projectManagement"><CompanyProfiles /></RequireFeature></StaffOnly>} />
         <Route path="project-tracker" element={<StaffOnly><RequireFeature flag="projectManagement"><ProjectTracker /></RequireFeature></StaffOnly>} />
-        <Route path="profiles" element={<StaffOnly><EmployeeProfiles kind="staff" /></StaffOnly>} />
-        <Route path="associates" element={<StaffOnly><EmployeeProfiles kind="associate" /></StaffOnly>} />
+        <Route path="profiles" element={<SuperAdminOnly><EmployeeProfiles kind="staff" /></SuperAdminOnly>} />
+        <Route path="associates" element={<SuperAdminOnly><EmployeeProfiles kind="associate" /></SuperAdminOnly>} />
         <Route path="payslips" element={<StaffOnly><Payslips /></StaffOnly>} />
         <Route path="leave" element={<Leave />} />
         <Route path="holidays" element={<StaffOnly><Holidays /></StaffOnly>} />

@@ -97,13 +97,15 @@ export default function AdminLayout() {
   const { flags } = useFeatureFlags();
   const { pathname } = useLocation();
   const isTeamLead = user?.role === "team_lead";
+  const isSuperAdmin = user?.role === "superadmin";
+  const SUPERADMIN_ONLY_PATHS = ["/admin/profiles", "/admin/associates"];
 
   const visibleGroups = NAV_GROUPS
     .filter((group) => group.label !== "PM" || (flags.projectManagement && !isTeamLead))
     .map((group) => ({
       ...group,
       items: group.items
-        .map((item) => (item.children ? { ...item, children: item.children.filter((c) => !isTeamLead || TEAM_LEAD_PATHS.includes(c.to)) } : item))
+        .map((item) => (item.children ? { ...item, children: item.children.filter((c) => (!isTeamLead || TEAM_LEAD_PATHS.includes(c.to)) && (isSuperAdmin || !SUPERADMIN_ONLY_PATHS.includes(c.to))) } : item))
         .filter((item) => (item.children ? item.children.length > 0 : !isTeamLead || TEAM_LEAD_PATHS.includes(item.to))),
     }))
     .filter((group) => group.items.length > 0);

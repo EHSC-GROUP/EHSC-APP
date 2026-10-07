@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES, ADMIN_ROLES, PROFILE_TYPE, STAFF_PROFILE_TYPES, DEPARTMENTS, TEMP_PASSWORD } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { generateAssociateId, generateEmployeeId } from "../lib/userId.js";
 import { isValidId } from "../lib/validateId.js";
 import { pickCurrentVersion } from "../lib/salaryStructures.js";
@@ -142,8 +142,8 @@ router.get("/:userId", authenticate, async (req, res, next) => {
   try {
     const targetId = req.params.userId.toUpperCase();
     const isSelf = req.user.userId === targetId;
-    const isAdmin = [ROLES.ADMIN, ROLES.SUPERADMIN].includes(req.user.role);
-    if (!isSelf && !isAdmin) return res.status(403).json({ error: "Forbidden" });
+    // Full profiles are for the superadmin (or the person themselves) only.
+    if (!isSelf && req.user.role !== ROLES.SUPERADMIN) return res.status(403).json({ error: "Forbidden" });
 
     const [profileSnap, userSnap] = await Promise.all([
       db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(targetId).get(),
@@ -165,7 +165,7 @@ router.get("/:userId", authenticate, async (req, res, next) => {
   }
 });
 
-router.post("/", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const body = sanitizeForType(req.body);
     if (!body.type) return res.status(400).json({ error: "type is required" });
@@ -215,7 +215,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-router.put("/:userId", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/:userId", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const targetId = req.params.userId.toUpperCase();
     const ref = db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(targetId);
@@ -256,7 +256,7 @@ router.put("/:userId", authenticate, requireAdmin, async (req, res, next) => {
 // Soft-delete/archive: disables login and keeps all HR/payroll/leave
 // history intact for audit and statutory-record purposes. Hidden from the
 // default directory listing (?includeArchived=true to see it).
-router.delete("/:userId", authenticate, requireAdmin, async (req, res, next) => {
+router.delete("/:userId", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const targetId = req.params.userId.toUpperCase();
     if (targetId === req.user.userId) {
@@ -276,7 +276,7 @@ router.delete("/:userId", authenticate, requireAdmin, async (req, res, next) => 
   }
 });
 
-router.post("/:userId/restore", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/:userId/restore", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const targetId = req.params.userId.toUpperCase();
     await db.collection(COLLECTIONS.USERS).doc(targetId).update({ disabled: false });
