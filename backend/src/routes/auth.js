@@ -45,9 +45,11 @@ router.post("/login", async (req, res, next) => {
       .set({ userId: snap.id, date: today }, { merge: true })
       .catch(() => {});
 
+    const profileSnap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(snap.id).get();
+    const isAssociate = profileSnap.exists && profileSnap.data().type === "associate";
     res.json({
       token,
-      user: { userId: snap.id, name: user.name, role: user.role, mustReset: !!user.mustReset },
+      user: { userId: snap.id, name: user.name, role: user.role, mustReset: !!user.mustReset, isAssociate },
     });
   } catch (err) {
     next(err);
@@ -84,7 +86,9 @@ router.get("/me", authenticate, async (req, res, next) => {
     const snap = await db.collection(COLLECTIONS.USERS).doc(req.user.userId).get();
     if (!snap.exists) return res.status(404).json({ error: "User not found" });
     const user = snap.data();
-    res.json({ userId: snap.id, name: user.name, role: user.role, mustReset: !!user.mustReset });
+    const profileSnap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(snap.id).get();
+    const isAssociate = profileSnap.exists && profileSnap.data().type === "associate";
+    res.json({ userId: snap.id, name: user.name, role: user.role, mustReset: !!user.mustReset, isAssociate });
   } catch (err) {
     next(err);
   }

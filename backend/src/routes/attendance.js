@@ -33,8 +33,9 @@ async function getActiveEmployeeProfiles() {
 // fully decoupled from payroll.
 // =====================================================================
 
-// Admin marks anyone's (or their own) status directly.
-router.post("/mark-status", authenticate, requireAdmin, async (req, res, next) => {
+// Only the superadmin marks/edits a status directly (admins can still approve
+// requests, but never set Present/LOP themselves).
+router.post("/mark-status", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { userId, date, status, note, leaveTypeId } = req.body;
     if (!date || !status) return res.status(400).json({ error: "date and status are required" });
@@ -212,7 +213,7 @@ router.post("/check-out", authenticate, async (req, res, next) => {
   }
 });
 
-// ---- Out-of-office requests: the escape valve when a legitimate
+// ---- On Duty (formerly Out of Office) requests: the escape valve when a legitimate
 // off-site employee fails the geofence check. Never writes an attendance
 // record itself — only approval does that — so a self-check-in still
 // never lets someone pick their own status unchecked.
@@ -228,7 +229,7 @@ router.post("/ooo-requests", authenticate, async (req, res, next) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
       return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
     }
-    if (date < today) return res.status(400).json({ error: "Out of Office can only be requested for today or a future date" });
+    if (date < today) return res.status(400).json({ error: "On Duty can only be requested for today or a future date" });
     const startMinutes = /^\d{2}:\d{2}$/.test(startTime)
       ? Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3))
       : NaN;
@@ -248,7 +249,7 @@ router.post("/ooo-requests", authenticate, async (req, res, next) => {
       .where("status", "==", OOO_REQUEST_STATUS.PENDING)
       .get();
     if (!existingSnap.empty) {
-      return res.status(400).json({ error: "You already have a pending Out of Office request for this date." });
+      return res.status(400).json({ error: "You already have a pending On Duty request for this date." });
     }
 
     let distanceMeters = null;
@@ -488,6 +489,130 @@ router.put("/travel-requests/:id/reject", authenticate, requireAdmin, async (req
   }
 });
 
+// ---- Work From Home requests: one tap, no description. Goes to an admin
+// for approval; only approval writes the WFH attendance record (counts as a
+// full present day). Nobody can approve their own request.
+const WFH_DOC = (id) => db.collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS).doc(id);
+
+router.post("/wfh-requests", authenticate, async (req, res, next) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = req.body.date || today;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
+      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
+    }
+    if (date < today) return res.status(400).json({ error: "Work From Home can only be requested for today or a future date" });
+
+    const existingSnap = await db
+      .collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS)
+      .where("userId", "==", req.user.userId)
+      .where("date", "==", date)
+      .where("status", "==", OOO_REQUEST_STATUS.PENDING)
+      .get();
+    if (!existingSnap.empty) {
+      return res.status(400).json({ error: "You already have a pending Work From Home request for this date." });
+    }
+
+    const id = uuid();
+    const doc = {
+      userId: req.user.userId,
+      name: req.user.name,
+      date,
+      status: OOO_REQUEST_STATUS.PENDING,
+      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+      requestedBy: req.user.userId,
+    };
+    await WFH_DOC(id).set(doc);
+    res.status(201).json({ id, ...doc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/wfh-requests/mine", authenticate, async (req, res, next) => {
+  try {
+    const snap = await db.collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS).where("userId", "==", req.user.userId).get();
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (a.date < b.date ? 1 : -1));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/wfh-requests", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    let query = db.collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS);
+    if (req.query.status) query = query.where("status", "==", req.query.status);
+    const snap = await query.get();
+    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    list.sort((a, b) => (a.date < b.date ? 1 : -1));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/wfh-requests/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const ref = WFH_DOC(req.params.id);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const request = snap.data();
+      if (request.status !== OOO_REQUEST_STATUS.PENDING) {
+        throw Object.assign(new Error("Only PENDING requests can be approved"), { status: 400 });
+      }
+      if (request.userId === req.user.userId) {
+        throw Object.assign(new Error("You can't approve your own request"), { status: 403 });
+      }
+
+      tx.update(ref, {
+        status: OOO_REQUEST_STATUS.APPROVED,
+        decidedBy: req.user.userId,
+        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      const statusRef = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, request.date));
+      tx.set(statusRef, {
+        userId: request.userId,
+        date: request.date,
+        status: ATTENDANCE_STATUS_VALUES.WFH,
+        note: "",
+        source: ATTENDANCE_SOURCE.SELF_WFH_REQUEST,
+        markedAt: new Date().toISOString(),
+        markedBy: req.user.userId,
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/wfh-requests/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const ref = WFH_DOC(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Not found" });
+    if (snap.data().status !== OOO_REQUEST_STATUS.PENDING) {
+      return res.status(400).json({ error: "Only PENDING requests can be rejected" });
+    }
+    if (snap.data().userId === req.user.userId) {
+      return res.status(403).json({ error: "You can't reject your own request" });
+    }
+    await ref.update({
+      status: OOO_REQUEST_STATUS.REJECTED,
+      decidedBy: req.user.userId,
+      decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+      comment: req.body.comment || null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Caller's own daily-status history for one month. Queried by userId only
 // and filtered/sorted in JS, so it never needs a composite Firestore index.
 router.get("/my-status", authenticate, async (req, res, next) => {
@@ -532,7 +657,7 @@ router.get("/roster", authenticate, requireAdmin, async (req, res, next) => {
 // this date — never touches anyone who already has an entry (whether
 // present, absent, leave, or half-day), so admins only ever have to
 // manually correct the actual exceptions.
-router.post("/mark-all-present", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/mark-all-present", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { date } = req.body;
     if (!date) return res.status(400).json({ error: "date is required" });
@@ -570,7 +695,7 @@ const MARK_RANGE_MAX_DAYS = 31;
 // range (a week, a month, ...) in one call — still never touches a day that
 // already has a record, whoever or whatever set it. Capped at 31 days so a
 // mistaken date range can't silently touch an unbounded number of records.
-router.post("/mark-all-present-range", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/mark-all-present-range", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { fromDate, toDate } = req.body;
     if (!fromDate || !toDate) return res.status(400).json({ error: "fromDate and toDate are required" });
@@ -635,7 +760,7 @@ router.get("/status-summary", authenticate, requireAdmin, async (req, res, next)
       db.collection(COLLECTIONS.ATTENDANCE_STATUS).where("date", ">=", `${month}-01`).where("date", "<=", `${month}-31`).get(),
     ]);
 
-    const tallies = new Map(employees.map((e) => [e.userId, { userId: e.userId, name: e.name, PRESENT: 0, ABSENT: 0, LEAVE: 0, HALF_DAY: 0, OUT_OF_OFFICE: 0, TRAVEL: 0 }]));
+    const tallies = new Map(employees.map((e) => [e.userId, { userId: e.userId, name: e.name, PRESENT: 0, ABSENT: 0, LEAVE: 0, HALF_DAY: 0, OUT_OF_OFFICE: 0, TRAVEL: 0, WFH: 0 }]));
     for (const doc of snap.docs) {
       const r = doc.data();
       const entry = tallies.get(r.userId);
@@ -647,7 +772,7 @@ router.get("/status-summary", authenticate, requireAdmin, async (req, res, next)
     // plain check-in or a half day.
     const result = [...tallies.values()].map((t) => ({
       ...t,
-      PRESENT_EQUIVALENT: t.PRESENT + t.HALF_DAY + t.OUT_OF_OFFICE + t.TRAVEL,
+      PRESENT_EQUIVALENT: t.PRESENT + t.HALF_DAY + t.OUT_OF_OFFICE + t.TRAVEL + t.WFH,
     }));
     res.json(result);
   } catch (err) {
