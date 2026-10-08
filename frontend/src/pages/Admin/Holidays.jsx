@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
+import { useAuth } from "../../context/AuthContext";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const NTH_WORDS = ["1st", "2nd", "3rd", "4th", "5th"];
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
-export default function Holidays() {
+export default function Holidays({ readOnly: readOnlyProp }) {
+  const { user } = useAuth();
+  // Only the superadmin edits the calendar; admins and employees just read it.
+  const readOnly = readOnlyProp ?? user?.role !== "superadmin";
   const [holidays, setHolidays] = useState(null);
   const [weeklyOff, setWeeklyOff] = useState(null);
   const [weekdayRules, setWeekdayRules] = useState(null);
@@ -118,8 +122,9 @@ export default function Holidays() {
             <button
               key={day}
               className={weeklyOff?.includes(day) ? "btn-primary" : ""}
-              onClick={() => toggleWeeklyOff(day)}
+              onClick={() => !readOnly && toggleWeeklyOff(day)}
               disabled={!weeklyOff}
+              style={readOnly ? { cursor: "default" } : undefined}
             >
               {label}
             </button>
@@ -130,20 +135,27 @@ export default function Holidays() {
       <div className="card">
         <h3 className="mt-0">Recurring Weekday Rules</h3>
         <p className="hint-text mt-0">
-          Predefine patterns like "every 3rd Saturday is a holiday" or "every 1st Saturday is Work From Home" —
-          resolved automatically every month, no need to mark it by hand each time. Holiday rules count like any
-          other holiday; WFH rules count as present in payslip generation (unless that employee already has an
-          explicit attendance record for that exact date).
+          {readOnly
+            ? "Patterns like every 3rd Saturday being a holiday, or every 1st Saturday being Work From Home. They apply automatically every month."
+            : "Predefine patterns like \"every 3rd Saturday is a holiday\" or \"every 1st Saturday is Work From Home\" — resolved automatically every month, no need to mark it by hand each time. Holiday rules count like any other holiday; WFH rules count as present in payslip generation (unless that employee already has an explicit attendance record for that exact date)."}
         </p>
         {!weekdayRules ? <Loading /> : (
           <>
-            {weekdayRules.length === 0 && (
+            {!readOnly && weekdayRules.length === 0 && (
               <button className="btn-sm" onClick={addQuickSetup}>+ Quick setup: 3rd Saturday holiday, 1st Saturday WFH</button>
             )}
             <table>
-              <thead><tr><th>Occurrence</th><th>Weekday</th><th>Type</th><th>Name</th><th></th></tr></thead>
+              <thead><tr><th>Occurrence</th><th>Weekday</th><th>Type</th><th>Name</th>{!readOnly && <th></th>}</tr></thead>
               <tbody>
                 {weekdayRules.map((r, i) => (
+                  readOnly ? (
+                  <tr key={i}>
+                    <td>{NTH_WORDS[r.nth - 1]}</td>
+                    <td>{WEEKDAY_NAMES[r.weekday]}</td>
+                    <td>{r.type === "WFH" ? "Work From Home" : "Holiday"}</td>
+                    <td>{r.name || `${NTH_WORDS[r.nth - 1]} ${WEEKDAY_NAMES[r.weekday]}`}</td>
+                  </tr>
+                  ) : (
                   <tr key={i}>
                     <td>
                       <select value={r.nth} onChange={(e) => updateRule(i, "nth", Number(e.target.value))}>
@@ -158,21 +170,22 @@ export default function Holidays() {
                     <td>
                       <select value={r.type} onChange={(e) => updateRule(i, "type", e.target.value)}>
                         <option value="HOLIDAY">Holiday</option>
-                        <option value="WFH">WFH (Out of Office)</option>
+                        <option value="WFH">WFH (Work From Home)</option>
                       </select>
                     </td>
                     <td><input value={r.name} onChange={(e) => updateRule(i, "name", e.target.value)} placeholder={`${NTH_WORDS[r.nth - 1]} ${WEEKDAY_NAMES[r.weekday]}`} /></td>
                     <td><button className="btn-sm btn-danger" onClick={() => removeRule(i)}>Delete</button></td>
                   </tr>
+                  )
                 ))}
                 {weekdayRules.length === 0 && <tr><td colSpan={5} className="empty-state">No recurring weekday rules yet.</td></tr>}
               </tbody>
             </table>
-            <div className="toolbar" style={{ marginTop: 12 }}>
+            {!readOnly && <div className="toolbar" style={{ marginTop: 12 }}>
               <button onClick={() => addRule()}>+ Add Rule</button>
               <button className="btn-primary" onClick={saveRules} disabled={rulesBusy || !rulesDirty}>{rulesBusy ? "Saving…" : "Save"}</button>
               {rulesDirty && <span className="hint-text">Unsaved changes</span>}
-            </div>
+            </div>}
           </>
         )}
       </div>
@@ -182,13 +195,21 @@ export default function Holidays() {
         <div className="card">
           <h3 className="mt-0">Holidays</h3>
           <p className="hint-text mt-0">
-            Enter each holiday once — it repeats on the same date every year. Change a date or remove a holiday
-            here and it changes for all years.
+            {readOnly
+              ? "These holidays repeat on the same date every year."
+              : "Enter each holiday once — it repeats on the same date every year. Change a date or remove a holiday here and it changes for all years."}
           </p>
           <table>
-            <thead><tr><th>Month</th><th>Date</th><th>Name</th><th></th></tr></thead>
+            <thead><tr><th>Month</th><th>Date</th><th>Name</th>{!readOnly && <th></th>}</tr></thead>
             <tbody>
               {holidays.map((h, i) => (
+                readOnly ? (
+                <tr key={i}>
+                  <td>{MONTHS[h.month - 1]}</td>
+                  <td>{String(h.day).padStart(2, "0")}/{String(h.month).padStart(2, "0")}</td>
+                  <td>{h.name}</td>
+                </tr>
+                ) : (
                 <tr key={i}>
                   <td>
                     <select value={h.month} onChange={(e) => updateRow(i, "month", Number(e.target.value))}>
@@ -199,15 +220,16 @@ export default function Holidays() {
                   <td><input value={h.name} onChange={(e) => updateRow(i, "name", e.target.value)} placeholder="Holiday name" /></td>
                   <td><button className="btn-sm btn-danger" onClick={() => removeRow(i)}>Delete</button></td>
                 </tr>
+                )
               ))}
-              {holidays.length === 0 && <tr><td colSpan={4} className="empty-state">No holidays yet.</td></tr>}
+              {holidays.length === 0 && <tr><td colSpan={readOnly ? 3 : 4} className="empty-state">No holidays yet.</td></tr>}
             </tbody>
           </table>
-          <div className="toolbar" style={{ marginTop: 12 }}>
+          {!readOnly && <div className="toolbar" style={{ marginTop: 12 }}>
             <button onClick={addRow}>+ Add Holiday</button>
             <button className="btn-primary" onClick={save} disabled={busy || !dirty}>{busy ? "Saving…" : "Save"}</button>
             {dirty && <span className="hint-text">Unsaved changes</span>}
-          </div>
+          </div>}
         </div>
       )}
     </div>

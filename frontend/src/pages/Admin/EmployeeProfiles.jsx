@@ -6,13 +6,13 @@ import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
 import Form22 from "./Form22";
+import DateInput from "../../components/DateInput";
+import { fmtDate } from "../../lib/dates";
 import { useAuth } from "../../context/AuthContext";
 
 // kind "staff" = employees and admins; kind "associate" = external parties.
 export default function EmployeeProfiles({ kind = "staff" }) {
   const isAssociateList = kind === "associate";
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === "superadmin";
   const [showForm22, setShowForm22] = useState(false);
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
@@ -65,7 +65,7 @@ export default function EmployeeProfiles({ kind = "staff" }) {
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>User ID</th><th>Type</th><th>Designation</th><th>Department</th>{isSuperAdmin && <th>Net Salary</th>}<th>Status</th>
+                <th>Name</th><th>User ID</th><th>Type</th><th>Designation</th><th>Department</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -76,11 +76,10 @@ export default function EmployeeProfiles({ kind = "staff" }) {
                   <td>{p.type}</td>
                   <td>{p.designation || "-"}</td>
                   <td>{p.department || "-"}</td>
-                  {isSuperAdmin && <td className="amt-gross">{p.netSalary != null ? `₹${p.netSalary.toFixed(2)}` : "-"}</td>}
                   <td><StatusBadge status={p.status} /></td>
                 </tr>
               ))}
-              {filtered.length === 0 && <tr><td colSpan={isSuperAdmin ? 7 : 6} className="empty-state">No profiles found.</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={6} className="empty-state">No profiles found.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -252,6 +251,11 @@ function ProfileDrawer({ userId, onClose, onChanged }) {
 
 function ProfileTab({ profile, onSaved }) {
   const [editing, setEditing] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [leavingDate, setLeavingDate] = useState("");
+  const { user: me } = useAuth();
+  const [roleChoice, setRoleChoice] = useState(profile.type);
+  const [roleBusy, setRoleBusy] = useState(false);
   const [form, setForm] = useState(profile);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -285,12 +289,29 @@ function ProfileTab({ profile, onSaved }) {
   }
 
   async function archive() {
-    if (!window.confirm("Archive this account? Login will be disabled but all records are kept.")) return;
+    if (!leavingDate) return setError("Date of leaving is required to archive an employee.");
+    setError("");
     try {
-      await client.delete(`/profiles/${profile.userId}`);
+      await client.delete(`/profiles/${profile.userId}`, { data: { dateOfLeaving: leavingDate } });
+      setShowArchive(false);
       onSaved();
     } catch (err) {
       setError(errorMessage(err));
+    }
+  }
+
+  async function changeRole() {
+    if (roleChoice === profile.type) return;
+    if (!window.confirm(`Change ${profile.name || profile.userId}'s role to ${TYPE_LABEL[roleChoice] || roleChoice}? It takes effect on their next action.`)) return;
+    setRoleBusy(true);
+    setError("");
+    try {
+      await client.put(`/profiles/${profile.userId}/role`, { type: roleChoice });
+      onSaved();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setRoleBusy(false);
     }
   }
 
@@ -308,20 +329,54 @@ function ProfileTab({ profile, onSaved }) {
   if (!editing) {
     return (
       <div>
+        {showArchive && (
+          <Modal title="Archive account" onClose={() => setShowArchive(false)}>
+            <p className="hint-text mt-0">
+              Login will be disabled but all records are kept.{isExternal ? "" : " Enter the employee's last working day."}
+            </p>
+            {!isExternal && (
+              <>
+                <label>Date of Leaving</label>
+                <DateInput value={leavingDate} onChange={(e) => setLeavingDate(e.target.value)} required />
+              </>
+            )}
+            <ErrorText>{error}</ErrorText>
+            <div className="toolbar" style={{ marginTop: 12 }}>
+              <button className="btn-danger" onClick={archive}>Archive</button>
+              <button type="button" onClick={() => setShowArchive(false)}>Cancel</button>
+            </div>
+          </Modal>
+        )}
         <div className="toolbar">
           <StatusBadge status={profile.status} />
           <div className="spacer" />
           <button className="btn-sm" onClick={() => setEditing(true)}>Edit</button>
         </div>
+        {!isExternal && profile.userId !== me?.userId && (
+          <div className="toolbar">
+            <label style={{ margin: 0 }}>Role</label>
+            <select value={roleChoice} onChange={(e) => setRoleChoice(e.target.value)} style={{ width: 180 }}>
+              <option value="employee">Employee</option>
+              <option value="admin">Admin</option>
+              <option value="team_leader">Team Leader</option>
+            </select>
+            <button className="btn-sm btn-primary" onClick={changeRole} disabled={roleBusy || roleChoice === profile.type}>
+              {roleBusy ? "Changing…" : "Change role"}
+            </button>
+          </div>
+        )}
+        <ErrorText>{error}</ErrorText>
         <table>
           <tbody>
             <tr><td>Type</td><td>{TYPE_LABEL[profile.type] || profile.type}</td></tr>
             {!isExternal && <tr><td>Employee ID</td><td>{profile.employeeId || "-"}</td></tr>}
             {!isExternal && <tr><td>Designation</td><td>{profile.designation || "-"}</td></tr>}
             {!isExternal && <tr><td>Department</td><td>{profile.department || "-"}</td></tr>}
-            {!isExternal && <tr><td>Date of Joining</td><td>{profile.dateOfJoining || "-"}</td></tr>}
-            {!isExternal && <tr><td>Date of Leaving</td><td>{profile.dateOfLeaving || "-"}</td></tr>}
-            {!isExternal && <tr><td>Father/Husband Name</td><td>{profile.fatherOrHusbandName || "-"}</td></tr>}
+            {!isExternal && <tr><td>Date of Joining</td><td>{fmtDate(profile.dateOfJoining) || "-"}</td></tr>}
+            {!isExternal && <tr><td>Date of Leaving</td><td>{fmtDate(profile.dateOfLeaving) || "-"}</td></tr>}
+            {!isExternal && <tr><td>Father/Spouse Name</td><td>{profile.fatherOrHusbandName || "-"}</td></tr>}
+            {!isExternal && <tr><td>Birth Date</td><td>{fmtDate(profile.dateOfBirth) || "-"}</td></tr>}
+            {!isExternal && <tr><td>Anniversary Date</td><td>{fmtDate(profile.anniversaryDate) || "-"}</td></tr>}
             {!isExternal && <tr><td>Gender</td><td>{profile.gender || "-"}</td></tr>}
             {!isExternal && <tr><td>Professional Email</td><td>{profile.professionalEmail || "-"}</td></tr>}
             {!isExternal && <tr><td>Personal Email</td><td>{profile.personalEmail || "-"}</td></tr>}
@@ -342,7 +397,7 @@ function ProfileTab({ profile, onSaved }) {
           {profile.disabled ? (
             <button className="btn-sm" onClick={restore}>Restore Access</button>
           ) : (
-            <ConfirmButton className="btn-sm btn-danger" onConfirm={archive} confirmText="Archive this account?">Archive</ConfirmButton>
+            <button className="btn-sm btn-danger" onClick={() => { setLeavingDate(profile.dateOfLeaving || ""); setShowArchive(true); }}>Archive</button>
           )}
         </div>
         {resetResult && <p className="hint-text">Password reset to <strong>{resetResult}</strong> — they must change it at next sign-in.</p>}
@@ -381,11 +436,15 @@ function ProfileTab({ profile, onSaved }) {
             <div><label>Gender</label><input value={form.gender || ""} onChange={(e) => set("gender", e.target.value)} /></div>
           </div>
           <div className="form-row">
-            <div><label>Date of Joining</label><input type="date" value={form.dateOfJoining || ""} onChange={(e) => set("dateOfJoining", e.target.value)} /></div>
-            <div><label>Date of Leaving</label><input type="date" value={form.dateOfLeaving || ""} onChange={(e) => set("dateOfLeaving", e.target.value)} /></div>
+            <div><label>Date of Joining</label><DateInput value={form.dateOfJoining || ""} onChange={(e) => set("dateOfJoining", e.target.value)} /></div>
+            <div><label>Date of Leaving</label><DateInput value={form.dateOfLeaving || ""} onChange={(e) => set("dateOfLeaving", e.target.value)} /></div>
           </div>
-          <label>Father / Husband Name</label>
+          <label>Father / Spouse Name</label>
           <input value={form.fatherOrHusbandName || ""} onChange={(e) => set("fatherOrHusbandName", e.target.value)} />
+          <div className="form-row">
+            <div><label>Birth Date</label><DateInput value={form.dateOfBirth || ""} onChange={(e) => set("dateOfBirth", e.target.value)} /></div>
+            <div><label>Anniversary Date (optional)</label><DateInput value={form.anniversaryDate || ""} onChange={(e) => set("anniversaryDate", e.target.value)} /></div>
+          </div>
         </>
       )}
       {isExternal ? (
@@ -553,7 +612,7 @@ function NewVersionForm({ userId, gross, setGross, preview, onCreated }) {
   return (
     <form onSubmit={submit} className="card">
       <div className="form-row">
-        <div><label>Effective From</label><input type="date" value={form.effectiveFrom} onChange={(e) => set("effectiveFrom", e.target.value)} required /></div>
+        <div><label>Effective From</label><DateInput value={form.effectiveFrom} onChange={(e) => set("effectiveFrom", e.target.value)} required /></div>
         <div><label>Gross</label><input type="number" min="0" step="0.01" value={gross} onChange={(e) => setGross(e.target.value)} required /></div>
       </div>
 

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
-import Modal from "../../components/Modal";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
+import { useAuth } from "../../context/AuthContext";
+import { fmtDate } from "../../lib/dates";
 
 function currentFY() {
   const d = new Date();
@@ -12,17 +13,20 @@ function currentFY() {
 
 export default function Leave() {
   const [tab, setTab] = useState("Register");
+  const { user } = useAuth();
+  // Balances and Types are the superadmin's; admins only see the register.
+  const tabs = user?.role === "superadmin" ? ["Register", "Balances", "Types"] : ["Register"];
   return (
     <div>
       <div className="page-header"><h2>Leave Management</h2></div>
       <div className="drawer-tabs">
-        {["Register", "Balances", "Types"].map((t) => (
+        {tabs.map((t) => (
           <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>
         ))}
       </div>
       {tab === "Register" && <LeaveRegister />}
-      {tab === "Balances" && <LeaveBalances />}
-      {tab === "Types" && <LeaveTypes />}
+      {tab === "Balances" && tabs.includes("Balances") && <LeaveBalances />}
+      {tab === "Types" && tabs.includes("Types") && <LeaveTypes />}
     </div>
   );
 }
@@ -32,7 +36,6 @@ function LeaveRegister() {
   const [status, setStatus] = useState("");
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
-  const [showNew, setShowNew] = useState(false);
 
   async function load() {
     setError("");
@@ -79,7 +82,6 @@ function LeaveRegister() {
         >
           Export Leave Cards (Excel)
         </button>
-        <button className="btn-primary" onClick={() => setShowNew(true)}>+ Record Leave</button>
       </div>
       <ErrorText>{error}</ErrorText>
       {!list ? <Loading /> : (
@@ -92,7 +94,7 @@ function LeaveRegister() {
                   <td>{r.name || r.userId}</td>
                   <td>{r.department || "-"}</td>
                   <td>{r.leaveType}{r.halfDay ? " (H)" : ""}</td>
-                  <td>{r.fromDate}</td><td>{r.toDate}</td><td>{r.days}</td>
+                  <td>{fmtDate(r.fromDate)}</td><td>{fmtDate(r.toDate)}</td><td>{r.days}</td>
                   <td><StatusBadge status={r.status} /></td>
                   <td>{r.reason}{r.medicalCertLink && <> · <button className="btn-sm" onClick={() => openAuthedFile(r.medicalCertLink).catch((err) => setError(errorMessage(err)))}>cert</button></>}</td>
                   <td>
@@ -110,73 +112,7 @@ function LeaveRegister() {
           </table>
         </div>
       )}
-      {showNew && <RecordLeaveModal onClose={() => setShowNew(false)} onCreated={() => { setShowNew(false); load(); }} />}
     </div>
-  );
-}
-
-function RecordLeaveModal({ onClose, onCreated }) {
-  const [leaveTypes, setLeaveTypes] = useState([]);
-  const [form, setForm] = useState({ userId: "", leaveType: "", fromDate: "", toDate: "", halfDay: false, reason: "" });
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => { client.get("/leave-types").then((r) => setLeaveTypes(r.data)); }, []);
-
-  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
-
-  useEffect(() => {
-    if (form.leaveType === "HALF_DAY" || !form.fromDate || !form.toDate || form.fromDate > form.toDate) { setPreview(null); return; }
-    client.get("/leave/working-days-preview", { params: { from: form.fromDate, to: form.toDate, halfDay: form.halfDay } })
-      .then((r) => setPreview(r.data)).catch(() => setPreview(null));
-  }, [form.fromDate, form.toDate, form.halfDay, form.leaveType]);
-
-  async function submit(e) {
-    e.preventDefault();
-    setError("");
-    setBusy(true);
-    try {
-      await client.post("/leave/requests", { ...form, userId: form.userId.toUpperCase() });
-      onCreated();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const isHalfDayType = form.leaveType === "HALF_DAY";
-
-  return (
-    <Modal title="Record Leave" onClose={onClose}>
-      <form onSubmit={submit}>
-        <label>Employee User ID</label>
-        <input value={form.userId} onChange={(e) => set("userId", e.target.value)} required />
-        <label>Leave Type</label>
-        <select value={form.leaveType} onChange={(e) => set("leaveType", e.target.value)} required>
-          <option value="">Select…</option>
-          {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
-          <option value="LOP">Loss of Pay (admin only)</option>
-          <option value="HALF_DAY">Half Day (admin only)</option>
-        </select>
-        <div className="form-row">
-          <div><label>From</label><input type="date" value={form.fromDate} onChange={(e) => set("fromDate", e.target.value)} required /></div>
-          <div><label>To</label><input type="date" value={isHalfDayType ? form.fromDate : form.toDate} onChange={(e) => set("toDate", e.target.value)} disabled={isHalfDayType} required /></div>
-        </div>
-        {!isHalfDayType && (
-          <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" style={{ width: "auto" }} checked={form.halfDay} onChange={(e) => set("halfDay", e.target.checked)} />
-            Half-day trim on last day
-          </label>
-        )}
-        {preview && <p className="hint-text">Working days: {preview.fullDays}{form.halfDay ? ` (net ${preview.days})` : ""}</p>}
-        <label>Reason</label>
-        <textarea value={form.reason} onChange={(e) => set("reason", e.target.value)} rows={2} />
-        <ErrorText>{error}</ErrorText>
-        <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Record"}</button>
-      </form>
-    </Modal>
   );
 }
 
