@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
+import { fmtDate } from "../../lib/dates";
 
 function actionEndpoint(a) {
   return a.source === "project"
@@ -67,8 +68,8 @@ function AssignedWorkTable({ items, busyId, onToggle }) {
                     {a.source === "project" ? "Project" : "Enquiry"} {a.sourceLabel} — {a.clientName}
                   </div>
                 </td>
-                <td>{a.startDate || "-"}</td>
-                <td className={overdue ? "overdue" : ""}>{a.dueDate}{overdue ? " (overdue)" : ""}</td>
+                <td>{fmtDate(a.startDate) || "-"}</td>
+                <td className={overdue ? "overdue" : ""}>{fmtDate(a.dueDate)}{overdue ? " (overdue)" : ""}</td>
                 <td><StatusBadge status={a.completed ? "COMPLETED" : "PENDING"} /></td>
                 <td>
                   <button className="btn-sm" disabled={busyId === a.id} onClick={() => onToggle(a)}>

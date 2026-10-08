@@ -3,6 +3,7 @@ import client, { errorMessage } from "../../api/client";
 import CalendarPicker from "../../components/CalendarPicker";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
+import { fmtDate } from "../../lib/dates";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -34,7 +35,7 @@ export default function MyTravel() {
     setBusy(true);
     try {
       await client.post("/attendance/travel-requests", { date, reason });
-      setNotice(`Travel request for ${date} sent for approval.`);
+      setNotice(`Travel request for ${fmtDate(date)} sent for approval.`);
       setDate("");
       setReason("");
       load();
@@ -67,7 +68,7 @@ export default function MyTravel() {
           </div>
           <div style={{ flex: "1 1 260px" }}>
             <label style={{ marginTop: 0 }}>Date of travel</label>
-            <input value={date} readOnly placeholder="Select a date on the calendar" />
+            <input value={fmtDate(date)} readOnly placeholder="Select a date on the calendar" />
             <label>Where are you travelling, and why?</label>
             <textarea rows={4} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Client site visit in Hyderabad" required />
             <ErrorText>{error}</ErrorText>
@@ -85,7 +86,7 @@ export default function MyTravel() {
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.date}</td>
+                  <td>{fmtDate(r.date)}</td>
                   <td>{r.reason}</td>
                   <td><StatusBadge status={r.status} /></td>
                 </tr>

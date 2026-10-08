@@ -5,6 +5,8 @@ import Modal from "../../components/Modal";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
+import DateInput from "../../components/DateInput";
+import { fmtDate } from "../../lib/dates";
 
 function currentFY() {
   const d = new Date();
@@ -78,7 +80,7 @@ export default function MyLeave() {
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.leaveType}{r.halfDay ? " (H)" : ""}</td><td>{r.fromDate}</td><td>{r.toDate}</td><td>{r.days}</td>
+                  <td>{r.leaveType}{r.halfDay ? " (H)" : ""}</td><td>{fmtDate(r.fromDate)}</td><td>{fmtDate(r.toDate)}</td><td>{r.days}</td>
                   <td><StatusBadge status={r.status} /></td>
                   <td>{["PENDING", "APPROVED"].includes(r.status) && <button className="btn-sm btn-danger" onClick={() => cancel(r.id)}>Cancel</button>}</td>
                 </tr>
@@ -154,8 +156,8 @@ function ApplyLeaveModal({ leaveTypeIds, onClose, onSubmitted }) {
           {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
         </select>
         <div className="form-row">
-          <div><label>From</label><input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} required /></div>
-          <div><label>To</label><input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} required /></div>
+          <div><label>From</label><DateInput value={fromDate} onChange={(e) => setFromDate(e.target.value)} required /></div>
+          <div><label>To</label><DateInput value={toDate} onChange={(e) => setToDate(e.target.value)} required /></div>
         </div>
 
         {preview && <p className="hint-text">Working days: {preview.fullDays}{halfDay && halfDayAllowed ? ` (net ${preview.days})` : ""}</p>}

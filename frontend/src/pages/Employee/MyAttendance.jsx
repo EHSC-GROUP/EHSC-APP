@@ -4,6 +4,8 @@ import { Loading, ErrorText } from "../../components/Misc";
 import StatusBadge from "../../components/StatusBadge";
 import { getCurrentPosition } from "../../lib/geolocation";
 import { useAuth } from "../../context/AuthContext";
+import { fmtDate } from "../../lib/dates";
+import DateInput from "../../components/DateInput";
 
 function currentMonth() {
   const d = new Date();
@@ -13,7 +15,7 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const SOURCE_LABEL = { SELF_GEOFENCE: "Self check-in", BULK: "Bulk", SELF_OOO_REQUEST: "Self check-in", SELF_TRAVEL_REQUEST: "Travel request" };
+const SOURCE_LABEL = { SELF_GEOFENCE: "Self check-in", BULK: "Bulk", SELF_OOO_REQUEST: "Self check-in", SELF_TRAVEL_REQUEST: "Travel request", SELF_WFH_REQUEST: "WFH request" };
 
 export default function MyAttendance() {
   const { user } = useAuth();
@@ -40,6 +42,8 @@ function DailyStatusSection() {
   const [history, setHistory] = useState(null);
   const [geofence, setGeofence] = useState(null);
   const [oooRequests, setOooRequests] = useState(null);
+  const [wfhRequests, setWfhRequests] = useState(null);
+  const [submittingWfh, setSubmittingWfh] = useState(false);
   const [error, setError] = useState("");
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -84,9 +88,34 @@ function DailyStatusSection() {
   }
   useEffect(() => { loadOooRequests(); }, []);
 
+  async function loadWfhRequests() {
+    try {
+      const { data } = await client.get("/attendance/wfh-requests/mine");
+      setWfhRequests(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { loadWfhRequests(); }, []);
+
   const today = todayISO();
   const todayRecord = (history || []).find((h) => h.date === today);
   const pendingOooToday = (oooRequests || []).find((r) => r.date === today && r.status === "PENDING");
+  const pendingWfhToday = (wfhRequests || []).find((r) => r.date === today && r.status === "PENDING");
+
+  // One tap, no description — goes to an admin for approval.
+  async function requestWfh() {
+    setSubmittingWfh(true);
+    setError("");
+    try {
+      await client.post("/attendance/wfh-requests", { date: today });
+      loadWfhRequests();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSubmittingWfh(false);
+    }
+  }
 
   async function checkIn() {
     setCheckingIn(true);
@@ -131,7 +160,7 @@ function DailyStatusSection() {
   }
 
   async function submitOoo() {
-    if (!oooReason.trim()) return setError("Please give a reason for the Out of Office request.");
+    if (!oooReason.trim()) return setError("Please give a reason for the On Duty request.");
     if (!oooDate || !oooStartTime || !oooEndTime || oooEndTime <= oooStartTime) {
       return setError("Choose a date and valid hours. End time must be later than start time.");
     }
@@ -160,7 +189,7 @@ function DailyStatusSection() {
     }
   }
 
-  const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday;
+  const canCheckIn = geofence?.enabled && !todayRecord && !pendingOooToday && !pendingWfhToday;
   const canCheckOut = geofence?.enabled && todayRecord?.status === "PRESENT" && !todayRecord.checkedOutAt;
 
   return (
@@ -171,7 +200,9 @@ function DailyStatusSection() {
         {todayRecord ? (
           <StatusBadge status={todayRecord.status} />
         ) : pendingOooToday ? (
-          <span className="badge-pill badge-PENDING_OOO">Out of Office — pending approval</span>
+          <span className="badge-pill badge-PENDING_OOO">On Duty — pending approval</span>
+        ) : pendingWfhToday ? (
+          <span className="badge-pill badge-PENDING_WFH">Work From Home — pending approval</span>
         ) : (
           <span className="text-muted">Not marked yet</span>
         )}
@@ -195,14 +226,19 @@ function DailyStatusSection() {
       {!pendingOooToday && (
         <div style={{ marginTop: 8 }}>
           <div className="toolbar" style={{ margin: 0 }}>
-            {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>Request Out of Office</button>}
+            {!todayRecord && !pendingWfhToday && (
+              <button className="btn-sm" onClick={requestWfh} disabled={submittingWfh}>
+                {submittingWfh ? "Sending…" : "Work From Home"}
+              </button>
+            )}
+            {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>On Duty</button>}
           </div>
           {showOooForm && (
             <div style={{ marginTop: 8 }}>
               <div className="form-row" style={{ alignItems: "flex-start" }}>
                 <div>
                   <label>Date</label>
-                  <input type="date" min={today} value={oooDate} onChange={(e) => setOooDate(e.target.value)} />
+                  <DateInput min={today} value={oooDate} onChange={(e) => setOooDate(e.target.value)} />
                 </div>
                 <div>
                   <label>From</label>
@@ -216,7 +252,7 @@ function DailyStatusSection() {
               <div style={{ marginTop: 8 }}>
                 <textarea
                   rows={2}
-                  placeholder="Why will you be out of office? (e.g. client site visit, field work)"
+                  placeholder="Reason for being on duty (e.g. client site visit, field work)"
                   value={oooReason}
                   onChange={(e) => setOooReason(e.target.value)}
                 />
@@ -238,7 +274,7 @@ function DailyStatusSection() {
       {checkInResult && !checkInResult.ok && (
         <div style={{ marginTop: 8 }}>
           <ErrorText>{checkInResult.message}</ErrorText>
-          {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>Request Out of Office</button>}
+          {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>On Duty</button>}
         </div>
       )}
       {checkOutResult?.ok && (
@@ -258,7 +294,7 @@ function DailyStatusSection() {
           <tbody>
             {history.map((h) => (
               <tr key={h.date}>
-                <td>{h.date}</td>
+                <td>{fmtDate(h.date)}</td>
                 <td><StatusBadge status={h.status} /></td>
                 <td className="text-muted">{h.source === "ADMIN" ? "Admin" : SOURCE_LABEL[h.source] || "-"}</td>
                 <td className="text-muted">{h.note || "-"}</td>
@@ -268,15 +304,31 @@ function DailyStatusSection() {
           </tbody>
         </table>
       )}
+      {wfhRequests?.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h3>My Work From Home Requests</h3>
+          <table>
+            <thead><tr><th>Date</th><th>Status</th></tr></thead>
+            <tbody>
+              {wfhRequests.map((r) => (
+                <tr key={r.id}>
+                  <td>{fmtDate(r.date)}</td>
+                  <td><span className={`badge-pill badge-${r.status}`}>{r.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {oooRequests?.length > 0 && (
         <div style={{ marginTop: 20 }}>
-          <h3>My Out of Office Requests</h3>
+          <h3>My On Duty Requests</h3>
           <table>
             <thead><tr><th>Date</th><th>Hours</th><th>Reason</th><th>Status</th></tr></thead>
             <tbody>
               {oooRequests.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.date}</td>
+                  <td>{fmtDate(r.date)}</td>
                   <td>{r.startTime} - {r.endTime}</td>
                   <td>{r.reason}</td>
                   <td><span className={`badge-pill badge-${r.status}`}>{r.status}</span></td>

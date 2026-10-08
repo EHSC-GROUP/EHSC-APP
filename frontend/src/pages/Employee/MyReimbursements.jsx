@@ -6,6 +6,7 @@ import { Loading, ErrorText } from "../../components/Misc";
 import VoucherForm from "../../components/VoucherForm";
 import AdvancesPanel from "../../components/AdvancesPanel";
 import { openAuthedFile } from "../../lib/openFile";
+import { fmtDate } from "../../lib/dates";
 
 // One link per attached bill; claims filed before multi-bill upload only
 // carry a single legacy billLink.
@@ -74,7 +75,7 @@ export default function MyReimbursements() {
                   {list.map((r) => (
                     <tr key={r.id}>
                       <td>{r.voucherNo || "-"}</td>
-                      <td>{r.voucherDate}</td>
+                      <td>{fmtDate(r.voucherDate)}</td>
                       <td><StatusBadge status={r.type || "GENERAL"} /></td>
                       <td>₹{r.totalAmount.toFixed(2)} <BillLinks record={r} onError={setError} /></td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.advanceTaken || 0).toFixed(2)}` : "-"}</td>

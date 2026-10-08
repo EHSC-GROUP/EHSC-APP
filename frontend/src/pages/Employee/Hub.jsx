@@ -27,14 +27,20 @@ export default function Hub() {
     ...(flags.projectManagement ? [{ to: "/me/project-tracker", title: "Project Tracker", desc: "Work assigned to you" }] : []),
     { to: "/me/documents", title: "Documents", desc: "Your files and company documents" },
     { to: "/me/payslips", title: "My Payslips", desc: "Published payslips" },
+    { to: "/me/holidays", title: "Holidays", desc: "Company holiday calendar" },
     { to: "/me/activity", title: "Activity", desc: "Recent status updates" },
   ];
+
+  // Associates (external parties) can only use Reimbursements for now.
+  const visibleCards = user?.isAssociate
+    ? cards.filter((c) => c.to === "/change-password" || c.to === "/me/reimbursements")
+    : cards;
 
   return (
     <div>
       <div className="page-header"><h2>Welcome, {user?.name}</h2></div>
       <div className="hub-grid">
-        {cards.map((c) => (
+        {visibleCards.map((c) => (
           <div key={c.to} className="hub-card" onClick={() => navigate(c.to)}>
             <div className="title">{c.title}{!!c.badge && <span className="badge-pill badge-PENDING" style={{ marginLeft: 8 }}>{c.badge}</span>}</div>
             <div className="desc">{c.desc}</div>

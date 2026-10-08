@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
+import { fmtDate } from "../../lib/dates";
 
 export default function MyProfile() {
   const [profile, setProfile] = useState(null);
@@ -28,7 +29,10 @@ export default function MyProfile() {
             {!isExternal && <tr><td>Employee ID</td><td>{profile.employeeId || "-"}</td></tr>}
             {!isExternal && <tr><td>Designation</td><td>{profile.designation || "-"}</td></tr>}
             {!isExternal && <tr><td>Department</td><td>{profile.department || "-"}</td></tr>}
-            {!isExternal && <tr><td>Date of Joining</td><td>{profile.dateOfJoining || "-"}</td></tr>}
+            {!isExternal && <tr><td>Father/Spouse Name</td><td>{profile.fatherOrHusbandName || "-"}</td></tr>}
+            {!isExternal && <tr><td>Birth Date</td><td>{fmtDate(profile.dateOfBirth) || "-"}</td></tr>}
+            {!isExternal && <tr><td>Anniversary Date</td><td>{fmtDate(profile.anniversaryDate) || "-"}</td></tr>}
+            {!isExternal && <tr><td>Date of Joining</td><td>{fmtDate(profile.dateOfJoining) || "-"}</td></tr>}
             {!isExternal && <tr><td>Professional Email</td><td>{profile.professionalEmail || "-"}</td></tr>}
             {!isExternal && <tr><td>Personal Email</td><td>{profile.personalEmail || "-"}</td></tr>}
             {isExternal && <tr><td>Email</td><td>{profile.email || "-"}</td></tr>}

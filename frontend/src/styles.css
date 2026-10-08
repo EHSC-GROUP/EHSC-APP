@@ -209,6 +209,8 @@ label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom
 .badge-OUT_OF_OFFICE { background: #ede9fe; color: #6d28d9; }
 .badge-PENDING_OOO { background: #fef3c7; color: #92400e; }
 .badge-TRAVEL { background: #dbeafe; color: #1e40af; }
+.badge-WFH { background: #ccfbf1; color: #0f766e; }
+.badge-PENDING_WFH { background: #fef3c7; color: #92400e; }
 .badge-PENDING_TRAVEL { background: #fef3c7; color: #92400e; }
 .badge-GENERAL { background: #f3f4f6; color: #374151; }
 .badge-ACCOMMODATION { background: #ede9fe; color: #6d28d9; }
@@ -255,6 +257,7 @@ label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom
 .status-dot-HALF_DAY { background: #d97706; }
 .status-dot-OUT_OF_OFFICE { background: #7c3aed; }
 .status-dot-TRAVEL { background: #1e40af; }
+.status-dot-WFH { background: #0d9488; }
 .status-dot-none { background: #d1d5db; }
 .badge-IN_PROGRESS { background: #fef3c7; color: #92400e; }
 .badge-PURCHASE_ORDER_RECEIVED { background: #dcfce7; color: #166534; }

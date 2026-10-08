@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
+import { fmtDateTime } from "../../lib/dates";
 
 function formatWhen(at) {
   if (!at) return "";
-  if (at._seconds) return new Date(at._seconds * 1000).toLocaleString();
+  if (at._seconds) return fmtDateTime(new Date(at._seconds * 1000));
   const d = new Date(at);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? "" : fmtDateTime(d);
 }
 
 export default function MyActivity() {

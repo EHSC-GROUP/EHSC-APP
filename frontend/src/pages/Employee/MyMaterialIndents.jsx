@@ -5,6 +5,7 @@ import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
 import MaterialIndentForm from "../../components/MaterialIndentForm";
 import { openAuthedFile } from "../../lib/openFile";
+import { fmtDate } from "../../lib/dates";
 
 export default function MyMaterialIndents() {
   const [list, setList] = useState(null);
@@ -47,7 +48,7 @@ export default function MyMaterialIndents() {
               {list.map((r) => (
                 <tr key={r.id}>
                   <td>{r.voucherNo || "-"}</td>
-                  <td>{r.raisedDate}</td>
+                  <td>{fmtDate(r.raisedDate)}</td>
                   <td>{r.purpose}</td>
                   <td>₹{r.totalAmount.toFixed(2)}</td>
                   <td><StatusBadge status={r.status} /></td>
