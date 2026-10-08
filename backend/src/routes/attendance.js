@@ -5,7 +5,7 @@ import { db, admin } from "../config/firebase.js";
 import {
   COLLECTIONS,
   ATTENDANCE_STATUS_VALUES, ATTENDANCE_SOURCE, GEOFENCE_RADIUS_MIN_METERS, GEOFENCE_RADIUS_MAX_METERS,
-  OOO_REQUEST_STATUS,
+  OOO_REQUEST_STATUS, STAFF_PROFILE_TYPES,
 } from "../lib/constants.js";
 import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { haversineMeters, isValidCoordinate } from "../lib/geo.js";
@@ -18,7 +18,7 @@ const statusDocId = (userId, date) => `${userId}_${date}`;
 
 async function getActiveEmployeeProfiles() {
   const [profilesSnap, usersSnap] = await Promise.all([
-    db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get(),
+    db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", STAFF_PROFILE_TYPES).get(),
     db.collection(COLLECTIONS.USERS).get(),
   ]);
   const usersById = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));

@@ -6,8 +6,9 @@ import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/aut
 import { getWeeklyOffDays, getRecurringWeekdayRules } from "../lib/calendar.js";
 import { getEarningsFormula, validateFormula, pickFormulaFields } from "../lib/earningsFormula.js";
 import { getFeatureFlags, FLAGS_DOC } from "../lib/featureFlags.js";
-import { FEATURE_FLAG_DEFAULTS } from "../lib/constants.js";
-import { PROJECT_CATEGORIES, ALL_PROJECT_TYPES, REGION_OPTIONS, PROJECT_TYPE_VALUES as PROJECT_TYPES } from "../lib/projectClassification.js";
+import { FEATURE_FLAG_DEFAULTS, isValidStage } from "../lib/constants.js";
+import { getDropdownLists, saveDropdownLists, DROPDOWN_LIST_LABELS } from "../lib/dropdownLists.js";
+import { PROJECT_CATEGORIES, ALL_PROJECT_TYPES, PROJECT_TYPE_VALUES as PROJECT_TYPES } from "../lib/projectClassification.js";
 import { getProjectPlanTemplates, templatesRef } from "../lib/projectPlanTemplate.js";
 
 const router = Router();
@@ -142,8 +143,31 @@ router.put("/earnings-formula", authenticate, requireSuperAdmin, async (req, res
 // Project Plan doesn't need admin rights just to see what generated it).
 // The Project Category -> Service -> Project Type tree and the region list,
 // for the enquiry / new project forms and the template pickers.
-router.get("/project-classification", authenticate, (req, res) => {
-  res.json({ categories: PROJECT_CATEGORIES, allTypes: ALL_PROJECT_TYPES, regions: REGION_OPTIONS });
+router.get("/project-classification", authenticate, async (req, res, next) => {
+  try {
+    const lists = await getDropdownLists();
+    res.json({ categories: PROJECT_CATEGORIES, allTypes: ALL_PROJECT_TYPES, regions: lists.region });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Editable dropdown lists (status, priority, risk, payment status, region).
+// Anyone signed in reads them; only the superadmin changes them.
+router.get("/dropdown-lists", authenticate, async (req, res, next) => {
+  try {
+    res.json({ lists: await getDropdownLists(), labels: DROPDOWN_LIST_LABELS });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/dropdown-lists", authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    res.json({ lists: await saveDropdownLists(req.body, req.user.userId), labels: DROPDOWN_LIST_LABELS });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.get("/project-plan-templates", authenticate, async (req, res, next) => {
@@ -168,8 +192,8 @@ router.put("/project-plan-templates", authenticate, requireAdmin, async (req, re
         if (!Number.isFinite(Number(t.dayOffset)) || Number(t.dayOffset) < 0) {
           return res.status(400).json({ error: `${type}: dayOffset must be a number >= 0` });
         }
-        if (t.stage !== undefined && t.stage !== null && t.stage !== "" && ![1, 2, 3, 4].includes(Number(t.stage))) {
-          return res.status(400).json({ error: `${type}: stage must be 1, 2, 3, 4 or left blank` });
+        if (t.stage !== undefined && t.stage !== null && t.stage !== "" && !isValidStage(t.stage)) {
+          return res.status(400).json({ error: `${type}: stage must be 1 to 5 or left blank` });
         }
       }
       updates[type] = tasks.map((t) => ({

@@ -17,7 +17,7 @@ export default function Form22() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    client.get("/profiles").then((r) => setProfiles(r.data.filter((p) => ["employee", "admin"].includes(p.type)))).catch((err) => setError(errorMessage(err)));
+    client.get("/profiles").then((r) => setProfiles(r.data.filter((p) => ["employee", "admin", "team_leader"].includes(p.type)))).catch((err) => setError(errorMessage(err)));
   }, []);
 
   function toggle(userId) {

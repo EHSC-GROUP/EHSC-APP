@@ -1,7 +1,7 @@
 import { Router } from "express";
 
 import { db } from "../config/firebase.js";
-import { COLLECTIONS } from "../lib/constants.js";
+import { COLLECTIONS, STAFF_PROFILE_TYPES } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { computeGeneratedPayslip } from "../lib/payslipCompute.js";
 import { renderForm22Pdf } from "../lib/form22Pdf.js";
@@ -20,7 +20,7 @@ router.get("/export", authenticate, requireAdmin, async (req, res, next) => {
 
     const profilesSnap = userIds
       ? await db.getAll(...userIds.map((id) => db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(id)))
-      : (await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get()).docs;
+      : (await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", STAFF_PROFILE_TYPES).get()).docs;
 
     const rawProfiles = profilesSnap.filter((s) => s.exists).map((s) => ({ userId: s.id, ...s.data() }));
     const userRefs = rawProfiles.map((p) => db.collection(COLLECTIONS.USERS).doc(p.userId));

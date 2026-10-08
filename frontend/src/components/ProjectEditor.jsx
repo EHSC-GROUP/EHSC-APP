@@ -6,6 +6,8 @@ import Modal from "./Modal";
 import DateInput from "./DateInput";
 import { fmtDate } from "../lib/dates";
 import { useProjectClassification } from "../lib/useProjectClassification";
+import { useDropdownLists } from "../lib/useDropdownLists";
+import { TeamLeadSelect, TeamMembersPicker } from "./PeopleFields";
 
 const emptyPhase2 = () => ({
   proposalNo: "", proposalDate: "", modeOfSubmission: "", submittedTo: "", submittedBy: "",
@@ -32,7 +34,7 @@ function withEmptyFallback(defaults, stored) {
   return out;
 }
 
-const INVOICE_STAGES = [1, 2, 3, 4];
+const INVOICE_STAGES = [1, 2, 3, 4, 5];
 
 function toFormShape(project) {
   return {
@@ -45,6 +47,22 @@ function toFormShape(project) {
     invoiceStage2Percent: project.invoiceStage2Percent ?? "",
     invoiceStage3Percent: project.invoiceStage3Percent ?? "",
     invoiceStage4Percent: project.invoiceStage4Percent ?? "",
+    invoiceStage5Percent: project.invoiceStage5Percent ?? "",
+    invoiceStage1Name: project.invoiceStage1Name || "",
+    invoiceStage2Name: project.invoiceStage2Name || "",
+    invoiceStage3Name: project.invoiceStage3Name || "",
+    invoiceStage4Name: project.invoiceStage4Name || "",
+    invoiceStage5Name: project.invoiceStage5Name || "",
+    teamLeadId: project.teamLeadId || "",
+    teamLeadName: project.teamLeadName || "",
+    teamMembers: project.teamMembers || [],
+    status: project.status || "",
+    priority: project.priority || "",
+    risk: project.risk || "",
+    startDate: project.startDate || "",
+    paymentStatus: project.paymentStatus || "",
+    invoicedAmount: project.invoicedAmount ?? "",
+    receivedAmount: project.receivedAmount ?? "",
     phase2: withEmptyFallback(emptyPhase2(), project.phase2),
     phase3: withEmptyFallback(emptyPhase3(), project.phase3),
     phase4: withEmptyFallback(emptyPhase4(), project.phase4),
@@ -67,6 +85,7 @@ function toFormShape(project) {
 // behavior.
 export default function ProjectEditor({ project, company, onChanged, showPhases = true, showPhase2 = showPhases, estimatedValue }) {
   const { categoryLabel, serviceLabel, typeLabel } = useProjectClassification();
+  const lists = useDropdownLists();
   // Project Costing (REQ-04) is a disabled-by-default feature — only add
   // the tab once an admin has switched it on in Settings.
   const [costingEnabled, setCostingEnabled] = useState(false);
@@ -184,11 +203,21 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 {showPhases && project.service && <tr><td>Service</td><td>{serviceLabel(project.projectCategory, project.service)}</td></tr>}
                 {showPhases && project.projectType && <tr><td>Project Type</td><td>{typeLabel(project.projectType)}{project.projectSubType && ` — ${project.projectSubType}`}</td></tr>}
                 {showPhases && project.region && <tr><td>Region</td><td>{project.region}</td></tr>}
+                {showPhases && <tr><td>Team Lead</td><td>{project.teamLeadName || "-"}</td></tr>}
+                {showPhases && <tr><td>Team Members</td><td>{(project.teamMembers || []).map((m) => m.name).join(", ") || "-"}</td></tr>}
+                {showPhases && <tr><td>Project Status</td><td>{project.status || "-"}</td></tr>}
+                {showPhases && <tr><td>Priority</td><td>{project.priority || "-"}</td></tr>}
+                {showPhases && <tr><td>Risk</td><td>{project.risk || "-"}</td></tr>}
+                {showPhases && <tr><td>Project Start Date</td><td>{fmtDate(project.startDate) || "-"}</td></tr>}
                 {showPhases && <tr><td>PO Number</td><td>{project.poNumber || "-"}</td></tr>}
                 {showPhases && <tr><td>PO Value</td><td>{project.poValue ?? "-"}</td></tr>}
-                {showPhases && <tr><td>Delivery Due Date</td><td>{fmtDate(project.deliveryDueDate) || "-"}</td></tr>}
+                {showPhases && <tr><td>Target / Delivery Due Date</td><td>{fmtDate(project.deliveryDueDate) || "-"}</td></tr>}
                 {showPhases && <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{project.termsAndConditions || "-"}</td></tr>}
                 {showPhases && <tr><td>Value of Contract</td><td>{project.contractValue ?? "-"}</td></tr>}
+                {showPhases && <tr><td>Payment Status</td><td>{project.paymentStatus || "-"}</td></tr>}
+                {showPhases && <tr><td>Invoiced (₹)</td><td>{project.invoicedAmount ?? "-"}</td></tr>}
+                {showPhases && <tr><td>Received (₹)</td><td>{project.receivedAmount ?? "-"}</td></tr>}
+                {showPhases && <tr><td>Outstanding (₹)</td><td>{outstandingOf(project) ?? "-"}</td></tr>}
                 {showPhases && project.sourceEnquiryNo && <tr><td>Source Enquiry</td><td>{project.sourceEnquiryNo}</td></tr>}
               </tbody>
             </table>
@@ -313,9 +342,20 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
               {showPhases && (
                 <>
                   <div className="form-row">
+                    <div><label>Team Lead</label><TeamLeadSelect value={form.teamLeadId} onChange={(id, name) => setForm((f) => ({ ...f, teamLeadId: id, teamLeadName: name }))} /></div>
+                    <div><label>Project Status</label><ListSelect value={form.status} options={lists.projectStatus} onChange={(v) => set("status", v)} /></div>
+                  </div>
+                  <label>Team Members</label>
+                  <TeamMembersPicker value={form.teamMembers} onChange={(v) => set("teamMembers", v)} />
+                  <div className="form-row">
+                    <div><label>Priority</label><ListSelect value={form.priority} options={lists.priority} onChange={(v) => set("priority", v)} /></div>
+                    <div><label>Risk</label><ListSelect value={form.risk} options={lists.risk} onChange={(v) => set("risk", v)} /></div>
+                    <div><label>Project Start Date</label><DateInput value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
+                  </div>
+                  <div className="form-row">
                     <div><label>PO Number</label><input value={form.poNumber} onChange={(e) => set("poNumber", e.target.value)} /></div>
                     <div><label>PO Value</label><input type="number" min="0" step="0.01" value={form.poValue} onChange={(e) => set("poValue", e.target.value)} /></div>
-                    <div><label>Delivery Due Date</label><DateInput value={form.deliveryDueDate} onChange={(e) => set("deliveryDueDate", e.target.value)} /></div>
+                    <div><label>Target / Delivery Due Date</label><DateInput value={form.deliveryDueDate} onChange={(e) => set("deliveryDueDate", e.target.value)} /></div>
                   </div>
                   <label>Terms and Conditions</label>
                   <textarea rows={3} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
@@ -323,18 +363,13 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <label>Value of Contract</label>
                   <input type="number" min="0" step="0.01" value={form.contractValue} onChange={(e) => set("contractValue", e.target.value)} />
                   <p className="hint-text mt-0">Set once the enquiry is confirmed (contract accepted / PO received) — each stage below is a percentage of this value.</p>
+                  <InvoiceStageInputs form={form} set={set} />
                   <div className="form-row">
-                    {INVOICE_STAGES.map((n) => (
-                      <div key={n}>
-                        <label>Stage {n} %</label>
-                        <input
-                          type="number" min="0" max="100" step="0.01"
-                          value={form[`invoiceStage${n}Percent`]}
-                          onChange={(e) => set(`invoiceStage${n}Percent`, e.target.value)}
-                        />
-                      </div>
-                    ))}
+                    <div><label>Payment Status</label><ListSelect value={form.paymentStatus} options={lists.paymentStatus} onChange={(v) => set("paymentStatus", v)} /></div>
+                    <div><label>Invoiced (₹)</label><input type="number" min="0" step="0.01" value={form.invoicedAmount} onChange={(e) => set("invoicedAmount", e.target.value)} /></div>
+                    <div><label>Received (₹)</label><input type="number" min="0" step="0.01" value={form.receivedAmount} onChange={(e) => set("receivedAmount", e.target.value)} /></div>
                   </div>
+                  <p className="hint-text mt-0">Outstanding is worked out automatically: invoiced minus received.</p>
                 </>
               )}
             </div>
@@ -405,18 +440,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <label>Value of Contract</label>
                   <input type="number" min="0" step="0.01" value={form.contractValue} onChange={(e) => set("contractValue", e.target.value)} />
                   <p className="hint-text mt-0">Each stage below is a percentage of this value.</p>
-                  <div className="form-row">
-                    {INVOICE_STAGES.map((n) => (
-                      <div key={n}>
-                        <label>Stage {n} %</label>
-                        <input
-                          type="number" min="0" max="100" step="0.01"
-                          value={form[`invoiceStage${n}Percent`]}
-                          onChange={(e) => set(`invoiceStage${n}Percent`, e.target.value)}
-                        />
-                      </div>
-                    ))}
-                  </div>
+                  <InvoiceStageInputs form={form} set={set} />
                 </>
               )}
             </div>
@@ -577,6 +601,7 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
     completedAt: project[`invoiceStage${n}CompletedAt`],
   }));
   const anySet = rows.some((r) => r.percent !== null && r.percent !== undefined);
+  const total = rows.reduce((sum, r) => sum + (Number(r.percent) || 0), 0);
 
   async function toggle(n, completed) {
     setError("");
@@ -597,7 +622,7 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
         <strong>Invoice Stages</strong>
         <div className="spacer" />
       </div>
-      {!anySet && <p className="hint-text mt-0">No stage percentages set yet — click Edit above to add Stage 1-4 %.</p>}
+      {!anySet && <p className="hint-text mt-0">No stage percentages set yet — click Edit above to add up to 5 stages, each with a name and a %.</p>}
       {rows.map((r) => {
         const isSet = r.percent !== null && r.percent !== undefined;
         const amount = isSet && project.contractValue != null ? Math.round((Number(project.contractValue) * Number(r.percent) / 100) * 100) / 100 : null;
@@ -611,15 +636,83 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
                 disabled={!editable || !isSet || busyStage === r.n}
                 onChange={(e) => toggle(r.n, e.target.checked)}
               />
-              <span>Stage {r.n} — {isSet ? `${r.percent}%${amount !== null ? ` (₹${amount})` : ""}` : "not set"}</span>
+              <span>Stage {r.n}{project[`invoiceStage${r.n}Name`] ? ` · ${project[`invoiceStage${r.n}Name`]}` : ""} — {isSet ? `${r.percent}%${amount !== null ? ` (₹${amount})` : ""}` : "not set"}</span>
             </label>
             {r.completed && r.completedAt && <span className="hint-text">Completed {fmtDate(r.completedAt)}</span>}
           </div>
         );
       })}
+      {anySet && <p className="hint-text" style={{ marginTop: 6 }}>Total {Math.round(total * 100) / 100}%{Math.abs(total - 100) > 0.01 ? " — the stages should add up to 100%." : ""}</p>}
       <ErrorText>{error}</ErrorText>
     </div>
   );
+}
+
+// Stage name (the billing trigger, e.g. "After Internal Audit Completion") and
+// its % of the contract, for up to five stages. Leave a stage blank to skip it.
+function InvoiceStageInputs({ form, set }) {
+  const total = INVOICE_STAGES.reduce((sum, n) => sum + (Number(form[`invoiceStage${n}Percent`]) || 0), 0);
+  return (
+    <div>
+      {INVOICE_STAGES.map((n) => (
+        <div key={n} className="form-row" style={{ alignItems: "flex-end", marginTop: 6 }}>
+          <div style={{ flex: "1 1 260px" }}>
+            <label className="hint-text mt-0">Stage {n} name</label>
+            <input value={form[`invoiceStage${n}Name`]} onChange={(e) => set(`invoiceStage${n}Name`, e.target.value)} placeholder={n === 1 ? "e.g. Advance" : "e.g. After Internal Audit Completion"} />
+          </div>
+          <div style={{ flex: "0 0 110px" }}>
+            <label className="hint-text mt-0">Stage {n} %</label>
+            <input type="number" min="0" max="100" step="0.01" value={form[`invoiceStage${n}Percent`]} onChange={(e) => set(`invoiceStage${n}Percent`, e.target.value)} />
+          </div>
+        </div>
+      ))}
+      <p className="hint-text" style={{ marginTop: 6 }}>Total {Math.round(total * 100) / 100}%{total > 100.0001 ? " — more than 100%, it can't be saved." : total > 0 && Math.abs(total - 100) > 0.01 ? " — the stages should add up to 100%." : ""}</p>
+    </div>
+  );
+}
+
+function ListSelect({ value, options, onChange }) {
+  // A value that was removed from the list later is still shown, so editing never silently drops it.
+  const withCurrent = value && !options.includes(value) ? [value, ...options] : options;
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Select…</option>
+      {withCurrent.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
+// Status, priority, risk, progress and timing for one plan action.
+function ActionFacts({ action }) {
+  const today = todayISO();
+  const closed = action.completed || action.status === "Completed" || action.status === "Cancelled";
+  let timing = null;
+  if (action.dueDate && !closed) {
+    const diff = Math.round((new Date(action.dueDate).getTime() - new Date(today).getTime()) / 86400000);
+    timing = diff < 0
+      ? <span className="overdue">Delayed {-diff} day{-diff === 1 ? "" : "s"}</span>
+      : <span>{diff} day{diff === 1 ? "" : "s"} left</span>;
+  }
+  const status = action.status || (action.completed ? "Completed" : null);
+  return (
+    <div>
+      <p className="hint-text mt-0" style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {status && <span className="badge-pill badge-PENDING">{status}</span>}
+        {action.priority && <span>Priority: <strong>{action.priority}</strong></span>}
+        {action.risk && <span>Risk: <strong>{action.risk}</strong></span>}
+        {action.percentComplete != null && <span>{action.percentComplete}% complete</span>}
+        {timing}
+        {action.escalationRequired && <span className="overdue">⚠ Escalation required</span>}
+      </p>
+      {action.deliverable && <p className="hint-text mt-0">Deliverable: {action.deliverable}</p>}
+      {action.remarks && <p className="hint-text mt-0" style={{ whiteSpace: "pre-wrap" }}>Remarks: {action.remarks}</p>}
+    </div>
+  );
+}
+
+function outstandingOf(project) {
+  if (project.invoicedAmount == null && project.receivedAmount == null) return null;
+  return Math.round(((Number(project.invoicedAmount) || 0) - (Number(project.receivedAmount) || 0)) * 100) / 100;
 }
 
 // Phase III(b) — Project Plan: a numbered action list, independent of the
@@ -636,6 +729,7 @@ function PlanActionsSection({ project, actions, onChanged }) {
   const [editingId, setEditingId] = useState(null);
   const [dateForm, setDateForm] = useState({ startDate: "", dueDate: "" });
   const [savingDates, setSavingDates] = useState(false);
+  const lists = useDropdownLists();
   const sorted = [...actions].sort((a, b) => (a.dueDate < b.dueDate ? -1 : 1));
   const byId = new Map(actions.map((a) => [a.id, a]));
 
@@ -660,7 +754,17 @@ function PlanActionsSection({ project, actions, onChanged }) {
 
   function startEditDates(action) {
     setEditingId(action.id);
-    setDateForm({ startDate: action.startDate || "", dueDate: action.dueDate || "" });
+    setDateForm({
+      startDate: action.startDate || "",
+      dueDate: action.dueDate || "",
+      status: action.status || (action.completed ? "Completed" : ""),
+      priority: action.priority || "",
+      risk: action.risk || "",
+      percentComplete: action.percentComplete ?? (action.completed ? 100 : 0),
+      deliverable: action.deliverable || "",
+      escalationRequired: !!action.escalationRequired,
+      remarks: action.remarks || "",
+    });
     setError("");
   }
 
@@ -672,6 +776,13 @@ function PlanActionsSection({ project, actions, onChanged }) {
       await client.put(`/projects/${projectId}/plan-actions/${actionId}`, {
         startDate: dateForm.startDate || null,
         dueDate: dateForm.dueDate,
+        status: dateForm.status || undefined,
+        priority: dateForm.priority || undefined,
+        risk: dateForm.risk || undefined,
+        percentComplete: dateForm.percentComplete,
+        deliverable: dateForm.deliverable,
+        escalationRequired: !!dateForm.escalationRequired,
+        remarks: dateForm.remarks,
       });
       setEditingId(null);
       onChanged();
@@ -710,22 +821,52 @@ function PlanActionsSection({ project, actions, onChanged }) {
               </label>
               <div className="spacer" />
               {editingId !== a.id && (
-                <button className="btn-sm" onClick={() => startEditDates(a)}>Edit Dates</button>
+                <button className="btn-sm" onClick={() => startEditDates(a)}>Edit</button>
               )}
               <button className="btn-sm btn-danger" onClick={() => remove(a.id)}>Delete</button>
             </div>
             {editingId === a.id ? (
-              <div className="form-row" style={{ alignItems: "flex-end", marginBottom: 4 }}>
-                <div>
-                  <label>Start Date</label>
-                  <DateInput value={dateForm.startDate} onChange={(e) => setDateForm((f) => ({ ...f, startDate: e.target.value }))} />
+              <div style={{ marginBottom: 4 }}>
+                <div className="form-row" style={{ alignItems: "flex-end" }}>
+                  <div>
+                    <label>Start Date</label>
+                    <DateInput value={dateForm.startDate} onChange={(e) => setDateForm((f) => ({ ...f, startDate: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label>Due Date</label>
+                    <DateInput value={dateForm.dueDate} onChange={(e) => setDateForm((f) => ({ ...f, dueDate: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label>Status</label>
+                    <ListSelect value={dateForm.status} options={lists.projectStatus} onChange={(v) => setDateForm((f) => ({ ...f, status: v }))} />
+                  </div>
                 </div>
-                <div>
-                  <label>Due Date</label>
-                  <DateInput value={dateForm.dueDate} onChange={(e) => setDateForm((f) => ({ ...f, dueDate: e.target.value }))} />
+                <div className="form-row" style={{ alignItems: "flex-end" }}>
+                  <div>
+                    <label>Priority</label>
+                    <ListSelect value={dateForm.priority} options={lists.priority} onChange={(v) => setDateForm((f) => ({ ...f, priority: v }))} />
+                  </div>
+                  <div>
+                    <label>Risk</label>
+                    <ListSelect value={dateForm.risk} options={lists.risk} onChange={(v) => setDateForm((f) => ({ ...f, risk: v }))} />
+                  </div>
+                  <div style={{ flex: "0 0 110px" }}>
+                    <label>% Complete</label>
+                    <input type="number" min="0" max="100" step="1" value={dateForm.percentComplete} onChange={(e) => setDateForm((f) => ({ ...f, percentComplete: e.target.value }))} />
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, margin: 0, paddingBottom: 8 }}>
+                    <input type="checkbox" style={{ width: "auto" }} checked={!!dateForm.escalationRequired} onChange={(e) => setDateForm((f) => ({ ...f, escalationRequired: e.target.checked }))} />
+                    Escalation required
+                  </label>
                 </div>
-                <button className="btn-sm btn-primary" onClick={() => saveDates(a.id)} disabled={savingDates}>{savingDates ? "Saving…" : "Save"}</button>
-                <button className="btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+                <label>Deliverable</label>
+                <input value={dateForm.deliverable} onChange={(e) => setDateForm((f) => ({ ...f, deliverable: e.target.value }))} />
+                <label>Remarks</label>
+                <textarea rows={2} value={dateForm.remarks} onChange={(e) => setDateForm((f) => ({ ...f, remarks: e.target.value }))} />
+                <div className="toolbar" style={{ marginTop: 8 }}>
+                  <button className="btn-sm btn-primary" onClick={() => saveDates(a.id)} disabled={savingDates}>{savingDates ? "Saving…" : "Save"}</button>
+                  <button className="btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
               </div>
             ) : (
               <p className="hint-text mt-0">
@@ -734,6 +875,7 @@ function PlanActionsSection({ project, actions, onChanged }) {
                 {a.completed && a.completedAt && <> · Completed: {fmtDate(a.completedAt)}</>}
               </p>
             )}
+            {editingId !== a.id && <ActionFacts action={a} />}
             {predecessors.length > 0 && (
               <p className="hint-text mt-0">Depends on: {predecessors.map((p) => p.description).join(", ")}</p>
             )}
@@ -1212,7 +1354,8 @@ function WorkflowModal({ projectId, actions, onClose, onSaved }) {
 
 function AddPlanActionModal({ projectId, onClose, onAdded }) {
   const [employees, setEmployees] = useState([]);
-  const [form, setForm] = useState({ description: "", assignedTo: "", startDate: todayISO(), dueDate: "", stage: "" });
+  const lists = useDropdownLists();
+  const [form, setForm] = useState({ description: "", assignedTo: "", startDate: todayISO(), dueDate: "", stage: "", priority: "", risk: "", deliverable: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -1265,6 +1408,12 @@ function AddPlanActionModal({ projectId, onClose, onAdded }) {
             </div>
           </div>
           <p className="hint-text mt-0">Tag this task to an invoice stage and, once every task tagged with that stage is checked off, it auto-completes — no need to mark it manually.</p>
+          <div className="form-row">
+            <div><label>Priority</label><ListSelect value={form.priority} options={lists.priority} onChange={(v) => set("priority", v)} /></div>
+            <div><label>Risk</label><ListSelect value={form.risk} options={lists.risk} onChange={(v) => set("risk", v)} /></div>
+          </div>
+          <label>Deliverable</label>
+          <input value={form.deliverable} onChange={(e) => set("deliverable", e.target.value)} placeholder="e.g. Gap assessment report" />
           <ErrorText>{error}</ErrorText>
           <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Action"}</button>
         </form>

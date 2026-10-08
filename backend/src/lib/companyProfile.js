@@ -1,4 +1,5 @@
 import { admin } from "../config/firebase.js";
+import { INVOICE_STAGE_COUNT } from "./constants.js";
 
 // Empty defaults for the extended workflow phases every Project carries:
 // Phase II (turning the enquiry into a work order), Phase III (executing
@@ -63,7 +64,8 @@ export function emptyPhase4() {
 // of how it was created.
 export function emptyInvoiceStages() {
   const out = {};
-  for (let n = 1; n <= 4; n++) {
+  for (let n = 1; n <= INVOICE_STAGE_COUNT; n++) {
+    out[`invoiceStage${n}Name`] = "";
     out[`invoiceStage${n}Percent`] = null;
     out[`invoiceStage${n}Completed`] = false;
     out[`invoiceStage${n}CompletedAt`] = null;
@@ -76,7 +78,7 @@ export function emptyInvoiceStages() {
 // (so the Project Tracker and lists don't need an extra join per row) —
 // a one-time copy, not a live sync. `projectType`/`projectSubType` are the
 // same one-time copy from the enquiry, when it came from one.
-export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId, projectCategory, service, projectType, region }) {
+export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId, projectCategory, service, projectType, region, starting = {} }) {
   return {
     projectId,
     companyId,
@@ -87,6 +89,17 @@ export function newProjectDoc({ projectId, companyId, branchId, companyCode, cli
     service: service || null,
     projectType: projectType || null,
     region: region || "",
+    // Who runs it and who works on it (picked from the people list)
+    teamLeadId: "",
+    teamLeadName: "",
+    teamMembers: [],
+    status: starting.status || "Not Started",
+    priority: starting.priority || "Medium",
+    risk: starting.risk || "Low",
+    startDate: null,
+    paymentStatus: starting.paymentStatus || "Not Invoiced",
+    invoicedAmount: null,
+    receivedAmount: null,
     poNumber: "",
     poValue: null,
     deliveryDueDate: null,

@@ -63,7 +63,6 @@ export const PROJECT_CATEGORIES = Object.freeze([
   },
 ]);
 
-export const REGION_OPTIONS = Object.freeze(["asia pacific", "europe", "america", "Africa"]);
 
 // Every distinct project type, once (a type can appear under several
 // categories, e.g. ESG). Plan templates are kept per type.

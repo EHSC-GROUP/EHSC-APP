@@ -187,7 +187,7 @@ function AccessModal({ onClose }) {
 
   useEffect(() => {
     Promise.all([client.get("/profiles"), client.get("/reimbursements/access")]).then(([p, a]) => {
-      setProfiles(p.data.filter((x) => ["employee", "admin"].includes(x.type)));
+      setProfiles(p.data.filter((x) => ["employee", "admin", "team_leader"].includes(x.type)));
       setGranted(new Set(a.data));
     }).catch((err) => setError(errorMessage(err)));
   }, []);

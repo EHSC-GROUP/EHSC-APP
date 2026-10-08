@@ -301,13 +301,16 @@ function CompanyDrawer({ id, onClose, onChanged }) {
             {!projects ? <Loading /> : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Project ID</th><th>Branch</th><th>Type</th><th>PO Number</th><th>PO Value</th><th>Contract Value</th><th>Invoice Stages</th><th>Source Enquiry</th></tr></thead>
+                  <thead><tr><th>Project ID</th><th>Branch</th><th>Type</th><th>Status</th><th>Priority</th><th>Team Lead</th><th>PO Number</th><th>PO Value</th><th>Contract Value</th><th>Invoice Stages</th><th>Source Enquiry</th></tr></thead>
                   <tbody>
                     {projects.map((p) => (
                       <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelectedProjectId(p.id)}>
                         <td>{p.projectId}</td>
                         <td>{p.companyCode}</td>
                         <td>{p.projectType ? `${typeLabel(p.projectType)}${p.projectSubType ? ` — ${p.projectSubType}` : ""}` : "-"}</td>
+                        <td>{p.status || "-"}</td>
+                        <td>{p.priority || "-"}</td>
+                        <td>{p.teamLeadName || "-"}</td>
                         <td>{p.poNumber || "-"}</td>
                         <td>{p.poValue ?? "-"}</td>
                         <td>{p.contractValue ?? "-"}</td>
@@ -449,7 +452,7 @@ function ProjectDrawerContent({ projectId, company, onBack, onChanged }) {
   );
 }
 
-const INVOICE_STAGES = [1, 2, 3, 4];
+const INVOICE_STAGES = [1, 2, 3, 4, 5];
 
 // A compact, always-visible version of the same stage checkboxes shown
 // inside the project editor's Company Details tab — lets an admin tick a
@@ -484,7 +487,7 @@ function InlineStageChecklist({ project, onChanged }) {
       {rows.map((r) => (
         <label
           key={r.n}
-          title={`Stage ${r.n} — ${r.percent}%`}
+          title={`Stage ${r.n}${project[`invoiceStage${r.n}Name`] ? ` · ${project[`invoiceStage${r.n}Name`]}` : ""} — ${r.percent}%`}
           style={{ display: "flex", alignItems: "center", gap: 3, margin: 0, fontSize: 12 }}
         >
           <input

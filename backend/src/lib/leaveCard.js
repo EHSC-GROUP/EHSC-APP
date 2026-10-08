@@ -1,5 +1,5 @@
 import { db } from "../config/firebase.js";
-import { COLLECTIONS, LOP, HALF_DAY, LEAVE_STATUS } from "./constants.js";
+import { COLLECTIONS, LOP, HALF_DAY, LEAVE_STATUS, STAFF_PROFILE_TYPES } from "./constants.js";
 import { getLeaveTypes, getLeaveBalancesForYear } from "./leaveBalances.js";
 import { financialYearOf, round1 } from "./dateUtils.js";
 
@@ -68,6 +68,6 @@ export async function getLeaveCardData(userId, fy) {
 }
 
 export async function listActiveEmployeeUserIds() {
-  const snap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get();
+  const snap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", STAFF_PROFILE_TYPES).get();
   return snap.docs.map((d) => d.id);
 }

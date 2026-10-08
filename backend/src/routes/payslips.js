@@ -1,7 +1,7 @@
 import { Router } from "express";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, ROLES, PAYSLIP_STATUS } from "../lib/constants.js";
+import { COLLECTIONS, ROLES, PAYSLIP_STATUS, STAFF_PROFILE_TYPES } from "../lib/constants.js";
 import { authenticate, requireSuperAdmin } from "../middleware/auth.js";
 import { computeGeneratedPayslip, applyPayslipEdit } from "../lib/payslipCompute.js";
 import { renderPayslipPdf, renderConsolidatedPayslipPdf } from "../lib/payslipPdf.js";
@@ -46,7 +46,7 @@ async function getActiveEmployeeProfiles(userIds) {
     const snaps = await db.getAll(...refs);
     profiles = snaps.filter((s) => s.exists).map((s) => ({ userId: s.id, ...s.data() }));
   } else {
-    const snap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get();
+    const snap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", STAFF_PROFILE_TYPES).get();
     profiles = snap.docs.map((d) => ({ userId: d.id, ...d.data() }));
   }
   return attachNames(profiles);
@@ -59,7 +59,7 @@ router.get("/", authenticate, requireSuperAdmin, async (req, res, next) => {
     if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
 
     const [profilesSnap, payslipsSnap] = await Promise.all([
-      db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", ["employee", "admin"]).get(),
+      db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("type", "in", STAFF_PROFILE_TYPES).get(),
       db.collection(COLLECTIONS.HR_PAYSLIPS).where("period", "==", period).get(),
     ]);
     const profiles = await attachNames(profilesSnap.docs.map((d) => ({ userId: d.id, ...d.data() })));

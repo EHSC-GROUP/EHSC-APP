@@ -1,7 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { db } from "../config/firebase.js";
-import { COLLECTIONS } from "./constants.js";
+import { COLLECTIONS, isValidStage } from "./constants.js";
 import { PROJECT_TYPE_VALUES as PROJECT_TYPES } from "./projectClassification.js";
 
 // Starter/placeholder task list — every project type ships with this same
@@ -59,7 +59,14 @@ export function buildPlanActionsFromTemplate(tasks, { userId, userName, baseDate
     return {
       id: uuid(),
       description: t.description,
-      stage: [1, 2, 3, 4].includes(Number(t.stage)) ? Number(t.stage) : null,
+      stage: isValidStage(t.stage) ? Number(t.stage) : null,
+      priority: t.priority || "Medium",
+      risk: t.risk || "Low",
+      status: "Not Started",
+      percentComplete: 0,
+      deliverable: t.deliverable || "",
+      escalationRequired: false,
+      remarks: "",
       assignedTo: userId,
       assignedToName: userName || userId,
       startDate: baseDateISO,

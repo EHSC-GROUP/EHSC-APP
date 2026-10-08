@@ -3,7 +3,8 @@ import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE, ADMIN_ROLES } from "../lib/constants.js";
-import { resolveClassification, nextProjectId, REGION_OPTIONS } from "../lib/projectClassification.js";
+import { resolveClassification, nextProjectId } from "../lib/projectClassification.js";
+import { getDropdownLists, listValueError, startingValues } from "../lib/dropdownLists.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { newProjectDoc } from "../lib/companyProfile.js";
 import { emptyBranch } from "./companyProfiles.js";
@@ -86,9 +87,9 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
     // The project ID is built from category, service and type, so all of them are needed up front.
     const classification = resolveClassification({ category: projectCategory, service, projectType });
     if (classification.error) return res.status(400).json({ error: classification.error });
-    if (region && !REGION_OPTIONS.includes(region)) {
-      return res.status(400).json({ error: `region must be one of ${REGION_OPTIONS.join(", ")}` });
-    }
+    const lists = await getDropdownLists();
+    const regionError = listValueError(lists, "region", region);
+    if (regionError) return res.status(400).json({ error: regionError });
     if (!validateApproachMode(approachMode)) {
       return res.status(400).json({ error: `approachMode must be one of ${Object.values(APPROACH_MODE).join(", ")}` });
     }
@@ -218,6 +219,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       service: doc.service,
       projectType: doc.projectType,
       region: doc.region,
+      starting: startingValues(lists),
     });
 
     const batch = db.batch();
@@ -252,8 +254,9 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (marketingSource !== undefined && marketingSource && !MARKETING_SOURCE_OPTIONS.includes(marketingSource)) {
       return res.status(400).json({ error: `marketingSource must be one of ${MARKETING_SOURCE_OPTIONS.join(", ")}` });
     }
-    if (region !== undefined && region && !REGION_OPTIONS.includes(region)) {
-      return res.status(400).json({ error: `region must be one of ${REGION_OPTIONS.join(", ")}` });
+    if (region) {
+      const regionError = listValueError(await getDropdownLists(), "region", region);
+      if (regionError) return res.status(400).json({ error: regionError });
     }
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };

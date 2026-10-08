@@ -3,7 +3,69 @@ import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import { useFeatureFlags } from "../../context/FeatureFlagsContext";
 import { useProjectClassification } from "../../lib/useProjectClassification";
+import { useDropdownLists, useDropdownListLabels, refreshDropdownLists } from "../../lib/useDropdownLists";
 
+
+// Editable dropdown lists: one value per line. Used by project status /
+// priority / risk / payment status / region across the project screens.
+function DropdownListsCard() {
+  const labels = useDropdownListLabels();
+  const lists = useDropdownLists();
+  const [text, setText] = useState({});
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const keys = Object.keys(labels);
+  useEffect(() => {
+    const next = {};
+    for (const k of keys) next[k] = (lists[k] || []).join("\n");
+    setText(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(lists), keys.length]);
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    setSaved("");
+    try {
+      const payload = {};
+      for (const k of keys) payload[k] = (text[k] || "").split("\n").map((v) => v.trim()).filter(Boolean);
+      const { data } = await client.put("/settings/dropdown-lists", payload);
+      refreshDropdownLists(data);
+      setSaved("Saved. The new values show up in the project forms straight away.");
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h3 className="mt-0">Dropdown Lists</h3>
+      <p className="hint-text mt-0">
+        One value per line. Changing a list changes the choices in the project and plan-action forms. Records that
+        already use a removed value keep it.
+      </p>
+      {keys.length === 0 ? <Loading /> : (
+        <>
+          <div className="form-row">
+            {keys.map((k) => (
+              <div key={k} style={{ flex: "1 1 200px" }}>
+                <label>{labels[k]}</label>
+                <textarea rows={7} value={text[k] ?? ""} onChange={(e) => setText((t) => ({ ...t, [k]: e.target.value }))} />
+              </div>
+            ))}
+          </div>
+          <ErrorText>{error}</ErrorText>
+          {saved && <p className="hint-text">{saved}</p>}
+          <button className="btn-primary" style={{ marginTop: 12 }} onClick={save} disabled={busy}>{busy ? "Saving…" : "Save Lists"}</button>
+        </>
+      )}
+    </div>
+  );
+}
 
 // Editable per-project-type starter task list for the Project Plan —
 // applied automatically the moment a project's contract is confirmed
@@ -82,7 +144,7 @@ function ProjectPlanTemplatesCard() {
                 <label className="hint-text mt-0">Invoice Stage</label>
                 <select value={t.stage ?? ""} onChange={(e) => updateTask(i, "stage", e.target.value ? Number(e.target.value) : "")}>
                   <option value="">None</option>
-                  {[1, 2, 3, 4].map((n) => <option key={n} value={n}>Stage {n}</option>)}
+                  {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>Stage {n}</option>)}
                 </select>
               </div>
               <button type="button" className="btn-sm btn-danger" onClick={() => removeTask(i)}>Remove</button>
@@ -221,6 +283,7 @@ export default function Settings() {
         <ErrorText>{flagsError}</ErrorText>
       </div>
 
+      {flags?.projectManagement && <DropdownListsCard />}
       {flags?.projectManagement && <ProjectPlanTemplatesCard />}
 
       <div className="card">

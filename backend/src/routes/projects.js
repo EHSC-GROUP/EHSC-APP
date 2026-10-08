@@ -7,8 +7,10 @@ import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages } from "../lib/companyProfile.js";
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { INVOICE_STAGE_NUMBERS, isValidStage } from "../lib/constants.js";
 import { getProjectPlanTemplate, buildPlanActionsFromTemplate } from "../lib/projectPlanTemplate.js";
-import { resolveClassification, nextProjectId, REGION_OPTIONS } from "../lib/projectClassification.js";
+import { resolveClassification, nextProjectId } from "../lib/projectClassification.js";
+import { getDropdownLists, listValueError, startingValues } from "../lib/dropdownLists.js";
 
 const router = Router();
 
@@ -89,9 +91,10 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
     if (!branchId) return res.status(400).json({ error: "branchId is required" });
     const classification = resolveClassification({ category: projectCategory, service, projectType });
     if (classification.error) return res.status(400).json({ error: classification.error });
-    if (region && !REGION_OPTIONS.includes(region)) {
-      return res.status(400).json({ error: `region must be one of ${REGION_OPTIONS.join(", ")}` });
-    }
+    const lists = await getDropdownLists();
+    const regionError = listValueError(lists, "region", region);
+    if (regionError) return res.status(400).json({ error: regionError });
+    const starting = startingValues(lists);
     const projectId = await nextProjectId({ category: projectCategory, service, projectType });
 
     const companyRef = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(companyId);
@@ -114,6 +117,16 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
         service: service || null,
         projectType,
         region: region || "",
+        teamLeadId: "",
+        teamLeadName: "",
+        teamMembers: [],
+        status: starting.status,
+        priority: starting.priority,
+        risk: starting.risk,
+        startDate: null,
+        paymentStatus: starting.paymentStatus,
+        invoicedAmount: null,
+        receivedAmount: null,
         poNumber: "",
         poValue: null,
         deliveryDueDate: null,
@@ -161,9 +174,15 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
 
     const {
       poNumber, poValue, deliveryDueDate, termsAndConditions, contractValue,
-      invoiceStage1Percent, invoiceStage2Percent, invoiceStage3Percent, invoiceStage4Percent,
+      teamLeadId, teamLeadName, teamMembers, status, priority, risk, startDate,
+      paymentStatus, invoicedAmount, receivedAmount,
       phase2, phase3, phase4,
     } = req.body;
+    const lists = await getDropdownLists();
+    for (const [key, value] of [["projectStatus", status], ["priority", priority], ["risk", risk], ["paymentStatus", paymentStatus]]) {
+      const err = listValueError(lists, key, value);
+      if (err) return res.status(400).json({ error: err });
+    }
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
     if (poNumber !== undefined) updates.poNumber = poNumber;
@@ -171,12 +190,50 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (deliveryDueDate !== undefined) updates.deliveryDueDate = deliveryDueDate || null;
     if (termsAndConditions !== undefined) updates.termsAndConditions = termsAndConditions;
     if (contractValue !== undefined) updates.contractValue = contractValue === "" ? null : Number(contractValue);
-    for (const [key, val] of Object.entries({ invoiceStage1Percent, invoiceStage2Percent, invoiceStage3Percent, invoiceStage4Percent })) {
+    // Up to five invoice stages, each with a billing-trigger name and a percentage.
+    for (const n of INVOICE_STAGE_NUMBERS) {
+      const nameKey = `invoiceStage${n}Name`;
+      if (req.body[nameKey] !== undefined) updates[nameKey] = String(req.body[nameKey] || "").trim().slice(0, 120);
+      const key = `invoiceStage${n}Percent`;
+      const val = req.body[key];
       if (val === undefined) continue;
-      const num = val === "" ? null : Number(val);
+      const num = val === "" || val === null ? null : Number(val);
       if (num !== null && (Number.isNaN(num) || num < 0 || num > 100)) {
-        return res.status(400).json({ error: `${key} must be a number between 0 and 100` });
+        return res.status(400).json({ error: `Stage ${n} percentage must be a number between 0 and 100` });
       }
+      updates[key] = num;
+    }
+    const percentTotal = INVOICE_STAGE_NUMBERS.reduce((sum, n) => {
+      const v = updates[`invoiceStage${n}Percent`] !== undefined ? updates[`invoiceStage${n}Percent`] : existing[`invoiceStage${n}Percent`];
+      return sum + (Number(v) || 0);
+    }, 0);
+    if (percentTotal > 100.0001) {
+      return res.status(400).json({ error: `The invoice stage percentages add up to ${Math.round(percentTotal * 100) / 100}%, which is more than 100%` });
+    }
+
+    // Who runs the project and who works on it, plus its status, priority and risk.
+    if (teamLeadId !== undefined) {
+      updates.teamLeadId = teamLeadId ? String(teamLeadId).toUpperCase() : "";
+      updates.teamLeadName = teamLeadId ? String(teamLeadName || teamLeadId) : "";
+    }
+    if (teamMembers !== undefined) {
+      if (!Array.isArray(teamMembers) || teamMembers.length > 50) {
+        return res.status(400).json({ error: "teamMembers must be a list of up to 50 people" });
+      }
+      const seen = new Set();
+      updates.teamMembers = teamMembers
+        .map((m) => ({ userId: String(m.userId || "").toUpperCase(), name: String(m.name || m.userId || "") }))
+        .filter((m) => m.userId && !seen.has(m.userId) && seen.add(m.userId));
+    }
+    if (status !== undefined && status) updates.status = status;
+    if (priority !== undefined && priority) updates.priority = priority;
+    if (risk !== undefined && risk) updates.risk = risk;
+    if (startDate !== undefined) updates.startDate = startDate || null;
+    if (paymentStatus !== undefined && paymentStatus) updates.paymentStatus = paymentStatus;
+    for (const [key, val] of [["invoicedAmount", invoicedAmount], ["receivedAmount", receivedAmount]]) {
+      if (val === undefined) continue;
+      const num = val === "" || val === null ? null : Number(val);
+      if (num !== null && (Number.isNaN(num) || num < 0)) return res.status(400).json({ error: `${key} must be a number, 0 or more` });
       updates[key] = num;
     }
 
@@ -234,7 +291,8 @@ function stageNotificationMessage(project, stage) {
   const amount = percent != null && project.contractValue != null
     ? Math.round((Number(project.contractValue) * Number(percent) / 100) * 100) / 100
     : null;
-  return `Stage ${stage} complete for ${project.clientName} (${project.projectId})${percent != null ? ` — ${percent}%` : ""}${amount != null ? ` (₹${amount})` : ""}. Raise the invoice.`;
+  const stageName = project[`invoiceStage${stage}Name`];
+  return `Stage ${stage}${stageName ? ` (${stageName})` : ""} complete for ${project.clientName} (${project.projectId})${percent != null ? ` — ${percent}%` : ""}${amount != null ? ` (₹${amount})` : ""}. Raise the invoice.`;
 }
 
 // Marking an invoice stage complete manually — a fallback/override for a
@@ -246,7 +304,7 @@ function stageNotificationMessage(project, stage) {
 router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const stage = Number(req.params.stage);
-    if (![1, 2, 3, 4].includes(stage)) return res.status(400).json({ error: "stage must be 1, 2, 3 or 4" });
+    if (!isValidStage(stage)) return res.status(400).json({ error: "stage must be 1 to 5" });
     const completed = !!req.body.completed;
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
 
@@ -366,6 +424,19 @@ router.delete("/:id/client-replies/:replyId", authenticate, requireAdmin, async 
   }
 });
 
+// Checks the plan-action fields that come from the editable lists, plus % complete.
+function actionFieldsError(lists, body) {
+  for (const [key, value] of [["projectStatus", body.status], ["priority", body.priority], ["risk", body.risk]]) {
+    const err = listValueError(lists, key, value);
+    if (err) return err;
+  }
+  if (body.percentComplete !== undefined && body.percentComplete !== "" && body.percentComplete !== null) {
+    const n = Number(body.percentComplete);
+    if (!Number.isFinite(n) || n < 0 || n > 100) return "% complete must be a number from 0 to 100";
+  }
+  return null;
+}
+
 // ---- Phase III(b) project plan: a numbered action list --------------------
 router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, next) => {
   try {
@@ -373,9 +444,13 @@ router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, ne
     if (!description || !assignedTo || !dueDate) {
       return res.status(400).json({ error: "description, assignedTo and dueDate are required" });
     }
-    if (stage !== undefined && stage !== null && stage !== "" && ![1, 2, 3, 4].includes(Number(stage))) {
-      return res.status(400).json({ error: "stage must be 1, 2, 3, 4 or left blank" });
+    if (stage !== undefined && stage !== null && stage !== "" && !isValidStage(stage)) {
+      return res.status(400).json({ error: "stage must be 1 to 5 or left blank" });
     }
+    const lists = await getDropdownLists();
+    const fieldsError = actionFieldsError(lists, req.body);
+    if (fieldsError) return res.status(400).json({ error: fieldsError });
+    const starting = startingValues(lists);
 
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
     const action = {
@@ -388,6 +463,13 @@ router.post("/:id/plan-actions", authenticate, requireAdmin, async (req, res, ne
       dueDate,
       completed: false,
       completedAt: null,
+      priority: req.body.priority || starting.priority,
+      risk: req.body.risk || starting.risk,
+      status: req.body.status || starting.status,
+      percentComplete: req.body.percentComplete !== undefined && req.body.percentComplete !== "" ? Number(req.body.percentComplete) : 0,
+      deliverable: String(req.body.deliverable || "").slice(0, 300),
+      escalationRequired: !!req.body.escalationRequired,
+      remarks: String(req.body.remarks || "").slice(0, 1000),
       dependsOn: [],
       addedAt: new Date().toISOString(),
       addedBy: req.user.userId,
@@ -416,10 +498,12 @@ router.post("/:id/plan-actions/import", authenticate, requireAdmin, async (req, 
     if (!Array.isArray(tasks) || tasks.length === 0) return res.status(400).json({ error: "tasks must be a non-empty array" });
     for (const t of tasks) {
       if (!t.description || !t.dueDate) return res.status(400).json({ error: "every task needs a description and dueDate" });
-      if (t.stage !== undefined && t.stage !== null && t.stage !== "" && ![1, 2, 3, 4].includes(Number(t.stage))) {
-        return res.status(400).json({ error: "stage must be 1, 2, 3, 4 or left blank" });
+      if (t.stage !== undefined && t.stage !== null && t.stage !== "" && !isValidStage(t.stage)) {
+        return res.status(400).json({ error: "stage must be 1 to 5 or left blank" });
       }
     }
+    const lists = await getDropdownLists();
+    const starting = startingValues(lists);
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
     const actions = tasks.map((t) => ({
       id: uuid(),
@@ -431,6 +515,13 @@ router.post("/:id/plan-actions/import", authenticate, requireAdmin, async (req, 
       dueDate: t.dueDate,
       completed: false,
       completedAt: null,
+      priority: starting.priority,
+      risk: starting.risk,
+      status: starting.status,
+      percentComplete: 0,
+      deliverable: String(t.deliverable || "").slice(0, 300),
+      escalationRequired: false,
+      remarks: "",
       dependsOn: [],
       addedAt: new Date().toISOString(),
       addedBy: req.user.userId,
@@ -469,13 +560,19 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
   try {
     const isAdmin = ADMIN_ROLES.includes(req.user.role);
     const { description, assignedTo, assignedToName, startDate, dueDate, completed, dependsOn, stage } = req.body;
+    const { priority, risk, status, percentComplete, deliverable, escalationRequired, remarks } = req.body;
     if (!isAdmin) {
-      const onlyCompleted = Object.keys(req.body).every((k) => k === "completed");
-      if (!onlyCompleted) return res.status(403).json({ error: "Admin access required" });
+      // An assignee can report on their own progress, nothing else.
+      const ownFields = ["completed", "status", "percentComplete", "remarks"];
+      const onlyOwn = Object.keys(req.body).every((k) => ownFields.includes(k));
+      if (!onlyOwn) return res.status(403).json({ error: "Admin access required" });
     }
-    if (stage !== undefined && stage !== null && stage !== "" && ![1, 2, 3, 4].includes(Number(stage))) {
-      return res.status(400).json({ error: "stage must be 1, 2, 3, 4 or left blank" });
+    if (stage !== undefined && stage !== null && stage !== "" && !isValidStage(stage)) {
+      return res.status(400).json({ error: "stage must be 1 to 5 or left blank" });
     }
+    const lists = await getDropdownLists();
+    const fieldsError = actionFieldsError(lists, req.body);
+    if (fieldsError) return res.status(400).json({ error: fieldsError });
     const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
 
     let stagesJustCompleted = [];
@@ -500,9 +597,31 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
       if (startDate !== undefined) updated.startDate = startDate;
       if (dueDate !== undefined) updated.dueDate = dueDate;
       if (stage !== undefined) updated.stage = stage !== null && stage !== "" ? Number(stage) : null;
-      if (completed !== undefined) {
-        updated.completed = !!completed;
-        updated.completedAt = completed ? new Date().toISOString() : null;
+      if (priority !== undefined && priority) updated.priority = priority;
+      if (risk !== undefined && risk) updated.risk = risk;
+      if (deliverable !== undefined) updated.deliverable = String(deliverable || "").slice(0, 300);
+      if (escalationRequired !== undefined) updated.escalationRequired = !!escalationRequired;
+      if (remarks !== undefined) updated.remarks = String(remarks || "").slice(0, 1000);
+      if (percentComplete !== undefined && percentComplete !== "") updated.percentComplete = Number(percentComplete);
+      if (status !== undefined && status) updated.status = status;
+
+      // "Completed" status, the done tick and 100% all say the same thing, so
+      // keep them in step whichever one the caller changed.
+      const wasCompleted = !!actions[idx].completed;
+      let nowCompleted = wasCompleted;
+      if (completed !== undefined) nowCompleted = !!completed;
+      else if (status !== undefined && status) nowCompleted = status === "Completed";
+      else if (updated.percentComplete >= 100 && percentComplete !== undefined && percentComplete !== "") nowCompleted = true;
+      if (nowCompleted && !wasCompleted) {
+        updated.completed = true;
+        updated.completedAt = new Date().toISOString();
+        updated.status = "Completed";
+        updated.percentComplete = 100;
+      } else if (!nowCompleted && wasCompleted) {
+        updated.completed = false;
+        updated.completedAt = null;
+        if (updated.status === "Completed") updated.status = "Ongoing";
+        if (updated.percentComplete >= 100) updated.percentComplete = 90;
       }
       if (dependsOn !== undefined) {
         const validIds = new Set(actions.map((a) => a.id));
@@ -523,7 +642,7 @@ router.put("/:id/plan-actions/:actionId", authenticate, async (req, res, next) =
       // tagged with a stage is now done, that stage counts as complete.
       // Tasks keep their real names throughout; the stage number is only
       // ever an internal tag, never the task's own name.
-      for (const n of [1, 2, 3, 4]) {
+      for (const n of INVOICE_STAGE_NUMBERS) {
         if (project[`invoiceStage${n}Completed`]) continue;
         const stageActions = actions.filter((a) => a.stage === n);
         const allDone = stageActions.length > 0 && stageActions.every((a) => a.completed);

@@ -239,3 +239,8 @@ export const FEATURE_FLAG_DEFAULTS = Object.freeze({
   // when SARN wants it back.
   projectManagement: false,
 });
+
+// A project can bill in up to this many named stages (the client uses 3 to 5).
+export const INVOICE_STAGE_COUNT = 5;
+export const INVOICE_STAGE_NUMBERS = Object.freeze(Array.from({ length: INVOICE_STAGE_COUNT }, (_, i) => i + 1));
+export const isValidStage = (v) => INVOICE_STAGE_NUMBERS.includes(Number(v));
