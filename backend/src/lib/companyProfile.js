@@ -76,15 +76,17 @@ export function emptyInvoiceStages() {
 // (so the Project Tracker and lists don't need an extra join per row) —
 // a one-time copy, not a live sync. `projectType`/`projectSubType` are the
 // same one-time copy from the enquiry, when it came from one.
-export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId, projectType, projectSubType }) {
+export function newProjectDoc({ projectId, companyId, branchId, companyCode, clientName, sourceEnquiryId, sourceEnquiryNo, userId, projectCategory, service, projectType, region }) {
   return {
     projectId,
     companyId,
     branchId,
     companyCode,
     clientName,
+    projectCategory: projectCategory || null,
+    service: service || null,
     projectType: projectType || null,
-    projectSubType: projectSubType || null,
+    region: region || "",
     poNumber: "",
     poValue: null,
     deliveryDueDate: null,

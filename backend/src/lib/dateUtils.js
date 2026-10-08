@@ -93,3 +93,11 @@ export function overlapRange(aFrom, aTo, bFrom, bTo) {
   if (from > to) return null;
   return { from, to };
 }
+
+// Every date a user sees (PDFs, Excel exports) is DD/MM/YYYY. Stored values
+// stay ISO; this only formats for display and passes anything else through.
+export function fmtDMY(value) {
+  if (!value) return "";
+  const m = typeof value === "string" ? value.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : value;
+}

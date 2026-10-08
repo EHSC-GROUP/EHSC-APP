@@ -52,6 +52,7 @@ export const COLLECTIONS = Object.freeze({
   ATTENDANCE_STATUS: "attendance_status",
   ATTENDANCE_OOO_REQUESTS: "attendance_ooo_requests",
   ATTENDANCE_TRAVEL_REQUESTS: "attendance_travel_requests",
+  ATTENDANCE_WFH_REQUESTS: "attendance_wfh_requests",
   BD_ENQUIRIES: "bd_enquiries",
   COMPANY_PROFILES: "company_profiles",
   PROJECTS: "projects",
@@ -104,10 +105,8 @@ export const REFERRAL_TYPE = Object.freeze({
   EXTERNAL: "EXTERNAL",
 });
 
-// What kind of engagement the enquiry is for. ISO is further broken down
-// into which standard(s) — every other type has no sub-type.
-export const PROJECT_TYPES = Object.freeze(["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"]);
-export const ISO_SUB_TYPES = Object.freeze(["ISO9001Q", "ISO9001", "ISO14001E", "ISO45001", "ISO5001"]);
+// Project category / service / type (and the region list) live in
+// lib/projectClassification.js.
 
 // Synthetic, non-configurable leave types. Never stored in HR_LEAVE_TYPES,
 // never selectable in the self-service apply form.
@@ -199,6 +198,7 @@ export const ATTENDANCE_STATUS_VALUES = Object.freeze({
   HALF_DAY: "HALF_DAY",
   OUT_OF_OFFICE: "OUT_OF_OFFICE",
   TRAVEL: "TRAVEL",
+  WFH: "WFH",
 });
 
 export const ATTENDANCE_SOURCE = Object.freeze({
@@ -207,6 +207,7 @@ export const ATTENDANCE_SOURCE = Object.freeze({
   BULK: "BULK",
   SELF_OOO_REQUEST: "SELF_OOO_REQUEST",
   SELF_TRAVEL_REQUEST: "SELF_TRAVEL_REQUEST",
+  SELF_WFH_REQUEST: "SELF_WFH_REQUEST",
 });
 
 export const GEOFENCE_RADIUS_MIN_METERS = 10;
