@@ -10,9 +10,10 @@ import BusinessDevelopment from "./pages/Admin/BusinessDevelopment";
 import CompanyProfiles from "./pages/Admin/CompanyProfiles";
 import ProjectTracker from "./pages/Admin/ProjectTracker";
 import EmployeeProfiles from "./pages/Admin/EmployeeProfiles";
+import AdminHome from "./pages/Admin/AdminHome";
+import Holidays from "./pages/Admin/Holidays";
 import Payslips from "./pages/Admin/Payslips";
 import Leave from "./pages/Admin/Leave";
-import Holidays from "./pages/Admin/Holidays";
 import Reimbursements from "./pages/Admin/Reimbursements";
 import Attendance from "./pages/Admin/Attendance";
 import CompanyDocuments from "./pages/Admin/CompanyDocuments";
@@ -57,7 +58,7 @@ function StaffOnly({ children }) {
 // get sent to Attendance instead of a page full of 403s.
 function SuperAdminOnly({ children }) {
   const { user } = useAuth();
-  if (user.role !== "superadmin") return <Navigate to="/admin/attendance" replace />;
+  if (user.role !== "superadmin") return <Navigate to="/admin" replace />;
   return children;
 }
 
@@ -97,22 +98,22 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to={user?.role === "team_lead" ? "leave" : user?.role === "superadmin" ? "profiles" : "attendance"} replace />} />
+        <Route index element={user?.role === "team_lead" ? <Navigate to="leave" replace /> : <AdminHome />} />
         <Route path="business-development" element={<StaffOnly><RequireFeature flag="projectManagement"><BusinessDevelopment /></RequireFeature></StaffOnly>} />
         <Route path="company-profiles" element={<StaffOnly><RequireFeature flag="projectManagement"><CompanyProfiles /></RequireFeature></StaffOnly>} />
         <Route path="project-tracker" element={<StaffOnly><RequireFeature flag="projectManagement"><ProjectTracker /></RequireFeature></StaffOnly>} />
         <Route path="profiles" element={<SuperAdminOnly><EmployeeProfiles kind="staff" /></SuperAdminOnly>} />
         <Route path="associates" element={<SuperAdminOnly><EmployeeProfiles kind="associate" /></SuperAdminOnly>} />
-        <Route path="payslips" element={<StaffOnly><Payslips /></StaffOnly>} />
+        <Route path="payslips" element={<SuperAdminOnly><Payslips /></SuperAdminOnly>} />
         <Route path="leave" element={<Leave />} />
         <Route path="holidays" element={<StaffOnly><Holidays /></StaffOnly>} />
         <Route path="reimbursements" element={<Reimbursements />} />
         <Route path="material-indents" element={<StaffOnly><MaterialIndents /></StaffOnly>} />
-        <Route path="company-wallet" element={<StaffOnly><CompanyWallet /></StaffOnly>} />
+        <Route path="company-wallet" element={<SuperAdminOnly><CompanyWallet /></SuperAdminOnly>} />
         <Route path="attendance" element={<StaffOnly><Attendance /></StaffOnly>} />
-        <Route path="documents" element={<StaffOnly><CompanyDocuments /></StaffOnly>} />
+        <Route path="documents" element={<SuperAdminOnly><CompanyDocuments /></SuperAdminOnly>} />
         <Route path="travel" element={<StaffOnly><Travel /></StaffOnly>} />
-        <Route path="settings" element={<StaffOnly><Settings /></StaffOnly>} />
+        <Route path="settings" element={<SuperAdminOnly><Settings /></SuperAdminOnly>} />
       </Route>
 
       <Route
@@ -123,7 +124,7 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Hub />} />
+        <Route index element={["admin", "superadmin", "team_lead"].includes(user?.role) ? <Navigate to="/admin" replace /> : <Hub />} />
         <Route path="leave" element={<MyLeave />} />
         <Route path="reimbursements" element={<MyReimbursements />} />
         <Route path="material-indents" element={<MyMaterialIndents />} />
@@ -134,6 +135,7 @@ export default function App() {
         <Route path="documents" element={<MyDocuments />} />
         <Route path="payslips" element={<MyPayslips />} />
         <Route path="activity" element={<MyActivity />} />
+        <Route path="holidays" element={<Holidays readOnly />} />
       </Route>
 
       <Route

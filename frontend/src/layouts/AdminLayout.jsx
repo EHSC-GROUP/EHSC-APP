@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useFeatureFlags } from "../context/FeatureFlagsContext";
 import NotificationBell from "../components/NotificationBell";
+import PersonalDetailsPrompt from "../components/PersonalDetailsPrompt";
 
 // Items with `children` render as a collapsible group instead of a direct
 // link — keeps the always-visible list short even as more pages get added.
@@ -45,12 +46,6 @@ const NAV_GROUPS = [
       { to: "/admin/travel", label: "Travel" },
       { to: "/admin/documents", label: "Compliance" },
       { to: "/admin/settings", label: "Settings" },
-    ],
-  },
-  {
-    label: "Self Service",
-    items: [
-      { to: "/me/attendance", label: "My Attendance" },
     ],
   },
 ];
@@ -98,7 +93,7 @@ export default function AdminLayout() {
   const { pathname } = useLocation();
   const isTeamLead = user?.role === "team_lead";
   const isSuperAdmin = user?.role === "superadmin";
-  const SUPERADMIN_ONLY_PATHS = ["/admin/profiles", "/admin/associates"];
+  const SUPERADMIN_ONLY_PATHS = ["/admin/profiles", "/admin/associates", "/admin/payslips", "/admin/documents", "/admin/settings", "/admin/company-wallet"];
 
   const visibleGroups = NAV_GROUPS
     .filter((group) => group.label !== "PM" || (flags.projectManagement && !isTeamLead))
@@ -106,7 +101,7 @@ export default function AdminLayout() {
       ...group,
       items: group.items
         .map((item) => (item.children ? { ...item, children: item.children.filter((c) => (!isTeamLead || TEAM_LEAD_PATHS.includes(c.to)) && (isSuperAdmin || !SUPERADMIN_ONLY_PATHS.includes(c.to))) } : item))
-        .filter((item) => (item.children ? item.children.length > 0 : !isTeamLead || TEAM_LEAD_PATHS.includes(item.to))),
+        .filter((item) => (item.children ? item.children.length > 0 : (!isTeamLead || TEAM_LEAD_PATHS.includes(item.to)) && (isSuperAdmin || !SUPERADMIN_ONLY_PATHS.includes(item.to)))),
     }))
     .filter((group) => group.items.length > 0);
 
@@ -119,6 +114,11 @@ export default function AdminLayout() {
         </div>
         <nav>
           <div className="sidebar-scroll">
+            {!isTeamLead && (
+              <div className="nav-group">
+                <NavLink to="/admin" end className={({ isActive }) => (isActive ? "active" : "")}>Home</NavLink>
+              </div>
+            )}
             {visibleGroups.map((group) => (
               <div className="nav-group" key={group.label}>
                 <span className="nav-group-label">{group.label}</span>
@@ -136,6 +136,7 @@ export default function AdminLayout() {
         </nav>
       </aside>
       <main className="main-content">
+        <PersonalDetailsPrompt />
         <Outlet />
       </main>
     </div>
