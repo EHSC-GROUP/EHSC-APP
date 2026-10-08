@@ -8,6 +8,7 @@ import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
 import { notifyAdmins } from "../lib/notifications.js";
 import { getProjectPlanTemplate, buildPlanActionsFromTemplate } from "../lib/projectPlanTemplate.js";
+import { resolveClassification, nextProjectId, REGION_OPTIONS } from "../lib/projectClassification.js";
 
 const router = Router();
 
@@ -83,9 +84,15 @@ router.get("/:id", authenticate, requireAdmin, async (req, res, next) => {
 // enquiry-created path, so IDs never collide either way.
 router.post("/", authenticate, requireAdmin, async (req, res, next) => {
   try {
-    const { companyId, branchId } = req.body;
+    const { companyId, branchId, projectCategory, service, projectType, region } = req.body;
     if (!companyId) return res.status(400).json({ error: "companyId is required" });
     if (!branchId) return res.status(400).json({ error: "branchId is required" });
+    const classification = resolveClassification({ category: projectCategory, service, projectType });
+    if (classification.error) return res.status(400).json({ error: classification.error });
+    if (region && !REGION_OPTIONS.includes(region)) {
+      return res.status(400).json({ error: `region must be one of ${REGION_OPTIONS.join(", ")}` });
+    }
+    const projectId = await nextProjectId({ category: projectCategory, service, projectType });
 
     const companyRef = db.collection(COLLECTIONS.COMPANY_PROFILES).doc(companyId);
     const id = uuid();
@@ -97,17 +104,16 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       const company = companySnap.data();
       const branch = (company.branches || []).find((b) => b.id === branchId);
       if (!branch) throw Object.assign(new Error("Branch not found"), { status: 404 });
-      const projectSeq = (company.projectSeq || 0) + 1;
-      const projectId = `PRJ${company.parentNumber}${String(projectSeq).padStart(3, "0")}`;
-
       const newDoc = {
         projectId,
         companyId,
         branchId,
         companyCode: branch.companyCode,
         clientName: company.clientName,
-        projectType: null,
-        projectSubType: null,
+        projectCategory,
+        service: service || null,
+        projectType,
+        region: region || "",
         poNumber: "",
         poValue: null,
         deliveryDueDate: null,
@@ -125,7 +131,6 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedBy: req.user.userId,
       };
-      tx.update(companyRef, { projectSeq });
       tx.set(projectRef, newDoc);
       return newDoc;
     });

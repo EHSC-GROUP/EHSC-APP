@@ -3,10 +3,9 @@ import bcrypt from "bcryptjs";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES, ADMIN_ROLES, PROFILE_TYPE, STAFF_PROFILE_TYPES, DEPARTMENTS, TEMP_PASSWORD } from "../lib/constants.js";
-import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireSuperAdmin, invalidateUserState } from "../middleware/auth.js";
 import { generateAssociateId, generateEmployeeId } from "../lib/userId.js";
 import { isValidId } from "../lib/validateId.js";
-import { pickCurrentVersion } from "../lib/salaryStructures.js";
 
 const router = Router();
 // userId route params must look like a real ID before they're used to build
@@ -26,6 +25,8 @@ const ASSOCIATE_HIDDEN_FIELDS = [
   "designation",
   "department",
   "fatherOrHusbandName",
+  "dateOfBirth",
+  "anniversaryDate",
   "gender",
   "dateOfJoining",
   "dateOfLeaving",
@@ -74,28 +75,16 @@ function validateStaffFields(body, { partial }) {
 router.get("/", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const includeArchived = req.query.includeArchived === "true";
-    const [profilesSnap, usersSnap, salarySnap] = await Promise.all([
+    const [profilesSnap, usersSnap] = await Promise.all([
       db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).get(),
       db.collection(COLLECTIONS.USERS).get(),
-      db.collection(COLLECTIONS.HR_SALARY_STRUCTURES).get(),
     ]);
     const usersById = new Map(usersSnap.docs.map((d) => [d.id, d.data()]));
-    const salaryById = new Map(salarySnap.docs.map((d) => [d.id, d.data().versions || []]));
 
     const list = profilesSnap.docs
       .map((d) => {
         const profile = d.data();
         const user = usersById.get(d.id) || {};
-        // Reference net salary for a full month (gross minus the flat
-        // deductions on the current salary version) — not the same as a
-        // specific payslip's net pay, which prorates with payable days.
-        const version = pickCurrentVersion(salaryById.get(d.id));
-        const versionEsi = version?.esiApplicable
-          ? (Number(version.basic || 0) + Number(version.hra || 0) + Number(version.others || 0)) * Number(version.esiPercent || 0) / 100
-          : 0;
-        const netSalary = version
-          ? Math.round((Number(version.gross || 0) - Number(version.pt || 0) - versionEsi - Number(version.tds || 0)) * 100) / 100
-          : null;
         return {
           ...profile,
           userId: d.id,
@@ -103,7 +92,6 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
           role: user.role,
           disabled: !!user.disabled,
           status: deriveStatus(profile),
-          netSalary,
         };
       })
       .filter((p) => includeArchived || !p.disabled);
@@ -125,14 +113,11 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
           role: user.role,
           disabled: !!user.disabled,
           status: "ACTIVE",
-          netSalary: null,
         };
       })
       .filter((p) => includeArchived || !p.disabled);
 
-    // Salary figures are for the superadmin only — strip them for regular admins.
-    const all = [...list, ...extraAdmins];
-    res.json(req.user.role === ROLES.SUPERADMIN ? all : all.map(({ netSalary, ...rest }) => rest));
+    res.json([...list, ...extraAdmins]);
   } catch (err) {
     next(err);
   }
@@ -269,8 +254,63 @@ router.delete("/:userId", authenticate, requireSuperAdmin, async (req, res, next
       return res.status(403).json({ error: "Super admin accounts cannot be archived" });
     }
 
+    // Archiving a staff member (employee/admin/team lead) needs their date of
+    // leaving, which is recorded on the profile. Associates have no such field.
+    const profileRef = db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(targetId);
+    const profileSnap = await profileRef.get();
+    if (profileSnap.exists && isStaffType(profileSnap.data().type)) {
+      const dateOfLeaving = req.body?.dateOfLeaving;
+      if (!dateOfLeaving || !/^\d{4}-\d{2}-\d{2}$/.test(dateOfLeaving) || Number.isNaN(new Date(`${dateOfLeaving}T00:00:00Z`).getTime())) {
+        return res.status(400).json({ error: "Date of leaving is required to archive an employee" });
+      }
+      await profileRef.update({
+        dateOfLeaving,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: req.user.userId,
+      });
+    }
+
+    invalidateUserState(targetId);
     await userRef.update({ disabled: true, disabledAt: admin.firestore.FieldValue.serverTimestamp(), disabledBy: req.user.userId });
     res.json({ ok: true, archived: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Change a staff member's role: Employee, Admin or Team Leader. The superadmin
+// account, associates and your own account are off limits. Takes effect on
+// the person's very next request (see middleware/auth.js).
+const ROLE_FOR_TYPE = {
+  [PROFILE_TYPE.EMPLOYEE]: ROLES.EMPLOYEE,
+  [PROFILE_TYPE.ADMIN]: ROLES.ADMIN,
+  [PROFILE_TYPE.TEAM_LEADER]: ROLES.TEAM_LEAD,
+};
+
+router.put("/:userId/role", authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const targetId = req.params.userId.toUpperCase();
+    const { type } = req.body;
+    if (!ROLE_FOR_TYPE[type]) {
+      return res.status(400).json({ error: `type must be one of: ${Object.keys(ROLE_FOR_TYPE).join(", ")}` });
+    }
+    if (targetId === req.user.userId) return res.status(400).json({ error: "You cannot change your own role" });
+
+    const userRef = db.collection(COLLECTIONS.USERS).doc(targetId);
+    const profileRef = db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(targetId);
+    const [userSnap, profileSnap] = await Promise.all([userRef.get(), profileRef.get()]);
+    if (!userSnap.exists || !profileSnap.exists) return res.status(404).json({ error: "Not found" });
+    if (userSnap.data().role === ROLES.SUPERADMIN) return res.status(403).json({ error: "The super admin's role cannot be changed" });
+    if (!isStaffType(profileSnap.data().type)) {
+      return res.status(400).json({ error: "Only employees, admins and team leaders can have their role changed" });
+    }
+
+    const batch = db.batch();
+    batch.update(userRef, { role: ROLE_FOR_TYPE[type] });
+    batch.update(profileRef, { type, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
+    await batch.commit();
+    invalidateUserState(targetId);
+    res.json({ ok: true, type, role: ROLE_FOR_TYPE[type] });
   } catch (err) {
     next(err);
   }
@@ -280,6 +320,7 @@ router.post("/:userId/restore", authenticate, requireSuperAdmin, async (req, res
   try {
     const targetId = req.params.userId.toUpperCase();
     await db.collection(COLLECTIONS.USERS).doc(targetId).update({ disabled: false });
+    invalidateUserState(targetId);
     res.json({ ok: true });
   } catch (err) {
     next(err);
