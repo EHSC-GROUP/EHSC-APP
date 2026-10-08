@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { fmtDMY } from "./dateUtils.js";
 
 const COLUMNS = [
   { header: "Voucher No", key: "voucherNo", width: 16 },
@@ -27,10 +28,10 @@ export async function buildMaterialIndentRegisterWorkbook(records) {
     for (const item of r.items) {
       sheet.addRow({
         voucherNo: r.voucherNo || "",
-        raisedDate: r.raisedDate,
+        raisedDate: fmtDMY(r.raisedDate),
         name: r.name || r.userId,
         itemMaterial: item.itemMaterial,
-        requiredDate: item.requiredDate || "",
+        requiredDate: fmtDMY(item.requiredDate),
         qty: item.qty,
         rate: item.rate,
         amount: item.amount,

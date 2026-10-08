@@ -1,5 +1,6 @@
 import PDFDocument from "pdfkit";
 import { drawLetterhead, drawFooter } from "./pdfBranding.js";
+import { fmtDMY } from "./dateUtils.js";
 
 const PAGE = { left: 30, right: 812 };
 
@@ -36,7 +37,7 @@ function drawPage(doc, period, p) {
   doc.text(`Name: ${p.name || ""}`, 30, infoY);
   doc.text(`Employee No: ${p.employeeId || ""}`, 300, infoY);
   doc.text(`Designation: ${p.designation || ""}`, 550, infoY);
-  doc.text(`Date of Joining: ${p.dateOfJoining || "-"}`, 30, infoY + 14);
+  doc.text(`Date of Joining: ${fmtDMY(p.dateOfJoining) || "-"}`, 30, infoY + 14);
   doc.text(`Days in Month: ${p.daysInMonth}`, 300, infoY + 14);
   doc.text(`Payable Days: ${p.payableDays}`, 550, infoY + 14);
   doc.y = infoY + 32;
@@ -54,7 +55,7 @@ function drawPage(doc, period, p) {
   doc.y = rowY + 26;
 
   doc.moveDown();
-  doc.fontSize(8).font("Helvetica-Oblique").text("H = Holiday, W = Weekly Off, P = Present, A = Absent, HD = Half Day, other codes = leave type", 30, doc.y);
+  doc.fontSize(8).font("Helvetica-Oblique").text("H = Holiday, W = Weekly Off, P = Present, LOP = Loss of Pay, HD = Half Day, other codes = leave type", 30, doc.y);
   doc.moveDown();
 
   const tableTop = doc.y + 6;

@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import { drawTable } from "./pdfTable.js";
 import { drawLetterhead, drawFooter } from "./pdfBranding.js";
+import { fmtDMY } from "./dateUtils.js";
 
 const PAGE_LEFT = 40;
 const PAGE_RIGHT = 555;
@@ -13,7 +14,7 @@ function drawIndentPage(doc, record) {
 
   doc.font("Helvetica").fontSize(9);
   doc.text(`Voucher No: ${record.voucherNo || "-"}`, PAGE_LEFT, top + 32);
-  doc.text(`Raised Date: ${record.raisedDate || "-"}`, PAGE_LEFT + 280, top + 32);
+  doc.text(`Raised Date: ${fmtDMY(record.raisedDate) || "-"}`, PAGE_LEFT + 280, top + 32);
   doc.text(`Indent By: ${record.name || record.userId}`, PAGE_LEFT, top + 47);
   doc.y = top + 65;
 
@@ -29,7 +30,7 @@ function drawIndentPage(doc, record) {
       { header: "Rate", width: 65 },
       { header: "Amount", width: PAGE_WIDTH - (35 + 80 + 220 + 50 + 65) },
     ],
-    record.items.map((i, idx) => [idx + 1, i.requiredDate || "-", i.itemMaterial, i.qty, Number(i.rate).toFixed(2), Number(i.amount).toFixed(2)])
+    record.items.map((i, idx) => [idx + 1, fmtDMY(i.requiredDate) || "-", i.itemMaterial, i.qty, Number(i.rate).toFixed(2), Number(i.amount).toFixed(2)])
   );
   doc.font("Helvetica-Bold").fontSize(9).text(`Total: Rs. ${Number(record.totalAmount).toFixed(2)}`, PAGE_LEFT, y + 4, { align: "right", width: PAGE_WIDTH });
   doc.y = y + 24;
