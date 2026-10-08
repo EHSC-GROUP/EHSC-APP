@@ -247,7 +247,7 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
 
     if (isEmployee) {
       const profileSnap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(req.user.userId).get();
-      if (!profileSnap.exists || !profileSnap.data().reimbursementAccess) {
+      if (!profileSnap.exists || !(profileSnap.data().reimbursementAccess || profileSnap.data().type === "associate")) {
         return res.status(403).json({ error: "Reimbursement access has not been granted to you" });
       }
       if (files.length === 0) {

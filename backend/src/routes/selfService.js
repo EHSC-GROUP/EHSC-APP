@@ -1,7 +1,7 @@
 import { Router } from "express";
 
-import { db } from "../config/firebase.js";
-import { COLLECTIONS, PAYSLIP_STATUS } from "../lib/constants.js";
+import { db, admin } from "../config/firebase.js";
+import { COLLECTIONS, PAYSLIP_STATUS, ADMIN_ROLES } from "../lib/constants.js";
 import { authenticate } from "../middleware/auth.js";
 import { getAssignedWork } from "../lib/assignedWork.js";
 
@@ -18,10 +18,27 @@ router.get("/profile", authenticate, async (req, res, next) => {
       db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(req.user.userId).get(),
       db.collection(COLLECTIONS.USERS).doc(req.user.userId).get(),
     ]);
-    if (!profileSnap.exists) return res.status(404).json({ error: "Profile not found" });
+    if (!profileSnap.exists) {
+      // Admin/superadmin accounts can exist without an HR profile (e.g. the seeded
+      // superadmin). They don't need reimbursement access to file their own
+      // vouchers, so give them a minimal profile instead of an error.
+      if (userSnap.exists && ADMIN_ROLES.includes(userSnap.data().role)) {
+        return res.json({
+          userId: req.user.userId,
+          name: userSnap.data().name,
+          type: "admin",
+          reimbursementAccess: true,
+          status: "ACTIVE",
+          noHrProfile: true,
+        });
+      }
+      return res.status(404).json({ error: "Profile not found" });
+    }
 
     const profile = { ...profileSnap.data() };
     for (const f of SENSITIVE_FIELDS) delete profile[f];
+    // Reimbursements is the one thing an associate can do, so they always have access.
+    if (profile.type === "associate") profile.reimbursementAccess = true;
 
     res.json({
       ...profile,
@@ -29,6 +46,41 @@ router.get("/profile", authenticate, async (req, res, next) => {
       name: userSnap.data()?.name,
       status: profile.dateOfLeaving ? "RELIEVED" : "ACTIVE",
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Employees/admins fill these three themselves (prompted by a banner until
+// done). Father/spouse name and date of birth are required; anniversary date
+// is optional. Only these fields are ever written here.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+router.put("/personal-details", authenticate, async (req, res, next) => {
+  try {
+    const { fatherOrHusbandName, dateOfBirth, anniversaryDate } = req.body;
+    const name = (fatherOrHusbandName || "").trim();
+    if (!name) return res.status(400).json({ error: "Father / spouse name is required" });
+    if (!ISO_DATE.test(dateOfBirth || "") || Number.isNaN(new Date(`${dateOfBirth}T00:00:00Z`).getTime())) {
+      return res.status(400).json({ error: "A valid birth date is required" });
+    }
+    if (dateOfBirth > new Date().toISOString().slice(0, 10)) {
+      return res.status(400).json({ error: "Birth date can't be in the future" });
+    }
+    if (anniversaryDate && (!ISO_DATE.test(anniversaryDate) || Number.isNaN(new Date(`${anniversaryDate}T00:00:00Z`).getTime()))) {
+      return res.status(400).json({ error: "Anniversary date is not a valid date" });
+    }
+
+    const ref = db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(req.user.userId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Profile not found" });
+    await ref.update({
+      fatherOrHusbandName: name,
+      dateOfBirth,
+      anniversaryDate: anniversaryDate || null,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: req.user.userId,
+    });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

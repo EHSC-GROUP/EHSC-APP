@@ -2,11 +2,12 @@ import { Router } from "express";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { getWeeklyOffDays, getRecurringWeekdayRules } from "../lib/calendar.js";
 import { getEarningsFormula, validateFormula, pickFormulaFields } from "../lib/earningsFormula.js";
 import { getFeatureFlags, FLAGS_DOC } from "../lib/featureFlags.js";
-import { FEATURE_FLAG_DEFAULTS, PROJECT_TYPES } from "../lib/constants.js";
+import { FEATURE_FLAG_DEFAULTS } from "../lib/constants.js";
+import { PROJECT_CATEGORIES, ALL_PROJECT_TYPES, REGION_OPTIONS, PROJECT_TYPE_VALUES as PROJECT_TYPES } from "../lib/projectClassification.js";
 import { getProjectPlanTemplates, templatesRef } from "../lib/projectPlanTemplate.js";
 
 const router = Router();
@@ -21,7 +22,7 @@ router.get("/feature-flags", authenticate, async (req, res, next) => {
   }
 });
 
-router.put("/feature-flags", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/feature-flags", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const updates = {};
     for (const key of Object.keys(FEATURE_FLAG_DEFAULTS)) {
@@ -45,7 +46,7 @@ router.get("/weekly-off", authenticate, async (req, res, next) => {
   }
 });
 
-router.put("/weekly-off", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/weekly-off", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { days } = req.body;
     if (!Array.isArray(days) || days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
@@ -77,7 +78,7 @@ router.get("/weekday-rules", authenticate, async (req, res, next) => {
   }
 });
 
-router.put("/weekday-rules", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/weekday-rules", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { rules } = req.body;
     if (!Array.isArray(rules)) return res.status(400).json({ error: "rules must be an array" });
@@ -109,7 +110,7 @@ router.put("/weekday-rules", authenticate, requireAdmin, async (req, res, next) 
   }
 });
 
-router.get("/earnings-formula", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/earnings-formula", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     res.json(await getEarningsFormula());
   } catch (err) {
@@ -117,7 +118,7 @@ router.get("/earnings-formula", authenticate, requireAdmin, async (req, res, nex
   }
 });
 
-router.put("/earnings-formula", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/earnings-formula", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const formula = pickFormulaFields(req.body);
     const error = validateFormula(formula);
@@ -139,6 +140,12 @@ router.put("/earnings-formula", authenticate, requireAdmin, async (req, res, nex
 // accepted (see routes/projects.js PUT /:id). Readable by any authenticated
 // user (same reasoning as feature-flags: a non-admin assignee viewing a
 // Project Plan doesn't need admin rights just to see what generated it).
+// The Project Category -> Service -> Project Type tree and the region list,
+// for the enquiry / new project forms and the template pickers.
+router.get("/project-classification", authenticate, (req, res) => {
+  res.json({ categories: PROJECT_CATEGORIES, allTypes: ALL_PROJECT_TYPES, regions: REGION_OPTIONS });
+});
+
 router.get("/project-plan-templates", authenticate, async (req, res, next) => {
   try {
     res.json(await getProjectPlanTemplates());
