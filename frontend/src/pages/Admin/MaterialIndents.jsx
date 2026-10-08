@@ -6,6 +6,7 @@ import { Loading, ErrorText } from "../../components/Misc";
 import MaterialIndentForm from "../../components/MaterialIndentForm";
 import WalletBalanceBanner from "../../components/WalletBalanceBanner";
 import { openAuthedFile } from "../../lib/openFile";
+import { fmtDate } from "../../lib/dates";
 
 export default function MaterialIndents() {
   const [list, setList] = useState(null);
@@ -87,7 +88,7 @@ export default function MaterialIndents() {
                 <tr key={r.id}>
                   <td>{r.voucherNo || "-"}</td>
                   <td>{r.name || r.userId}</td>
-                  <td>{r.raisedDate}</td>
+                  <td>{fmtDate(r.raisedDate)}</td>
                   <td>{r.purpose}</td>
                   <td>₹{r.totalAmount.toFixed(2)}</td>
                   <td><StatusBadge status={r.status} /></td>

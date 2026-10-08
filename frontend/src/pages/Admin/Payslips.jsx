@@ -198,10 +198,10 @@ const WEEKDAY_HEADERS = ["S", "M", "T", "W", "T", "F", "S"];
 const LEGEND = [
   { key: "P", label: "Present" },
   { key: "HD", label: "Half Day" },
-  { key: "OOO", label: "Out of Office" },
+  { key: "OOO", label: "On Duty" },
   { key: "WFH", label: "Work From Home" },
   { key: "LEAVE", label: "Leave" },
-  { key: "A", label: "Absent (LOP)" },
+  { key: "A", label: "LOP" },
   { key: "H", label: "Holiday" },
   { key: "W", label: "Weekly Off" },
   { key: "DUE", label: "Not Yet Due" },
@@ -212,7 +212,7 @@ function categorize(mark) {
   if (mark === "HD" || mark === "P(H)" || mark.endsWith("(H)")) return "HD";
   if (mark === "OOO") return "OOO";
   if (mark === "WFH") return "WFH";
-  if (mark === "A") return "A";
+  if (mark === "A" || mark === "LOP") return "A";
   if (mark === "H") return "H";
   if (mark === "W") return "W";
   if (mark === "-") return "DUE";
@@ -223,9 +223,9 @@ function tooltipLabel(dateStr, mark, leaveNameById) {
   let label;
   if (mark === "P") label = "Present";
   else if (mark === "HD" || mark === "P(H)") label = "Half Day";
-  else if (mark === "OOO") label = "Out of Office (approved)";
+  else if (mark === "OOO") label = "On Duty (approved)";
   else if (mark === "WFH") label = "Work From Home (auto)";
-  else if (mark === "A") label = "Absent (Loss of Pay)";
+  else if (mark === "A" || mark === "LOP") label = "Loss of Pay";
   else if (mark === "H") label = "Holiday";
   else if (mark === "W") label = "Weekly Off";
   else if (mark === "-") label = "Not yet due — this day hasn't happened yet";
@@ -244,6 +244,14 @@ function tooltipLabel(dateStr, mark, leaveNameById) {
 function normalizeMark(entry) {
   if (typeof entry === "string") return entry;
   return entry?.mark ?? "-";
+}
+
+// What the calendar cell shows (older payslips stored "A" for a LOP day and
+// "OOO" for an On Duty day).
+function displayMark(mark) {
+  if (mark === "A") return "LOP";
+  if (mark === "OOO") return "OD";
+  return mark;
 }
 
 function AttendanceCalendar({ payslip }) {
@@ -265,7 +273,7 @@ function AttendanceCalendar({ payslip }) {
           return (
             <div key={day} className={`payslip-day-cell payslip-day-${cat}`} title={tooltipLabel(dateStr, mark, leaveNameById)}>
               <span className="payslip-day-num">{day}</span>
-              {mark}
+              {displayMark(mark)}
             </div>
           );
         })}

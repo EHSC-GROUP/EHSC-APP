@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
+import { fmtDate } from "../../lib/dates";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -23,7 +24,7 @@ const DAY_COL_WIDTH = 34; // px per day column in the Gantt header/timeline (Dai
 const WEEKLY_DAY_COL_WIDTH = 10; // px per day column when zoomed out to weeks — same date range, much narrower chart
 
 function formatShort(date) {
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 // One row per action, flattened across every Company Profile's Phase III(b)
@@ -311,8 +312,8 @@ export default function ProjectTracker() {
                           <span className="desc">{a.description}</span>
                           <span className="meta">{a.assignedToName || a.assignedTo}</span>
                         </span>
-                        <span className="gantt-col-start">{a.startDate || "-"}</span>
-                        <span className="gantt-col-end">{a.dueDate || "-"}</span>
+                        <span className="gantt-col-start">{fmtDate(a.startDate) || "-"}</span>
+                        <span className="gantt-col-end">{fmtDate(a.dueDate) || "-"}</span>
                       </div>
                       <div className="gantt-track">
                         <div className="gantt-today-line" style={{ left: `${todayOffsetPct}%` }} />
@@ -338,8 +339,8 @@ export default function ProjectTracker() {
           <div className="gantt-tooltip-title">{activeAction.description}</div>
           <div className="gantt-tooltip-row"><span>Client</span><span>{activeAction.clientName}</span></div>
           <div className="gantt-tooltip-row"><span>Assigned to</span><span>{activeAction.assignedToName || activeAction.assignedTo}</span></div>
-          <div className="gantt-tooltip-row"><span>Start</span><span>{activeAction.startDate || "-"}</span></div>
-          <div className="gantt-tooltip-row"><span>Due</span><span>{activeAction.dueDate}</span></div>
+          <div className="gantt-tooltip-row"><span>Start</span><span>{fmtDate(activeAction.startDate) || "-"}</span></div>
+          <div className="gantt-tooltip-row"><span>Due</span><span>{fmtDate(activeAction.dueDate)}</span></div>
           <div className="gantt-tooltip-row"><span>Status</span><span className={`gantt-tooltip-status gantt-tooltip-status-${activeStatus}`}>{STATUS_LABEL[activeStatus]}</span></div>
           {activeTooltip.pinned && <div className="gantt-tooltip-hint">Click the bar again (or elsewhere) to close</div>}
         </div>
