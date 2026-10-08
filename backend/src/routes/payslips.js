@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES, PAYSLIP_STATUS } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireSuperAdmin } from "../middleware/auth.js";
 import { computeGeneratedPayslip, applyPayslipEdit } from "../lib/payslipCompute.js";
 import { renderPayslipPdf, renderConsolidatedPayslipPdf } from "../lib/payslipPdf.js";
 import { buildPayrollRegisterWorkbook } from "../lib/payrollExcel.js";
@@ -53,7 +53,7 @@ async function getActiveEmployeeProfiles(userIds) {
 }
 
 // ---- list by period (admin) ---------------------------------------------
-router.get("/", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const period = req.query.period;
     if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
@@ -82,7 +82,7 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
 });
 
 // ---- generate (bulk or by userIds) ---------------------------------------
-router.post("/generate", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/generate", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { period, userIds } = req.body;
     if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
@@ -130,7 +130,7 @@ router.post("/generate", authenticate, requireAdmin, async (req, res, next) => {
 // un-finalize step — but its PDF is regenerated in place immediately after,
 // so the document on file always matches the current numbers. The frontend
 // confirms this with the admin before saving (see the Edit Draft modal).
-router.put("/:userId/:period", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/:userId/:period", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { period } = req.params;
@@ -157,7 +157,7 @@ router.put("/:userId/:period", authenticate, requireAdmin, async (req, res, next
   }
 });
 
-router.post("/:userId/:period/finalize", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/:userId/:period/finalize", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { period } = req.params;
@@ -188,7 +188,7 @@ router.post("/:userId/:period/finalize", authenticate, requireAdmin, async (req,
 // Reverts FINALIZED -> DRAFT so numbers can be edited again. An explicit
 // step (not silent re-editing of finalized numbers, which the reference
 // app allowed and which this rebuild treats as a bug).
-router.post("/:userId/:period/unfinalize", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/:userId/:period/unfinalize", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { period } = req.params;
@@ -210,7 +210,7 @@ router.post("/:userId/:period/unfinalize", authenticate, requireAdmin, async (re
   }
 });
 
-router.post("/:userId/:period/publish", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/:userId/:period/publish", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { period } = req.params;
@@ -231,7 +231,7 @@ router.post("/:userId/:period/publish", authenticate, requireAdmin, async (req, 
   }
 });
 
-router.post("/:userId/:period/unpublish", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/:userId/:period/unpublish", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { period } = req.params;
@@ -252,7 +252,7 @@ router.post("/:userId/:period/unpublish", authenticate, requireAdmin, async (req
   }
 });
 
-router.delete("/:userId/:period", authenticate, requireAdmin, async (req, res, next) => {
+router.delete("/:userId/:period", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { period } = req.params;
@@ -286,7 +286,7 @@ router.get("/:userId/:period/pdf", authenticate, async (req, res, next) => {
 });
 
 // ---- Excel payroll register export ---------------------------------------
-router.get("/excel/export", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/excel/export", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const period = req.query.period;
     if (!period) return res.status(400).json({ error: "period (YYYY-MM) is required" });
@@ -305,7 +305,7 @@ router.get("/excel/export", authenticate, requireAdmin, async (req, res, next) =
 });
 
 // ---- consolidated multi-month PDF for one employee -----------------------
-router.get("/:userId/consolidated", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/:userId/consolidated", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const userId = req.params.userId.toUpperCase();
     const { from, to } = req.query;

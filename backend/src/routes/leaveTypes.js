@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, LOP, HALF_DAY } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireSuperAdmin } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -21,7 +21,7 @@ router.get("/", authenticate, async (req, res, next) => {
   }
 });
 
-router.post("/", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { name, paidDaysPerYear, carryForward, monthlyCap, accrualPerMonth, id } = req.body;
     if (!name || paidDaysPerYear === undefined) {
@@ -57,7 +57,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/:id", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     if (RESERVED_IDS.has(req.params.id)) {
       return res.status(400).json({ error: "Reserved leave types cannot be edited" });
@@ -81,7 +81,7 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-router.delete("/:id", authenticate, requireAdmin, async (req, res, next) => {
+router.delete("/:id", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     if (RESERVED_IDS.has(req.params.id)) {
       return res.status(400).json({ error: "Reserved leave types cannot be deleted" });
