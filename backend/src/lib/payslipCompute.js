@@ -18,7 +18,7 @@ import { getSystemLoginDays } from "./systemLoginDays.js";
 // leave day — the request's own `days` total was computed the same way at
 // apply time). The half-day trim (if halfDay: true) only ever applies to
 // the request's actual last day (toDate), not the period's last day.
-function expandLeaveRequestToDays(request, periodStart, periodEnd, holidaySet, weeklyOffDays) {
+function expandLeaveRequestToDays(request, periodStart, periodEnd, holidaySet, weeklyOffDays, todayISO) {
   const from = request.fromDate > periodStart ? request.fromDate : periodStart;
   const to = request.toDate < periodEnd ? request.toDate : periodEnd;
   if (from > to) return [];
@@ -30,7 +30,16 @@ function expandLeaveRequestToDays(request, periodStart, periodEnd, holidaySet, w
     const isHalfDay = request.halfDay && date === request.toDate;
     out.push({ date, leaveType: request.leaveType, amount: isHalfDay ? 0.5 : 1 });
   }
-  return out;
+  // Leave is paid only while the employee had balance left when it was
+  // approved; the days past that (stamped on the request as lopExcessDays)
+  // are Loss of Pay, taken from the end of the leave.
+  let excess = Number(request.lopExcessDays || 0);
+  for (let i = out.length - 1; i >= 0 && excess > 0; i--) {
+    out[i] = { ...out[i], leaveType: LOP };
+    excess = round1(excess - out[i].amount);
+  }
+  // Payable days run only up to today — a future leave day isn't counted yet.
+  return out.filter((d) => d.date <= todayISO);
 }
 
 async function getApprovedLeaveRequestsOverlapping(userId, periodStart, periodEnd) {
@@ -78,7 +87,7 @@ export async function computeMusterAndLeave(userId, period) {
   const rawTotals = new Map(); // leaveType -> total days this month
 
   for (const request of requests) {
-    const days = expandLeaveRequestToDays(request, start, end, holidaySet, weeklyOffDays);
+    const days = expandLeaveRequestToDays(request, start, end, holidaySet, weeklyOffDays, todayISO);
     for (const d of days) {
       leaveDayEntries.set(d.date, d);
       rawTotals.set(d.leaveType, round1((rawTotals.get(d.leaveType) || 0) + d.amount));
@@ -129,23 +138,32 @@ export async function computeMusterAndLeave(userId, period) {
   // not by this mark string, so that's unaffected either way).
   let holidayDays = 0;
   let weeklyOffCount = 0;
+  // Holidays / weekly-offs that have already happened — only these count as
+  // payable days (the rest of the month isn't earned yet).
+  let payableHolidayDays = 0;
+  let payableWeeklyOffDays = 0;
   let wfhAutoCount = 0;
   let outOfOfficeCount = 0;
+  let absentCount = 0;
   const dayMarks = [];
   for (const date of eachDate(start, end)) {
     let mark;
     if (holidaySet.has(date)) {
       mark = "H";
       holidayDays++;
+      if (date <= todayISO) payableHolidayDays++;
     } else if (weeklyOffDays.includes(weekdayOf(date))) {
       mark = "W";
       weeklyOffCount++;
+      if (date <= todayISO) payableWeeklyOffDays++;
     } else if (leaveDayEntries.has(date)) {
       const entry = leaveDayEntries.get(date);
       if (entry.leaveType === HALF_DAY) mark = "HD";
       else if (entry.amount === 0.5) mark = `${entry.leaveType}(H)`;
       else mark = entry.leaveType;
-    } else if (date > todayISO) {
+    } else if (date > todayISO || (date === todayISO && !attendanceStatuses.has(date) && !wfhAutoDates.has(date))) {
+      // Future day — and today too until attendance is marked, so a day that
+      // is still in progress is never counted as Loss of Pay.
       mark = "-";
     } else {
       const status = attendanceStatuses.get(date);
@@ -154,6 +172,8 @@ export async function computeMusterAndLeave(userId, period) {
       else if ([ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE, ATTENDANCE_STATUS_VALUES.TRAVEL].includes(status)) {
         mark = "OOO";
         outOfOfficeCount++;
+      } else if (status === ATTENDANCE_STATUS_VALUES.WFH) {
+        mark = "WFH";
       } else if (wfhAutoDates.has(date)) {
         // A predefined WFH day (e.g. "1st Saturday") — shown as its own
         // tag so it's visible which days were auto-credited by the
@@ -162,14 +182,17 @@ export async function computeMusterAndLeave(userId, period) {
         mark = "WFH";
         wfhAutoCount++;
       } else {
-        mark = "A";
+        // No attendance marked (or marked absent) — Loss of Pay. Only the
+        // superadmin can change this afterwards.
+        mark = "LOP";
+        absentCount++;
       }
     }
     dayMarks.push(mark);
   }
 
   const workingDays = daysInMonthCount - holidayDays - weeklyOffCount;
-  const absentDays = dayMarks.filter((m) => m === "A").length;
+  const absentDays = absentCount;
   // Days present per the attendance records: Present / Out of Office / Travel
   // count as a full day, Half Day as half, plus any automatic WFH-rule days.
   const systemPresentDays = round1([...attendanceWeights.values()].reduce((sum, w) => sum + w, 0) + wfhAutoCount);
@@ -182,6 +205,8 @@ export async function computeMusterAndLeave(userId, period) {
     workingDays,
     holidayDays,
     weeklyOffDays: weeklyOffCount,
+    payableHolidayDays,
+    payableWeeklyOffDays,
     absentDays,
     halfDays,
     outOfOfficeDays: outOfOfficeCount,
@@ -270,7 +295,7 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
   const esiManual = existing?.esiManual || false;
   const incomeTaxManual = existing?.incomeTaxManual || false;
 
-  const payableDays = computePayableDays({ presentDays, paidLeaveDays: muster.paidLeaveDays, holidayDays: muster.holidayDays, weeklyOffDays: muster.weeklyOffDays, daysInMonth: muster.daysInMonth });
+  const payableDays = computePayableDays({ presentDays, paidLeaveDays: muster.paidLeaveDays, holidayDays: muster.payableHolidayDays, weeklyOffDays: muster.payableWeeklyOffDays, daysInMonth: muster.daysInMonth });
   const earnings = computeEarningsForPayableDays(structureVersion, payableDays, muster.daysInMonth);
 
   const pt = ptManual ? existing.pt : earnings.pt;
@@ -303,6 +328,8 @@ export async function computeGeneratedPayslip(userId, profile, period, existing)
     lopDays: muster.lopDays,
     holidayDays: muster.holidayDays,
     weeklyOffDays: muster.weeklyOffDays,
+    payableHolidayDays: muster.payableHolidayDays,
+    payableWeeklyOffDays: muster.payableWeeklyOffDays,
     absentDays: muster.absentDays,
     halfDays: muster.halfDays,
     outOfOfficeDays: muster.outOfOfficeDays,
@@ -353,8 +380,8 @@ export async function applyPayslipEdit(existing, updates) {
     payableDays = computePayableDays({
       presentDays,
       paidLeaveDays: existing.paidLeaveDays,
-      holidayDays: existing.holidayDays,
-      weeklyOffDays: existing.weeklyOffDays,
+      holidayDays: existing.payableHolidayDays ?? existing.holidayDays,
+      weeklyOffDays: existing.payableWeeklyOffDays ?? existing.weeklyOffDays,
       daysInMonth: existing.daysInMonth,
     });
     const earnings = computeEarningsForPayableDays(structureVersion, payableDays, existing.daysInMonth);

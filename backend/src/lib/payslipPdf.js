@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import { numberToWords } from "./numberToWords.js";
 import { drawLetterhead, drawFooter } from "./pdfBranding.js";
+import { fmtDMY } from "./dateUtils.js";
 
 const PAGE = { left: 40, right: 555 };
 const BLUE = "#1d4ed8";
@@ -52,7 +53,7 @@ function drawPayslipPage(doc, payslip) {
 
   drawInfoTable(doc, [
     [["Name", payslip.name], ["Employee No.", payslip.employeeId]],
-    [["Designation", payslip.designation], ["Date of Joining", payslip.dateOfJoining || "-"]],
+    [["Designation", payslip.designation], ["Date of Joining", fmtDMY(payslip.dateOfJoining) || "-"]],
     [["Days in Month", payslip.daysInMonth], ["Payable Days", payslip.payableDays]],
   ], PAGE);
 
