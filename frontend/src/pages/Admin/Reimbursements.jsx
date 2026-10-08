@@ -8,6 +8,7 @@ import AdvancesPanel from "../../components/AdvancesPanel";
 import WalletBalanceBanner from "../../components/WalletBalanceBanner";
 import { BillLinks } from "../Employee/MyReimbursements";
 import { openAuthedFile } from "../../lib/openFile";
+import { fmtDate } from "../../lib/dates";
 
 export default function Reimbursements() {
   const [tab, setTab] = useState("Vouchers");
@@ -138,7 +139,7 @@ export default function Reimbursements() {
                     <tr key={r.id}>
                       <td>{r.voucherNo || "-"}</td>
                       <td>{r.name || r.userId}<div className="hint-text mt-0">{r.department || "no department"}</div></td>
-                      <td>{r.voucherDate}</td>
+                      <td>{fmtDate(r.voucherDate)}</td>
                       <td><StatusBadge status={r.type || "GENERAL"} /></td>
                       <td>₹{r.totalAmount.toFixed(2)} <BillLinks record={r} onError={setError} /></td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.advanceTaken || 0).toFixed(2)}` : "-"}</td>

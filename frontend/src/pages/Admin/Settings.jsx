@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import { useFeatureFlags } from "../../context/FeatureFlagsContext";
+import { useProjectClassification } from "../../lib/useProjectClassification";
 
-const PROJECT_TYPES = ["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"];
 
 // Editable per-project-type starter task list for the Project Plan —
 // applied automatically the moment a project's contract is confirmed
 // ("Responded in favour" ticked), but only into a still-empty plan.
 function ProjectPlanTemplatesCard() {
+  const { catalog } = useProjectClassification();
+  const typeOptions = catalog?.allTypes || [];
   const [templates, setTemplates] = useState(null);
   const [type, setType] = useState("GHG");
   const [tasks, setTasks] = useState([]);
@@ -63,7 +65,7 @@ function ProjectPlanTemplatesCard() {
         <>
           <label>Project Type</label>
           <select value={type} onChange={(e) => setType(e.target.value)}>
-            {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
 
           {tasks.map((t, i) => (

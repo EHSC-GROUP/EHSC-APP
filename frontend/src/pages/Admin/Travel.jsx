@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
+import { fmtDate } from "../../lib/dates";
 
 // Approval of travel requests. Approving marks the employee as "Travel"
 // (counted as present) on the requested date.
@@ -61,7 +62,7 @@ export default function Travel() {
               {requests.map((r) => (
                 <tr key={r.id}>
                   <td>{r.name} <span className="text-muted">({r.userId})</span></td>
-                  <td>{r.date}</td>
+                  <td>{fmtDate(r.date)}</td>
                   <td>{r.reason}</td>
                   <td><StatusBadge status={r.status} /></td>
                   <td>
