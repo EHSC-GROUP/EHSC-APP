@@ -5,10 +5,12 @@ import Drawer from "../../components/Drawer";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import ProjectEditor from "../../components/ProjectEditor";
+import DateInput from "../../components/DateInput";
+import { fmtDate } from "../../lib/dates";
+import { useProjectClassification } from "../../lib/useProjectClassification";
+import ClassificationFields from "../../components/ClassificationFields";
 
 const APPROACH_MODES = ["EMAIL", "PHONE", "ON_SITE"];
-const PROJECT_TYPES = ["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"];
-const ISO_SUB_TYPES = ["ISO9001Q", "ISO9001", "ISO14001E", "ISO45001", "ISO5001"];
 const MARKETING_SOURCES = ["Email Campaign", "Referral", "Website", "Exhibition"];
 const RESULTS = ["IN_PROGRESS", "PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED", "ENQUIRY_ON_HOLD", "ENQUIRY_DROPPED"];
 const RESULT_LABELS = {
@@ -108,10 +110,10 @@ export default function BusinessDevelopment() {
                     <td>{e.enquiryNo}</td>
                     <td>{e.clientName}</td>
                     <td>{e.approachedByName}</td>
-                    <td>{e.approachDate}</td>
+                    <td>{fmtDate(e.approachDate)}</td>
                     <td>{MODE_LABELS[e.approachMode] || e.approachMode}</td>
                     <td className={overdue ? "overdue" : ""}>
-                      {na ? `${na.description} (due ${na.dueDate}${overdue ? " — overdue" : ""})` : "—"}
+                      {na ? `${na.description} (due ${fmtDate(na.dueDate)}${overdue ? " — overdue" : ""})` : "—"}
                     </td>
                     <td><StatusBadge status={e.result} /></td>
                   </tr>
@@ -142,11 +144,12 @@ function CreateEnquiryModal({ onClose, onCreated }) {
     companyId: "", branchId: "", clientName: "", address: "",
     marketingSource: "", referralType: "", referredByEmployeeId: "", referredByExternalName: "", referredByExternalPhone: "",
     approachedByName: "", approachDate: todayISO(), approachMode: "EMAIL",
-    contactPhone: "", contactEmail: "", topic: "", outcomeOfDiscussion: "", estimatedValue: "", remarks: "",
-    projectType: "", projectSubType: "",
+    contactPhone: "", contactEmail: "", projectEngagement: "", topic: "", outcomeOfDiscussion: "", estimatedValue: "", remarks: "",
+    country: "", region: "", projectCategory: "", service: "", projectType: "",
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const { catalog } = useProjectClassification();
 
   const selectedCompany = companies.find((c) => c.id === form.companyId);
   const branches = selectedCompany?.branches || [];
@@ -192,7 +195,8 @@ function CreateEnquiryModal({ onClose, onCreated }) {
       } else if (payload.referralType === "EXTERNAL") {
         delete payload.referredByEmployeeId;
       }
-      if (payload.projectType !== "ISO") delete payload.projectSubType;
+      if (!payload.service) delete payload.service;
+      if (!payload.region) delete payload.region;
       const employee = employees.find((emp) => emp.userId === form.referredByEmployeeId);
       if (employee) payload.referredByEmployeeName = employee.name;
       await client.post("/business-development", payload);
@@ -238,7 +242,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
                   <input value={form.address} onChange={(e) => set("address", e.target.value)} placeholder="Address of the new branch" required />
                 )}
                 <p className="hint-text mt-0">
-                  A new project (PRJ{selectedCompany?.parentNumber}{String((selectedCompany?.projectSeq || 0) + 1).padStart(3, "0")}) will be added under this company.
+                  A new project will be added under this company, with an ID built from the category, service and project type.
                 </p>
               </>
             )}
@@ -252,22 +256,23 @@ function CreateEnquiryModal({ onClose, onCreated }) {
 
         <div className="form-row">
           <div>
-            <label>Project Type</label>
-            <select value={form.projectType} onChange={(e) => { set("projectType", e.target.value); set("projectSubType", ""); }}>
+            <label>Country</label>
+            <input value={form.country} onChange={(e) => set("country", e.target.value)} />
+          </div>
+          <div>
+            <label>Region</label>
+            <select value={form.region} onChange={(e) => set("region", e.target.value)}>
               <option value="">Select…</option>
-              {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              {(catalog?.regions || []).map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
-          {form.projectType === "ISO" && (
-            <div>
-              <label>ISO Sub Type</label>
-              <select value={form.projectSubType} onChange={(e) => set("projectSubType", e.target.value)}>
-                <option value="">Select…</option>
-                {ISO_SUB_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-          )}
         </div>
+
+        <ClassificationFields
+          catalog={catalog}
+          value={{ projectCategory: form.projectCategory, service: form.service, projectType: form.projectType }}
+          onChange={(v) => setForm((f) => ({ ...f, ...v }))}
+        />
 
         <label>Marketing Source (how the enquiry was generated)</label>
         <select value={form.marketingSource} onChange={(e) => set("marketingSource", e.target.value)}>
@@ -305,7 +310,7 @@ function CreateEnquiryModal({ onClose, onCreated }) {
 
         <div className="form-row">
           <div><label>Approached By (contact person name)</label><input value={form.approachedByName} onChange={(e) => set("approachedByName", e.target.value)} required /></div>
-          <div><label>Date of Approach</label><input type="date" value={form.approachDate} onChange={(e) => set("approachDate", e.target.value)} required /></div>
+          <div><label>Date of Approach</label><DateInput value={form.approachDate} onChange={(e) => set("approachDate", e.target.value)} required /></div>
           <div>
             <label>Mode of Approach</label>
             <select value={form.approachMode} onChange={(e) => set("approachMode", e.target.value)} required>
@@ -319,6 +324,9 @@ function CreateEnquiryModal({ onClose, onCreated }) {
           <div><label>Contact Email{!emailRequired && " (optional)"}</label><input type="email" value={form.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} required={emailRequired} /></div>
           <div><label>Estimated Value (optional)</label><input type="number" min="0" step="0.01" value={form.estimatedValue} onChange={(e) => set("estimatedValue", e.target.value)} /></div>
         </div>
+
+        <label>Project Engagement</label>
+        <input value={form.projectEngagement} onChange={(e) => set("projectEngagement", e.target.value)} />
 
         <label>Description</label>
         <textarea rows={2} value={form.topic} onChange={(e) => set("topic", e.target.value)} />
@@ -419,6 +427,7 @@ function CompanyProfileFromEnquiryTab({ enquiry }) {
 }
 
 function DetailsTab({ enquiry, onSaved, onDeleted }) {
+  const { catalog, categoryLabel, serviceLabel, typeLabel } = useProjectClassification();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(enquiry);
   const [error, setError] = useState("");
@@ -473,8 +482,13 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
         <table>
           <tbody>
             <tr><td>Client / Company</td><td>{enquiry.clientName}</td></tr>
-            <tr><td>Project Type</td><td>{enquiry.projectType ? `${enquiry.projectType}${enquiry.projectSubType ? ` — ${enquiry.projectSubType}` : ""}` : "-"}</td></tr>
             <tr><td>Address</td><td>{enquiry.address || "-"}</td></tr>
+            <tr><td>Country</td><td>{enquiry.country || "-"}</td></tr>
+            <tr><td>Region</td><td>{enquiry.region || "-"}</td></tr>
+            <tr><td>Project Category</td><td>{categoryLabel(enquiry.projectCategory) || "-"}</td></tr>
+            {enquiry.service && <tr><td>Service</td><td>{serviceLabel(enquiry.projectCategory, enquiry.service)}</td></tr>}
+            <tr><td>Project Type</td><td>{typeLabel(enquiry.projectType) || "-"}</td></tr>
+            <tr><td>Project ID</td><td>{enquiry.projectId || "-"}</td></tr>
             <tr><td>Marketing Source</td><td>{enquiry.marketingSource || "-"}</td></tr>
             {enquiry.marketingSource === "Referral" && (
               <tr>
@@ -487,11 +501,12 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
               </tr>
             )}
             <tr><td>Approached By</td><td>{enquiry.approachedByName}</td></tr>
-            <tr><td>Approach Date</td><td>{enquiry.approachDate}</td></tr>
+            <tr><td>Approach Date</td><td>{fmtDate(enquiry.approachDate)}</td></tr>
             <tr><td>Mode of Approach</td><td>{MODE_LABELS[enquiry.approachMode] || enquiry.approachMode}</td></tr>
             <tr><td>Contact Phone</td><td>{enquiry.contactPhone || "-"}</td></tr>
             <tr><td>Contact Email</td><td>{enquiry.contactEmail || "-"}</td></tr>
             <tr><td>Estimated Value</td><td>{enquiry.estimatedValue ?? "-"}</td></tr>
+            <tr><td>Project Engagement</td><td>{enquiry.projectEngagement || "-"}</td></tr>
             <tr><td>Description</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.topic || "-"}</td></tr>
             <tr><td>Outcome of Discussion</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.outcomeOfDiscussion || "-"}</td></tr>
             <tr><td>Remarks</td><td style={{ whiteSpace: "pre-wrap" }}>{enquiry.remarks || "-"}</td></tr>
@@ -509,26 +524,19 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
     <form onSubmit={save}>
       <label>Client / Company Name</label>
       <input value={form.clientName || ""} onChange={(e) => set("clientName", e.target.value)} required />
-      <div className="form-row">
-        <div>
-          <label>Project Type</label>
-          <select value={form.projectType || ""} onChange={(e) => { set("projectType", e.target.value); set("projectSubType", ""); }}>
-            <option value="">Select…</option>
-            {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-        {form.projectType === "ISO" && (
-          <div>
-            <label>ISO Sub Type</label>
-            <select value={form.projectSubType || ""} onChange={(e) => set("projectSubType", e.target.value)}>
-              <option value="">Select…</option>
-              {ISO_SUB_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-        )}
-      </div>
       <label>Address</label>
       <input value={form.address || ""} onChange={(e) => set("address", e.target.value)} />
+      <label>Country</label>
+      <input value={form.country || ""} onChange={(e) => set("country", e.target.value)} />
+      <label>Region</label>
+      <select value={form.region || ""} onChange={(e) => set("region", e.target.value)}>
+        <option value="">Select…</option>
+        {(catalog?.regions || []).map((r) => <option key={r} value={r}>{r}</option>)}
+      </select>
+      <p className="hint-text">
+        {[categoryLabel(form.projectCategory), serviceLabel(form.projectCategory, form.service), typeLabel(form.projectType)].filter(Boolean).join(" › ") || "No project category set"}
+        {" "}(fixed once the enquiry is created, because the project ID is built from it).
+      </p>
       <label>Marketing Source</label>
       <select value={form.marketingSource || ""} onChange={(e) => set("marketingSource", e.target.value)}>
         <option value="">Select…</option>
@@ -536,7 +544,7 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
       </select>
       <div className="form-row">
         <div><label>Approached By</label><input value={form.approachedByName || ""} onChange={(e) => set("approachedByName", e.target.value)} required /></div>
-        <div><label>Approach Date</label><input type="date" value={form.approachDate || ""} onChange={(e) => set("approachDate", e.target.value)} required /></div>
+        <div><label>Approach Date</label><DateInput value={form.approachDate || ""} onChange={(e) => set("approachDate", e.target.value)} required /></div>
       </div>
       <label>Mode of Approach</label>
       <select value={form.approachMode} onChange={(e) => set("approachMode", e.target.value)}>
@@ -547,6 +555,8 @@ function DetailsTab({ enquiry, onSaved, onDeleted }) {
         <div><label>Contact Email</label><input type="email" value={form.contactEmail || ""} onChange={(e) => set("contactEmail", e.target.value)} /></div>
         <div><label>Estimated Value</label><input type="number" min="0" step="0.01" value={form.estimatedValue ?? ""} onChange={(e) => set("estimatedValue", e.target.value)} /></div>
       </div>
+      <label>Project Engagement</label>
+      <input value={form.projectEngagement || ""} onChange={(e) => set("projectEngagement", e.target.value)} />
       <label>Description</label>
       <textarea rows={2} value={form.topic || ""} onChange={(e) => set("topic", e.target.value)} />
       <label>Outcome of Discussion</label>
@@ -610,9 +620,9 @@ function ActionsTab({ enquiryId, actions, onChanged }) {
               <button className="btn-sm btn-danger" onClick={() => remove(a.id)}>Delete</button>
             </div>
             <p className="hint-text mt-0">
-              Assigned to: {a.assignedToName || a.assignedTo} · Due: <span className={overdue ? "overdue" : ""}>{a.dueDate}{overdue ? " (overdue)" : ""}</span>
-              {a.startDate && <> · Started: {a.startDate}</>}
-              {a.completed && a.completedAt && <> · Completed: {new Date(a.completedAt).toLocaleDateString()}</>}
+              Assigned to: {a.assignedToName || a.assignedTo} · Due: <span className={overdue ? "overdue" : ""}>{fmtDate(a.dueDate)}{overdue ? " (overdue)" : ""}</span>
+              {a.startDate && <> · Started: {fmtDate(a.startDate)}</>}
+              {a.completed && a.completedAt && <> · Completed: {fmtDate(a.completedAt)}</>}
             </p>
           </div>
         );
@@ -693,8 +703,8 @@ function AddActionModal({ enquiryId, onClose, onAdded }) {
           {people.map((p) => <option key={p.userId} value={p.userId}>{p.name} ({p.userId})</option>)}
         </select>
         <div className="form-row">
-          <div><label>Action Start Date</label><input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
-          <div><label>Due Date</label><input type="date" value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></div>
+          <div><label>Action Start Date</label><DateInput value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
+          <div><label>Due Date</label><DateInput value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></div>
         </div>
         <ErrorText>{error}</ErrorText>
         <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Saving…" : "Add Next Follow Up"}</button>

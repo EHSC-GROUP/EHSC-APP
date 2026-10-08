@@ -2,7 +2,8 @@ import { Router } from "express";
 import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
-import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE, ADMIN_ROLES, PROJECT_TYPES, ISO_SUB_TYPES } from "../lib/constants.js";
+import { COLLECTIONS, BD_RESULT, APPROACH_MODE, MARKETING_SOURCE_OPTIONS, REFERRAL_TYPE, ADMIN_ROLES } from "../lib/constants.js";
+import { resolveClassification, nextProjectId, REGION_OPTIONS } from "../lib/projectClassification.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { newProjectDoc } from "../lib/companyProfile.js";
 import { emptyBranch } from "./companyProfiles.js";
@@ -35,21 +36,8 @@ async function nextParentNumber() {
   });
 }
 
-// Project IDs are PRJ + the parent company's 3-digit number + a 3-digit
-// sequence (PRJ150001, PRJ150002, ...) — one counter shared by every branch
-// of that company, so project numbering never resets per branch. Deliberately
-// 3 digits (not 2, like branch numbers) so a project's numeric part is
-// always one digit longer than any branch code and can never be mistaken
-// for one, even when both happen to be "the first" (01).
-async function nextProjectId(companyRef, parentNumber) {
-  return db.runTransaction(async (tx) => {
-    const snap = await tx.get(companyRef);
-    if (!snap.exists) throw Object.assign(new Error("Company not found"), { status: 404 });
-    const projectSeq = (snap.data().projectSeq || 0) + 1;
-    tx.update(companyRef, { projectSeq });
-    return `PRJ${parentNumber}${String(projectSeq).padStart(3, "0")}`;
-  });
-}
+// Project IDs now come from lib/projectClassification.js:
+// CATEGORY/SERVICE/TYPE/YEAR/NUMBER, e.g. CONS/ESG/ECOVADIS/2026/001.
 
 function validateApproachMode(mode) {
   return Object.values(APPROACH_MODE).includes(mode);
@@ -88,21 +76,18 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       companyId, branchId, clientName, address, marketingSource,
       referralType, referredByEmployeeId, referredByEmployeeName, referredByExternalName, referredByExternalPhone,
       approachedByName, approachDate, approachMode,
-      contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, remarks,
-      projectType, projectSubType,
+      contactPhone, contactEmail, projectEngagement, topic, outcomeOfDiscussion, estimatedValue, remarks,
+      projectCategory, service, projectType, country, region,
     } = req.body;
 
     if (!approachedByName || !approachDate || !approachMode) {
       return res.status(400).json({ error: "approachedByName, approachDate and approachMode are required" });
     }
-    if (projectType && !PROJECT_TYPES.includes(projectType)) {
-      return res.status(400).json({ error: `projectType must be one of ${PROJECT_TYPES.join(", ")}` });
-    }
-    if (projectSubType && projectType !== "ISO") {
-      return res.status(400).json({ error: "projectSubType only applies when projectType is ISO" });
-    }
-    if (projectSubType && !ISO_SUB_TYPES.includes(projectSubType)) {
-      return res.status(400).json({ error: `projectSubType must be one of ${ISO_SUB_TYPES.join(", ")}` });
+    // The project ID is built from category, service and type, so all of them are needed up front.
+    const classification = resolveClassification({ category: projectCategory, service, projectType });
+    if (classification.error) return res.status(400).json({ error: classification.error });
+    if (region && !REGION_OPTIONS.includes(region)) {
+      return res.status(400).json({ error: `region must be one of ${REGION_OPTIONS.join(", ")}` });
     }
     if (!validateApproachMode(approachMode)) {
       return res.status(400).json({ error: `approachMode must be one of ${Object.values(APPROACH_MODE).join(", ")}` });
@@ -179,7 +164,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
     }
 
     const enquiryNo = await nextEnquiryNo();
-    const projectId = await nextProjectId(companyRef, parentNumber);
+    const projectId = await nextProjectId({ category: projectCategory, service, projectType });
     const id = uuid();
 
     const doc = {
@@ -199,10 +184,15 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       approachedByName,
       approachDate,
       approachMode,
-      projectType: projectType || null,
-      projectSubType: projectType === "ISO" ? (projectSubType || null) : null,
+      country: country || "",
+      region: region || "",
+      projectCategory,
+      service: service || null,
+      projectType,
+      projectSubType: null,
       contactPhone: contactPhone || "",
       contactEmail: contactEmail || "",
+      projectEngagement: projectEngagement || "",
       topic: topic || "",
       outcomeOfDiscussion: outcomeOfDiscussion || "",
       estimatedValue: estimatedValue !== undefined && estimatedValue !== "" ? Number(estimatedValue) : null,
@@ -224,8 +214,10 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       sourceEnquiryId: id,
       sourceEnquiryNo: enquiryNo,
       userId: req.user.userId,
+      projectCategory: doc.projectCategory,
+      service: doc.service,
       projectType: doc.projectType,
-      projectSubType: doc.projectSubType,
+      region: doc.region,
     });
 
     const batch = db.batch();
@@ -247,8 +239,8 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
 
     const {
       clientName, address, marketingSource, approachedByName, approachDate, approachMode,
-      contactPhone, contactEmail, topic, outcomeOfDiscussion, estimatedValue, result, remarks,
-      projectType, projectSubType,
+      contactPhone, contactEmail, projectEngagement, topic, outcomeOfDiscussion, estimatedValue, result, remarks,
+      country, region,
     } = req.body;
 
     if (approachMode !== undefined && !validateApproachMode(approachMode)) {
@@ -260,36 +252,29 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (marketingSource !== undefined && marketingSource && !MARKETING_SOURCE_OPTIONS.includes(marketingSource)) {
       return res.status(400).json({ error: `marketingSource must be one of ${MARKETING_SOURCE_OPTIONS.join(", ")}` });
     }
-    if (projectType !== undefined && projectType && !PROJECT_TYPES.includes(projectType)) {
-      return res.status(400).json({ error: `projectType must be one of ${PROJECT_TYPES.join(", ")}` });
-    }
-    if (projectSubType !== undefined && projectSubType && !ISO_SUB_TYPES.includes(projectSubType)) {
-      return res.status(400).json({ error: `projectSubType must be one of ${ISO_SUB_TYPES.join(", ")}` });
+    if (region !== undefined && region && !REGION_OPTIONS.includes(region)) {
+      return res.status(400).json({ error: `region must be one of ${REGION_OPTIONS.join(", ")}` });
     }
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
     if (clientName !== undefined) updates.clientName = clientName;
     if (address !== undefined) updates.address = address;
+    if (country !== undefined) updates.country = country || "";
     if (marketingSource !== undefined) updates.marketingSource = marketingSource;
     if (approachedByName !== undefined) updates.approachedByName = approachedByName;
     if (approachDate !== undefined) updates.approachDate = approachDate;
     if (approachMode !== undefined) updates.approachMode = approachMode;
     if (contactPhone !== undefined) updates.contactPhone = contactPhone;
     if (contactEmail !== undefined) updates.contactEmail = contactEmail;
+    if (projectEngagement !== undefined) updates.projectEngagement = projectEngagement;
     if (topic !== undefined) updates.topic = topic;
     if (outcomeOfDiscussion !== undefined) updates.outcomeOfDiscussion = outcomeOfDiscussion;
     if (estimatedValue !== undefined) updates.estimatedValue = estimatedValue === "" ? null : Number(estimatedValue);
     if (result !== undefined) updates.result = result;
     if (remarks !== undefined) updates.remarks = remarks;
-    if (projectType !== undefined) updates.projectType = projectType || null;
-    const resultingType = projectType !== undefined ? projectType : snap.data().projectType;
-    if (projectSubType !== undefined) {
-      // Explicit subType in the payload — keep it only if the resulting type is ISO.
-      updates.projectSubType = resultingType === "ISO" ? (projectSubType || null) : null;
-    } else if (projectType !== undefined && resultingType !== "ISO") {
-      // No subType sent, but the type just changed away from ISO — clear any stale one.
-      updates.projectSubType = null;
-    }
+    if (region !== undefined) updates.region = region || "";
+    // Category, service and project type are fixed once the enquiry exists:
+    // the project ID was built from them.
 
     await ref.update(updates);
     res.json({ ok: true });

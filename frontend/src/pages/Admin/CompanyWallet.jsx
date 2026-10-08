@@ -3,6 +3,7 @@ import client, { errorMessage } from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
+import { fmtDateTime } from "../../lib/dates";
 
 const SOURCE_LABEL = {
   TOPUP: "Top-up",
@@ -15,7 +16,7 @@ const SOURCE_LABEL = {
 function fmtDate(ts) {
   if (!ts) return "-";
   const d = ts._seconds ? new Date(ts._seconds * 1000) : new Date(ts);
-  return d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return fmtDateTime(d);
 }
 
 export default function CompanyWallet() {
