@@ -60,6 +60,9 @@ export async function getLeaveBalancesForYear(userId, fyStartYear) {
 // Applies a delta to `used` for one leave type, within an existing Firestore
 // transaction. Floors at 0. leaveTypeId must be a real (non-synthetic)
 // configured type — callers should skip LOP/HALF_DAY entirely.
+// Returns how many of the (positive) deltaDays went beyond what was left in
+// the balance — those days are paid only while balance remains, the excess
+// is Loss of Pay (see payslipCompute).
 export async function adjustUsedInTransaction(tx, userId, fyStartYear, leaveType, deltaDays) {
   const ref = db.collection(COLLECTIONS.HR_LEAVE_BALANCES).doc(balanceDocId(userId, fyStartYear));
   const snap = await tx.get(ref);
@@ -75,6 +78,9 @@ export async function adjustUsedInTransaction(tx, userId, fyStartYear, leaveType
     entitlement = round1((leaveType.paidDaysPerYear ?? 0) + carryIn);
   }
 
+  const remainingBefore = round1(entitlement - (existing?.used || 0));
+  const excess = deltaDays > 0 ? round1(Math.max(0, deltaDays - Math.max(0, remainingBefore))) : 0;
+
   const used = Math.max(0, round1((existing?.used || 0) + deltaDays));
   balances[leaveType.id] = { entitlement, used, remaining: round1(entitlement - used) };
 
@@ -83,6 +89,7 @@ export async function adjustUsedInTransaction(tx, userId, fyStartYear, leaveType
     { userId, year: fyStartYear, balances, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
     { merge: true }
   );
+  return excess;
 }
 
 // Monthly accrual: adds deltaDays to a leave type's entitlement (not

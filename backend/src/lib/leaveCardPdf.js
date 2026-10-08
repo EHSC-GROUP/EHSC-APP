@@ -1,6 +1,7 @@
 import PDFDocument from "pdfkit";
 import { drawTable } from "./pdfTable.js";
 import { drawLetterhead, drawFooter } from "./pdfBranding.js";
+import { fmtDMY } from "./dateUtils.js";
 
 const PAGE_LEFT = 30;
 const PAGE_RIGHT = 812; // landscape A4 (841.89pt wide) minus 30pt margins each side
@@ -15,12 +16,12 @@ function drawCardPage(doc, card) {
   const left = [
     ["Name", card.name],
     ["Department", card.department || "-"],
-    ["Date of Joining", card.dateOfJoining || "-"],
+    ["Date of Joining", fmtDMY(card.dateOfJoining) || "-"],
   ];
   const mid = [
     ["Emp Code", card.employeeId],
     ["Location", card.location || "-"],
-    ["Date of Confirmation", card.dateOfConfirmation || "-"],
+    ["Date of Confirmation", fmtDMY(card.dateOfConfirmation) || "-"],
   ];
   const right = [
     ["Previous Year's Accumulation", card.previousAccumulation],
@@ -43,7 +44,7 @@ function drawCardPage(doc, card) {
     { header: "Leave Balance", width: fixedWidths[7] },
     { header: "Remarks", width: (PAGE_RIGHT - PAGE_LEFT) - fixedWidths.reduce((s, w) => s + w, 0) },
   ];
-  const rows = card.rows.map((r) => [r.slNo, r.reasonsForLeave, r.from, r.to, r.days, "", "", r.balance === null ? "-" : r.balance, r.remarks]);
+  const rows = card.rows.map((r) => [r.slNo, r.reasonsForLeave, fmtDMY(r.from), fmtDMY(r.to), r.days, "", "", r.balance === null ? "-" : r.balance, r.remarks]);
   drawTable(doc, PAGE_LEFT, doc.y, columns, rows);
 }
 

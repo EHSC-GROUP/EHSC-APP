@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { fmtDMY } from "./dateUtils.js";
 
 const COLUMNS = [
   { header: "Sl.No", key: "slNo", width: 8 },
@@ -29,14 +30,14 @@ function addCardSheet(workbook, card) {
   sheet.addRow([]);
   sheet.addRow(["Name", card.name, "", "Emp Code", card.employeeId]);
   sheet.addRow(["Department", card.department || "", "", "Location", card.location || ""]);
-  sheet.addRow(["Date of Joining", card.dateOfJoining || "", "", "Date of Confirmation", card.dateOfConfirmation || ""]);
+  sheet.addRow(["Date of Joining", fmtDMY(card.dateOfJoining), "", "Date of Confirmation", fmtDMY(card.dateOfConfirmation)]);
   sheet.addRow(["Previous Year's Accumulation", card.previousAccumulation, "", "Eligibility as on", card.eligibility]);
   sheet.addRow([]);
 
   const headerRow = sheet.addRow(COLUMNS.map((c) => c.header));
   headerRow.font = { bold: true };
   for (const r of card.rows) {
-    sheet.addRow([r.slNo, r.reasonsForLeave, r.from, r.to, r.days, r.balance === null ? "-" : r.balance, r.remarks]);
+    sheet.addRow([r.slNo, r.reasonsForLeave, fmtDMY(r.from), fmtDMY(r.to), r.days, r.balance === null ? "-" : r.balance, r.remarks]);
   }
   COLUMNS.forEach((c, i) => { sheet.getColumn(i + 1).width = c.width; });
   return sheet;
