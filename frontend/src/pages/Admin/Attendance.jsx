@@ -4,6 +4,8 @@ import { Loading, ErrorText } from "../../components/Misc";
 import StatusBadge from "../../components/StatusBadge";
 import { getCurrentPosition } from "../../lib/geolocation";
 import { useAuth } from "../../context/AuthContext";
+import { fmtDate } from "../../lib/dates";
+import DateInput from "../../components/DateInput";
 
 function currentMonth() {
   const d = new Date();
@@ -32,21 +34,21 @@ function monthBoundsOf(dateStr) {
   return { from: `${dateStr.slice(0, 7)}-01`, to: `${dateStr.slice(0, 7)}-${String(lastDay).padStart(2, "0")}` };
 }
 
-const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY", "OUT_OF_OFFICE", "TRAVEL"];
-const STATUS_LABEL = { PRESENT: "Present", ABSENT: "Absent", LEAVE: "Leave", HALF_DAY: "Half Day", OUT_OF_OFFICE: "Out of Office", TRAVEL: "Travel" };
-const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "OOO request approved", SELF_TRAVEL_REQUEST: "Travel request approved" };
+const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY", "OUT_OF_OFFICE", "TRAVEL", "WFH"];
+const STATUS_LABEL = { PRESENT: "Present", ABSENT: "LOP", LEAVE: "Leave", HALF_DAY: "Half Day", OUT_OF_OFFICE: "On Duty", TRAVEL: "Travel", WFH: "Work From Home" };
+const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "On Duty request approved", SELF_TRAVEL_REQUEST: "Travel request approved", SELF_WFH_REQUEST: "WFH request approved" };
 
 export default function Attendance() {
   const { user } = useAuth();
   return (
     <div>
       <div className="page-header"><h2>Attendance</h2></div>
-      <DailyStatusTab canApproveOoo={user?.role === "superadmin"} />
+      <DailyStatusTab canApproveOoo={user?.role === "superadmin"} canEdit={user?.role === "superadmin"} />
     </div>
   );
 }
 
-function DailyStatusTab({ canApproveOoo }) {
+function DailyStatusTab({ canApproveOoo, canEdit }) {
   const [date, setDate] = useState(todayISO());
   const [roster, setRoster] = useState(null);
   const [month, setMonth] = useState(currentMonth());
@@ -111,7 +113,7 @@ function DailyStatusTab({ canApproveOoo }) {
       const { data } = await client.post("/attendance/mark-all-present-range", { fromDate, toDate });
       await loadRoster();
       await loadSummary();
-      alert(`Marked ${data.count} record(s) present across ${data.days} day(s) (${label}, ${fromDate} to ${toDate}). Days that already had a status were left untouched.`);
+      alert(`Marked ${data.count} record(s) present across ${data.days} day(s) (${label}, ${fmtDate(fromDate)} to ${fmtDate(toDate)}). Days that already had a status were left untouched.`);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -124,27 +126,29 @@ function DailyStatusTab({ canApproveOoo }) {
   return (
     <div>
       <p className="hint-text mt-0">
-        Employees can never pick their own status from a dropdown — only an admin marking it, or a
-        geofenced self check-in, ever creates a record.
+        Employees can never pick their own status from a dropdown — only a geofenced self check-in or an
+        approved request creates a record. Only the superadmin can mark or change a day directly; a day
+        nobody marked counts as LOP.
       </p>
 
       <GeofenceSettings />
 
+      <WfhRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />
       {canApproveOoo && <OooRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />}
 
       <div className="card">
         <div className="toolbar">
           <h3 className="mt-0" style={{ marginRight: 8 }}>Today's Roster</h3>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
           <div className="spacer" />
-          {unmarkedCount > 0 && (
+          {canEdit && unmarkedCount > 0 && (
             <button className="btn-primary" onClick={markAllPresent} disabled={busy}>
               {busy ? "Marking…" : `Mark all present (${unmarkedCount})`}
             </button>
           )}
         </div>
-        <div className="toolbar" style={{ marginTop: 0 }}>
-          <span className="hint-text" style={{ marginRight: 4 }}>Bulk-mark present (gap-fill only, based on {date}):</span>
+        {canEdit && <div className="toolbar" style={{ marginTop: 0 }}>
+          <span className="hint-text" style={{ marginRight: 4 }}>Bulk-mark present (gap-fill only, based on {fmtDate(date)}):</span>
           <button
             className="btn-sm"
             disabled={busy}
@@ -159,21 +163,21 @@ function DailyStatusTab({ canApproveOoo }) {
           >
             This Month
           </button>
-        </div>
+        </div>}
         <ErrorText>{error}</ErrorText>
         {!roster ? <Loading /> : (
           <table>
-            <thead><tr><th>Employee</th><th>Status</th><th>Source</th><th></th></tr></thead>
+            <thead><tr><th>Employee</th><th>Status</th><th>Source</th>{canEdit && <th></th>}</tr></thead>
             <tbody>
               {roster.map((r) => (
                 <tr key={r.userId}>
                   <td>{r.name} <span className="text-muted">({r.userId})</span></td>
                   <td>
-                    {r.status ? <StatusBadge status={r.status} /> : <span className="text-muted">Not marked</span>}
+                    {r.status ? <StatusBadge status={r.status} /> : date < todayISO() ? <span className="badge-pill badge-ABSENT">LOP (not marked)</span> : <span className="text-muted">Not marked</span>}
                     {r.status === "LEAVE" && r.leaveTypeId && <div className="hint-text mt-0">{leaveTypeName(r.leaveTypeId)}</div>}
                   </td>
                   <td className="text-muted">{r.source ? SOURCE_LABEL[r.source] : "-"}</td>
-                  <td>
+                  {canEdit && <td>
                     <div className="toolbar" style={{ margin: 0 }}>
                       {STATUSES.map((s) =>
                         s === "LEAVE" ? (
@@ -193,7 +197,7 @@ function DailyStatusTab({ canApproveOoo }) {
                         )
                       )}
                     </div>
-                  </td>
+                  </td>}
                 </tr>
               ))}
               {roster.length === 0 && <tr><td colSpan={4} className="empty-state">No active employees.</td></tr>}
@@ -210,7 +214,7 @@ function DailyStatusTab({ canApproveOoo }) {
         {!summary ? <Loading /> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Employee</th><th>Present</th><th>Absent</th><th>Leave</th><th>Half Day</th><th>Out of Office</th><th>Travel</th><th>Present (incl. OOO/Travel)</th></tr></thead>
+              <thead><tr><th>Employee</th><th>Present</th><th>LOP</th><th>Leave</th><th>Half Day</th><th>On Duty</th><th>Travel</th><th>Work From Home</th><th>Present (incl. On Duty/Travel/WFH)</th></tr></thead>
               <tbody>
                 {summary.map((s) => (
                   <tr key={s.userId}>
@@ -221,10 +225,11 @@ function DailyStatusTab({ canApproveOoo }) {
                     <td>{s.HALF_DAY}</td>
                     <td>{s.OUT_OF_OFFICE}</td>
                     <td>{s.TRAVEL}</td>
+                    <td>{s.WFH}</td>
                     <td><strong>{s.PRESENT_EQUIVALENT}</strong></td>
                   </tr>
                 ))}
-                {summary.length === 0 && <tr><td colSpan={8} className="empty-state">No active employees.</td></tr>}
+                {summary.length === 0 && <tr><td colSpan={9} className="empty-state">No active employees.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -326,7 +331,75 @@ function GeofenceSettings() {
   );
 }
 
-// A short approval queue for Out of Office requests — only PENDING ones,
+// Work From Home approval queue - one tap from the employee, no reason
+// given. Admins and the superadmin can decide (never on their own request).
+function WfhRequestsQueue({ onDecided }) {
+  const [requests, setRequests] = useState(null);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const { user } = useAuth();
+
+  async function load() {
+    try {
+      const { data } = await client.get("/attendance/wfh-requests", { params: { status: "PENDING" } });
+      setRequests(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function decide(id, action) {
+    setBusyId(id);
+    setError("");
+    try {
+      await client.put(`/attendance/wfh-requests/${id}/${action}`);
+      await load();
+      onDecided();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (requests && requests.length === 0) return null;
+
+  return (
+    <div className="card">
+      <div className="toolbar">
+        <h3 className="mt-0" style={{ marginRight: 8 }}>Work From Home Requests</h3>
+        {requests && requests.length > 0 && <span className="badge-pill badge-PENDING_WFH">{requests.length} pending</span>}
+      </div>
+      <ErrorText>{error}</ErrorText>
+      {!requests ? <Loading /> : (
+        <table>
+          <thead><tr><th>Employee</th><th>Date</th><th></th></tr></thead>
+          <tbody>
+            {requests.map((r) => (
+              <tr key={r.id}>
+                <td>{r.name} <span className="text-muted">({r.userId})</span></td>
+                <td>{fmtDate(r.date)}</td>
+                <td>
+                  {r.userId === user?.userId ? (
+                    <span className="hint-text">Needs another approver</span>
+                  ) : (
+                    <div className="toolbar" style={{ margin: 0 }}>
+                      <button className="btn-sm btn-primary" disabled={busyId === r.id} onClick={() => decide(r.id, "approve")}>Approve</button>
+                      <button className="btn-sm btn-danger" disabled={busyId === r.id} onClick={() => decide(r.id, "reject")}>Reject</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// A short approval queue for On Duty requests — only PENDING ones,
 // since approving/rejecting are the only actions that ever fire from here.
 function OooRequestsQueue({ onDecided }) {
   const [requests, setRequests] = useState(null);
@@ -362,7 +435,7 @@ function OooRequestsQueue({ onDecided }) {
   return (
     <div className="card">
       <div className="toolbar">
-        <h3 className="mt-0" style={{ marginRight: 8 }}>Out of Office Requests</h3>
+        <h3 className="mt-0" style={{ marginRight: 8 }}>On Duty Requests</h3>
         {requests && requests.length > 0 && <span className="badge-pill badge-PENDING_OOO">{requests.length} pending</span>}
       </div>
       <ErrorText>{error}</ErrorText>
@@ -373,7 +446,7 @@ function OooRequestsQueue({ onDecided }) {
             {requests.map((r) => (
               <tr key={r.id}>
                 <td>{r.name} <span className="text-muted">({r.userId})</span></td>
-                <td>{r.date}</td>
+                <td>{fmtDate(r.date)}</td>
                 <td>{r.startTime} - {r.endTime}</td>
                 <td>{r.reason}</td>
                 <td className="text-muted">{r.distanceMeters != null ? `${r.distanceMeters}m` : "-"}</td>

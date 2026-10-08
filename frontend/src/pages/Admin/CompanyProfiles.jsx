@@ -5,6 +5,8 @@ import Modal from "../../components/Modal";
 import Drawer from "../../components/Drawer";
 import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import ProjectEditor from "../../components/ProjectEditor";
+import { useProjectClassification } from "../../lib/useProjectClassification";
+import ClassificationFields from "../../components/ClassificationFields";
 
 export default function CompanyProfiles() {
   const [list, setList] = useState(null);
@@ -142,6 +144,8 @@ function CompanyDrawer({ id, onClose, onChanged }) {
   const [showAddBranch, setShowAddBranch] = useState(false);
   const [showAddProject, setShowAddProject] = useState(false);
   const [newProjectBranchId, setNewProjectBranchId] = useState("");
+  const [newProject, setNewProject] = useState({ projectCategory: "", service: "", projectType: "", region: "" });
+  const { catalog, typeLabel } = useProjectClassification();
 
   async function loadCompany() {
     try {
@@ -203,7 +207,11 @@ function CompanyDrawer({ id, onClose, onChanged }) {
     setBusy(true);
     setError("");
     try {
-      const { data } = await client.post("/projects", { companyId: id, branchId: newProjectBranchId });
+      const payload = { companyId: id, branchId: newProjectBranchId, ...newProject };
+      if (!payload.service) delete payload.service;
+      if (!payload.region) delete payload.region;
+      const { data } = await client.post("/projects", payload);
+      setNewProject({ projectCategory: "", service: "", projectType: "", region: "" });
       setShowAddProject(false);
       await loadProjects();
       setSelectedProjectId(data.id);
@@ -299,7 +307,7 @@ function CompanyDrawer({ id, onClose, onChanged }) {
                       <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setSelectedProjectId(p.id)}>
                         <td>{p.projectId}</td>
                         <td>{p.companyCode}</td>
-                        <td>{p.projectType ? `${p.projectType}${p.projectSubType ? ` — ${p.projectSubType}` : ""}` : "-"}</td>
+                        <td>{p.projectType ? `${typeLabel(p.projectType)}${p.projectSubType ? ` — ${p.projectSubType}` : ""}` : "-"}</td>
                         <td>{p.poNumber || "-"}</td>
                         <td>{p.poValue ?? "-"}</td>
                         <td>{p.contractValue ?? "-"}</td>
@@ -331,9 +339,19 @@ function CompanyDrawer({ id, onClose, onChanged }) {
                 <select value={newProjectBranchId} onChange={(e) => setNewProjectBranchId(e.target.value)}>
                   {branches.map((b) => <option key={b.id} value={b.id}>{b.companyCode} — {b.address || "no address"}</option>)}
                 </select>
+                <label>Region</label>
+                <select value={newProject.region} onChange={(e) => setNewProject((p) => ({ ...p, region: e.target.value }))}>
+                  <option value="">Select…</option>
+                  {(catalog?.regions || []).map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+                <ClassificationFields
+                  catalog={catalog}
+                  value={{ projectCategory: newProject.projectCategory, service: newProject.service, projectType: newProject.projectType }}
+                  onChange={(v) => setNewProject((p) => ({ ...p, ...v }))}
+                />
                 <p className="hint-text mt-0">
-                  Creates a new project under {company.clientName} with the next project ID (PRJ{company.parentNumber}
-                  {String((company.projectSeq || 0) + 1).padStart(3, "0")}). You'll fill in PO details and phases after.
+                  Creates a new project under {company.clientName}. Its ID is built from the category, service and
+                  project type, and you'll fill in PO details and phases after.
                 </p>
                 <ErrorText>{error}</ErrorText>
                 <button className="btn-primary" onClick={addProject} disabled={busy}>{busy ? "Creating…" : "Create Project"}</button>

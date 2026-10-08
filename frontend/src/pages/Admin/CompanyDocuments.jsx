@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import { Loading, ErrorText } from "../../components/Misc";
 import { openAuthedFile } from "../../lib/openFile";
+import DateInput from "../../components/DateInput";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const inDays = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
@@ -76,7 +77,7 @@ export default function CompanyDocuments() {
           <div><label>Category</label><input value={category} onChange={(e) => setCategory(e.target.value)} /></div>
         </div>
         <div className="form-row">
-          <div><label>Validity (optional)</label><input type="date" value={validity} onChange={(e) => setValidity(e.target.value)} /></div>
+          <div><label>Validity (optional)</label><DateInput value={validity} onChange={(e) => setValidity(e.target.value)} /></div>
           <div />
         </div>
         <label>File</label>
