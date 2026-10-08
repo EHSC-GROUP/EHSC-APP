@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireSuperAdmin } from "../middleware/auth.js";
 import { getRecurringHolidays, getHolidaysForYear } from "../lib/calendar.js";
 
 const router = Router();
@@ -20,7 +20,7 @@ router.get("/", authenticate, async (req, res, next) => {
 
 // Full replace of the recurring list: add, edit a date, or delete a holiday
 // and the change carries into every year.
-router.put("/", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { holidays } = req.body;
     if (!Array.isArray(holidays)) return res.status(400).json({ error: "holidays must be an array" });

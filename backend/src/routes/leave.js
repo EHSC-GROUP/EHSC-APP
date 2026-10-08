@@ -11,7 +11,7 @@ import {
   MEDICAL_CERT_THRESHOLD_DAYS,
   STAFF_PROFILE_TYPES,
 } from "../lib/constants.js";
-import { authenticate, requireAdmin, requireApprover } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireApprover, requireSuperAdmin } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, safeFileName } from "../lib/storage.js";
 import { financialYearOf } from "../lib/dateUtils.js";
@@ -268,14 +268,18 @@ router.put("/requests/:id/approve", authenticate, requireApprover, async (req, r
       }
 
       const balanceYear = financialYearOf(request.fromDate);
+      // Leave is paid while balance remains; whatever goes past the balance
+      // is stamped here so payroll treats those days as Loss of Pay.
+      let lopExcessDays = 0;
       if (request.leaveType !== LOP && request.leaveType !== HALF_DAY) {
         const lt = leaveTypes.find((l) => l.id === request.leaveType);
-        if (lt) await adjustUsedInTransaction(tx, request.userId, balanceYear, lt, request.days);
+        if (lt) lopExcessDays = await adjustUsedInTransaction(tx, request.userId, balanceYear, lt, request.days);
       }
 
       tx.update(ref, {
         status: LEAVE_STATUS.APPROVED,
         balanceYear,
+        lopExcessDays,
         decidedBy: req.user.userId,
         decidedAt: admin.firestore.FieldValue.serverTimestamp(),
         comment: req.body.comment || null,
@@ -425,7 +429,7 @@ router.get("/card/:userId/excel", authenticate, async (req, res, next) => {
 // Whole-roster view for the admin Balances tab — one request instead of a
 // separate round trip per employee. Leave types are fetched once and reused
 // for every employee's computation instead of being re-queried per row.
-router.get("/balances", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/balances", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const fy = req.query.fy ? Number(req.query.fy) : financialYearOf(new Date().toISOString().slice(0, 10));
     const [profilesSnap, usersSnap, leaveTypes] = await Promise.all([
@@ -461,7 +465,7 @@ router.get("/balances/:userId", authenticate, async (req, res, next) => {
   }
 });
 
-router.put("/balances/:userId/:leaveTypeId", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/balances/:userId/:leaveTypeId", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { fy, entitlement } = req.body;
     if (fy === undefined || entitlement === undefined) {

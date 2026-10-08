@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS, ROLES } from "../lib/constants.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, deleteFile, safeFileName } from "../lib/storage.js";
 import { isValidId } from "../lib/validateId.js";
@@ -44,7 +44,7 @@ router.get("/:userId", authenticate, async (req, res, next) => {
   }
 });
 
-router.post("/:userId", authenticate, requireAdmin, upload.single("file"), async (req, res, next) => {
+router.post("/:userId", authenticate, requireSuperAdmin, upload.single("file"), async (req, res, next) => {
   try {
     const targetId = req.params.userId === "ALL" ? "ALL" : req.params.userId.toUpperCase();
     if (!req.file) return res.status(400).json({ error: "file is required" });
@@ -91,7 +91,7 @@ router.get("/:id/file", authenticate, async (req, res, next) => {
   }
 });
 
-router.delete("/:id", authenticate, requireAdmin, async (req, res, next) => {
+router.delete("/:id", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.HR_DOCUMENTS).doc(req.params.id);
     const snap = await ref.get();
