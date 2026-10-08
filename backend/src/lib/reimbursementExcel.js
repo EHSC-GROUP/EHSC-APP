@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { formatProjects } from "./reimbursementFormat.js";
+import { fmtDMY } from "./dateUtils.js";
 
 const COLUMNS = [
   { header: "Voucher No", key: "voucherNo", width: 16 },
@@ -47,7 +48,7 @@ export async function buildReimbursementRegisterWorkbook(records) {
       name: r.name,
       userId: r.userId,
       designation: r.designation || "",
-      voucherDate: r.voucherDate,
+      voucherDate: fmtDMY(r.voucherDate),
       type: r.type || "GENERAL",
       projects: formatProjects(r),
       journeyPurpose: r.journeyPurpose || "",
@@ -60,7 +61,7 @@ export async function buildReimbursementRegisterWorkbook(records) {
       balance: r.balance !== undefined ? Number(r.balance) : Number(r.totalAmount || 0) - Number(r.advanceTaken || 0),
       status: r.status,
       paymentRef: r.paymentRef || "",
-      paymentDate: r.paymentDate || "",
+      paymentDate: fmtDMY(r.paymentDate),
     });
   }
   return workbook;

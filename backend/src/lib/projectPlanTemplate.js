@@ -1,7 +1,8 @@
 import { v4 as uuid } from "uuid";
 
 import { db } from "../config/firebase.js";
-import { COLLECTIONS, PROJECT_TYPES } from "./constants.js";
+import { COLLECTIONS } from "./constants.js";
+import { PROJECT_TYPE_VALUES as PROJECT_TYPES } from "./projectClassification.js";
 
 // Starter/placeholder task list — every project type ships with this same
 // generic set until an admin customizes it per type in Settings. Kept

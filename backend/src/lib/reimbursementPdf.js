@@ -3,6 +3,7 @@ import { numberToWords } from "./numberToWords.js";
 import { drawTable } from "./pdfTable.js";
 import { formatProjects } from "./reimbursementFormat.js";
 import { drawLetterhead, drawFooter } from "./pdfBranding.js";
+import { fmtDMY } from "./dateUtils.js";
 
 const PAGE_LEFT = 40;
 const PAGE_RIGHT = 555;
@@ -36,10 +37,10 @@ function drawClaimPage(doc, record) {
   doc.moveDown(0.6);
 
   const infoTop = doc.y;
-  const submissionDate = record.appliedAt?.toDate ? record.appliedAt.toDate().toISOString().slice(0, 10) : (record.appliedAt || "-");
+  const submissionDate = fmtDMY(record.appliedAt?.toDate ? record.appliedAt.toDate().toISOString().slice(0, 10) : (record.appliedAt || "-"));
   const left = [
     ["Name of the Claimant", record.name],
-    ["Journey Date", record.voucherDate],
+    ["Journey Date", fmtDMY(record.voucherDate)],
     ["Journey Purpose", record.journeyPurpose],
     ["Project(s)", formatProjects(record)],
     ["Destination", record.journeyStation],
@@ -69,7 +70,7 @@ function drawClaimPage(doc, record) {
       { header: "Mode", width: 90 },
       { header: "Fare (Rs.)", width: 75 },
     ],
-    travelItems.map((i) => [i.fromDate, i.fromPlace, i.toDate, i.toPlace, i.mode || "-", Number(i.fare).toFixed(2)])
+    travelItems.map((i) => [fmtDMY(i.fromDate), i.fromPlace, fmtDMY(i.toDate), i.toPlace, i.mode || "-", Number(i.fare).toFixed(2)])
   );
   doc.font("Helvetica-Bold").fontSize(9).text(`Total (A): Rs. ${sectionTotal(travelItems, "fare").toFixed(2)}`, PAGE_LEFT, y + 4, { align: "right", width: PAGE_WIDTH });
   doc.y = y + 20;
@@ -87,7 +88,7 @@ function drawClaimPage(doc, record) {
       { header: "Mode", width: 90 },
       { header: "Fare (Rs.)", width: 90 },
     ],
-    conveyanceItems.map((i) => [i.date, i.from, i.to, i.mode || "-", Number(i.fare).toFixed(2)])
+    conveyanceItems.map((i) => [fmtDMY(i.date), i.from, i.to, i.mode || "-", Number(i.fare).toFixed(2)])
   );
   doc.font("Helvetica-Bold").fontSize(9).text(`Total (B): Rs. ${sectionTotal(conveyanceItems, "fare").toFixed(2)}`, PAGE_LEFT, y + 4, { align: "right", width: PAGE_WIDTH });
   doc.y = y + 20;
@@ -103,7 +104,7 @@ function drawClaimPage(doc, record) {
       { header: "Details", width: 305 },
       { header: "Amount (Rs.)", width: 100 },
     ],
-    otherItems.map((i) => [i.date, i.details, Number(i.amount).toFixed(2)])
+    otherItems.map((i) => [fmtDMY(i.date), i.details, Number(i.amount).toFixed(2)])
   );
   doc.font("Helvetica-Bold").fontSize(9).text(`Total (C): Rs. ${sectionTotal(otherItems, "amount").toFixed(2)}`, PAGE_LEFT, y + 4, { align: "right", width: PAGE_WIDTH });
   doc.y = y + 26;

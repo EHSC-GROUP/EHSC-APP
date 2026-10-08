@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { fmtDMY } from "./dateUtils.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -144,8 +145,8 @@ export async function buildGanttWorkbook(rows) {
       row.getCell(1).value = clientName;
       row.getCell(2).value = a.description;
       row.getCell(3).value = a.assignedToName || a.assignedTo || "";
-      row.getCell(4).value = a.startDate || "";
-      row.getCell(5).value = a.dueDate || "";
+      row.getCell(4).value = fmtDMY(a.startDate);
+      row.getCell(5).value = fmtDMY(a.dueDate);
       row.getCell(6).value = STATUS_LABEL[status];
 
       const startOffset = Math.max(0, daysBetween(rangeStart, start));
