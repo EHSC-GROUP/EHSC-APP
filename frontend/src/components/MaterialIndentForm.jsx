@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import client, { errorMessage } from "../api/client";
 import { ErrorText } from "./Misc";
+import DateInput from "./DateInput";
 
 const emptyItem = () => ({ requiredDate: "", itemMaterial: "", qty: "", rate: "" });
 
@@ -59,7 +60,7 @@ export default function MaterialIndentForm({ onSubmitted }) {
         </div>
         <div>
           <label>Raised Date</label>
-          <input type="date" value={raisedDate} onChange={(e) => setRaisedDate(e.target.value)} required />
+          <DateInput value={raisedDate} onChange={(e) => setRaisedDate(e.target.value)} required />
         </div>
       </div>
 
@@ -69,7 +70,7 @@ export default function MaterialIndentForm({ onSubmitted }) {
           <div className="form-row">
             <div style={{ flex: "0 0 170px" }}>
               <label className="hint-text mt-0">Required Date</label>
-              <input type="date" value={item.requiredDate} onChange={(e) => updateItem(i, "requiredDate", e.target.value)} />
+              <DateInput value={item.requiredDate} onChange={(e) => updateItem(i, "requiredDate", e.target.value)} />
             </div>
             <div style={{ flex: "1 1 260px" }}>
               <label className="hint-text mt-0">Item / Material Description</label>

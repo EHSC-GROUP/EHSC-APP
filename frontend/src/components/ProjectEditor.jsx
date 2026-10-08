@@ -3,6 +3,9 @@ import client, { errorMessage } from "../api/client";
 import { ErrorText, Loading } from "./Misc";
 import StatusBadge from "./StatusBadge";
 import Modal from "./Modal";
+import DateInput from "./DateInput";
+import { fmtDate } from "../lib/dates";
+import { useProjectClassification } from "../lib/useProjectClassification";
 
 const emptyPhase2 = () => ({
   proposalNo: "", proposalDate: "", modeOfSubmission: "", submittedTo: "", submittedBy: "",
@@ -30,7 +33,6 @@ function withEmptyFallback(defaults, stored) {
 }
 
 const INVOICE_STAGES = [1, 2, 3, 4];
-const PROJECT_TYPES = ["GHG", "ISO", "EV", "CDP", "SR", "AUDIT", "TRAINING", "ASSESSMENT"];
 
 function toFormShape(project) {
   return {
@@ -64,6 +66,7 @@ function toFormShape(project) {
 // following `showPhases` so any other caller keeps the old all-or-nothing
 // behavior.
 export default function ProjectEditor({ project, company, onChanged, showPhases = true, showPhase2 = showPhases, estimatedValue }) {
+  const { categoryLabel, serviceLabel, typeLabel } = useProjectClassification();
   // Project Costing (REQ-04) is a disabled-by-default feature — only add
   // the tab once an admin has switched it on in Settings.
   const [costingEnabled, setCostingEnabled] = useState(false);
@@ -177,10 +180,13 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 <tr><td>Address</td><td>{branch?.address || "-"}</td></tr>
                 <tr><td>Contact Person</td><td>{branch?.contactPersonName || "-"}</td></tr>
                 <tr><td>Contact Phone</td><td>{branch?.contactPhone || "-"}</td></tr>
-                {showPhases && project.projectType && <tr><td>Project Type</td><td>{project.projectType}{project.projectSubType && ` — ${project.projectSubType}`}</td></tr>}
+                {showPhases && project.projectCategory && <tr><td>Project Category</td><td>{categoryLabel(project.projectCategory)}</td></tr>}
+                {showPhases && project.service && <tr><td>Service</td><td>{serviceLabel(project.projectCategory, project.service)}</td></tr>}
+                {showPhases && project.projectType && <tr><td>Project Type</td><td>{typeLabel(project.projectType)}{project.projectSubType && ` — ${project.projectSubType}`}</td></tr>}
+                {showPhases && project.region && <tr><td>Region</td><td>{project.region}</td></tr>}
                 {showPhases && <tr><td>PO Number</td><td>{project.poNumber || "-"}</td></tr>}
                 {showPhases && <tr><td>PO Value</td><td>{project.poValue ?? "-"}</td></tr>}
-                {showPhases && <tr><td>Delivery Due Date</td><td>{project.deliveryDueDate || "-"}</td></tr>}
+                {showPhases && <tr><td>Delivery Due Date</td><td>{fmtDate(project.deliveryDueDate) || "-"}</td></tr>}
                 {showPhases && <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{project.termsAndConditions || "-"}</td></tr>}
                 {showPhases && <tr><td>Value of Contract</td><td>{project.contractValue ?? "-"}</td></tr>}
                 {showPhases && project.sourceEnquiryNo && <tr><td>Source Enquiry</td><td>{project.sourceEnquiryNo}</td></tr>}
@@ -215,7 +221,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 {conversations.map((c, i) => (
                   <div key={c.id} className="toolbar" style={{ alignItems: "flex-start" }}>
                     <strong style={{ width: 40 }}>{ORDINALS[i] || `${i + 1}th`}</strong>
-                    <div style={{ flex: 1 }}>{c.description} {c.date && <span className="hint-text">({c.date})</span>}</div>
+                    <div style={{ flex: 1 }}>{c.description} {c.date && <span className="hint-text">({fmtDate(c.date)})</span>}</div>
                     <button className="btn-sm btn-danger" onClick={() => removeConversation(c.id)}>Delete</button>
                   </div>
                 ))}
@@ -231,7 +237,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 {clientReplies.map((r, i) => (
                   <div key={r.id} className="toolbar" style={{ alignItems: "flex-start" }}>
                     <strong style={{ width: 40 }}>{ORDINALS[i] || `${i + 1}th`}</strong>
-                    <div style={{ flex: 1, whiteSpace: "pre-wrap" }}>{r.reply} {r.date && <span className="hint-text">({r.date})</span>}</div>
+                    <div style={{ flex: 1, whiteSpace: "pre-wrap" }}>{r.reply} {r.date && <span className="hint-text">({fmtDate(r.date)})</span>}</div>
                     <button className="btn-sm btn-danger" onClick={() => removeClientReply(r.id)}>Delete</button>
                   </div>
                 ))}
@@ -309,7 +315,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <div className="form-row">
                     <div><label>PO Number</label><input value={form.poNumber} onChange={(e) => set("poNumber", e.target.value)} /></div>
                     <div><label>PO Value</label><input type="number" min="0" step="0.01" value={form.poValue} onChange={(e) => set("poValue", e.target.value)} /></div>
-                    <div><label>Delivery Due Date</label><input type="date" value={form.deliveryDueDate} onChange={(e) => set("deliveryDueDate", e.target.value)} /></div>
+                    <div><label>Delivery Due Date</label><DateInput value={form.deliveryDueDate} onChange={(e) => set("deliveryDueDate", e.target.value)} /></div>
                   </div>
                   <label>Terms and Conditions</label>
                   <textarea rows={3} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
@@ -338,7 +344,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
             <div>
               <div className="form-row">
                 <div><label>Proposal No.</label><input value={form.phase2.proposalNo} onChange={(e) => setPhase2("proposalNo", e.target.value)} /></div>
-                <div><label>Proposal Date</label><input type="date" value={form.phase2.proposalDate} onChange={(e) => setPhase2("proposalDate", e.target.value)} /></div>
+                <div><label>Proposal Date</label><DateInput value={form.phase2.proposalDate} onChange={(e) => setPhase2("proposalDate", e.target.value)} /></div>
                 <div><label>Mode of Submission</label><input value={form.phase2.modeOfSubmission} onChange={(e) => setPhase2("modeOfSubmission", e.target.value)} placeholder="e.g. Email, In-person" /></div>
               </div>
               <div className="form-row">
@@ -346,8 +352,8 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 <div><label>Who Has Submitted</label><input value={form.phase2.submittedBy} onChange={(e) => setPhase2("submittedBy", e.target.value)} /></div>
               </div>
               <div className="form-row">
-                <div><label>Next Follow-up Due On</label><input type="date" value={form.phase2.nextFollowUpDueOn} onChange={(e) => setPhase2("nextFollowUpDueOn", e.target.value)} /></div>
-                <div><label>Next Follow-up Date</label><input type="date" value={form.phase2.nextFollowUpDate} onChange={(e) => setPhase2("nextFollowUpDate", e.target.value)} /></div>
+                <div><label>Next Follow-up Due On</label><DateInput value={form.phase2.nextFollowUpDueOn} onChange={(e) => setPhase2("nextFollowUpDueOn", e.target.value)} /></div>
+                <div><label>Next Follow-up Date</label><DateInput value={form.phase2.nextFollowUpDate} onChange={(e) => setPhase2("nextFollowUpDate", e.target.value)} /></div>
               </div>
 
               <div className="card">
@@ -358,7 +364,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 {conversations.map((c, i) => (
                   <div key={c.id} className="toolbar" style={{ alignItems: "flex-start" }}>
                     <strong style={{ width: 40 }}>{ORDINALS[i] || `${i + 1}th`}</strong>
-                    <div style={{ flex: 1 }}>{c.description} {c.date && <span className="hint-text">({c.date})</span>}</div>
+                    <div style={{ flex: 1 }}>{c.description} {c.date && <span className="hint-text">({fmtDate(c.date)})</span>}</div>
                     <button type="button" className="btn-sm btn-danger" onClick={() => removeConversation(c.id)}>Delete</button>
                   </div>
                 ))}
@@ -374,7 +380,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 {clientReplies.map((r, i) => (
                   <div key={r.id} className="toolbar" style={{ alignItems: "flex-start" }}>
                     <strong style={{ width: 40 }}>{ORDINALS[i] || `${i + 1}th`}</strong>
-                    <div style={{ flex: 1, whiteSpace: "pre-wrap" }}>{r.reply} {r.date && <span className="hint-text">({r.date})</span>}</div>
+                    <div style={{ flex: 1, whiteSpace: "pre-wrap" }}>{r.reply} {r.date && <span className="hint-text">({fmtDate(r.date)})</span>}</div>
                     <button type="button" className="btn-sm btn-danger" onClick={() => removeClientReply(r.id)}>Delete</button>
                   </div>
                 ))}
@@ -391,7 +397,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <label>Final Proposal Submission After Negotiation</label>
                   <textarea rows={2} value={form.phase2.finalProposalAfterNegotiation} onChange={(e) => setPhase2("finalProposalAfterNegotiation", e.target.value)} />
                   <div className="form-row">
-                    <div><label>Work Order Date</label><input type="date" value={form.phase2.workOrderDate} onChange={(e) => setPhase2("workOrderDate", e.target.value)} /></div>
+                    <div><label>Work Order Date</label><DateInput value={form.phase2.workOrderDate} onChange={(e) => setPhase2("workOrderDate", e.target.value)} /></div>
                     <div><label>Work Order Number</label><input value={form.phase2.workOrderNumber} onChange={(e) => setPhase2("workOrderNumber", e.target.value)} /></div>
                   </div>
                   <label>Terms and Conditions</label>
@@ -419,7 +425,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
           {showPhases && section === "Implementation Phase" && (
             <div>
               <div className="form-row">
-                <div><label>Work Order Date</label><input type="date" value={form.phase3.workOrderDate} onChange={(e) => setPhase3("workOrderDate", e.target.value)} /></div>
+                <div><label>Work Order Date</label><DateInput value={form.phase3.workOrderDate} onChange={(e) => setPhase3("workOrderDate", e.target.value)} /></div>
                 <div><label>Work Order Number</label><input value={form.phase3.workOrderNumber} onChange={(e) => setPhase3("workOrderNumber", e.target.value)} /></div>
               </div>
               <label>Work Order Description</label>
@@ -439,7 +445,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 Delivery report submitted
               </label>
               <div className="form-row">
-                <div><label>Date</label><input type="date" value={form.phase4.deliveryReportDate} onChange={(e) => setPhase4("deliveryReportDate", e.target.value)} /></div>
+                <div><label>Date</label><DateInput value={form.phase4.deliveryReportDate} onChange={(e) => setPhase4("deliveryReportDate", e.target.value)} /></div>
               </div>
               <label>Notes</label>
               <textarea rows={2} value={form.phase4.deliveryReportNotes} onChange={(e) => setPhase4("deliveryReportNotes", e.target.value)} />
@@ -447,7 +453,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
               <h3>Invoice</h3>
               <div className="form-row">
                 <div><label>Invoice Number</label><input value={form.phase4.invoiceNumber} onChange={(e) => setPhase4("invoiceNumber", e.target.value)} /></div>
-                <div><label>Invoice Date</label><input type="date" value={form.phase4.invoiceDate} onChange={(e) => setPhase4("invoiceDate", e.target.value)} /></div>
+                <div><label>Invoice Date</label><DateInput value={form.phase4.invoiceDate} onChange={(e) => setPhase4("invoiceDate", e.target.value)} /></div>
                 <div><label>Invoice Amount</label><input type="number" min="0" step="0.01" value={form.phase4.invoiceAmount} onChange={(e) => setPhase4("invoiceAmount", e.target.value)} /></div>
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -455,7 +461,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                 Payment received
               </label>
               <div className="form-row">
-                <div><label>Payment Received Date</label><input type="date" value={form.phase4.paymentReceivedDate} onChange={(e) => setPhase4("paymentReceivedDate", e.target.value)} /></div>
+                <div><label>Payment Received Date</label><DateInput value={form.phase4.paymentReceivedDate} onChange={(e) => setPhase4("paymentReceivedDate", e.target.value)} /></div>
               </div>
             </div>
           )}
@@ -495,7 +501,7 @@ function AddConversationInline({ onAdd }) {
 
   return (
     <div className="form-row" style={{ marginTop: 8 }}>
-      <div style={{ flex: "0 0 150px" }}><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      <div style={{ flex: "0 0 150px" }}><DateInput value={date} onChange={(e) => setDate(e.target.value)} /></div>
       <div>
         <input
           value={description}
@@ -534,7 +540,7 @@ function AddClientReplyInline({ onAdd }) {
 
   return (
     <div className="form-row" style={{ marginTop: 8 }}>
-      <div style={{ flex: "0 0 150px" }}><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+      <div style={{ flex: "0 0 150px" }}><DateInput value={date} onChange={(e) => setDate(e.target.value)} /></div>
       <div>
         <input
           value={reply}
@@ -607,7 +613,7 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
               />
               <span>Stage {r.n} — {isSet ? `${r.percent}%${amount !== null ? ` (₹${amount})` : ""}` : "not set"}</span>
             </label>
-            {r.completed && r.completedAt && <span className="hint-text">Completed {new Date(r.completedAt).toLocaleDateString()}</span>}
+            {r.completed && r.completedAt && <span className="hint-text">Completed {fmtDate(r.completedAt)}</span>}
           </div>
         );
       })}
@@ -712,20 +718,20 @@ function PlanActionsSection({ project, actions, onChanged }) {
               <div className="form-row" style={{ alignItems: "flex-end", marginBottom: 4 }}>
                 <div>
                   <label>Start Date</label>
-                  <input type="date" value={dateForm.startDate} onChange={(e) => setDateForm((f) => ({ ...f, startDate: e.target.value }))} />
+                  <DateInput value={dateForm.startDate} onChange={(e) => setDateForm((f) => ({ ...f, startDate: e.target.value }))} />
                 </div>
                 <div>
                   <label>Due Date</label>
-                  <input type="date" value={dateForm.dueDate} onChange={(e) => setDateForm((f) => ({ ...f, dueDate: e.target.value }))} />
+                  <DateInput value={dateForm.dueDate} onChange={(e) => setDateForm((f) => ({ ...f, dueDate: e.target.value }))} />
                 </div>
                 <button className="btn-sm btn-primary" onClick={() => saveDates(a.id)} disabled={savingDates}>{savingDates ? "Saving…" : "Save"}</button>
                 <button className="btn-sm" onClick={() => setEditingId(null)}>Cancel</button>
               </div>
             ) : (
               <p className="hint-text mt-0">
-                Assigned to: {a.assignedToName || a.assignedTo} · Due: <span className={overdue ? "overdue" : ""}>{a.dueDate}{overdue ? " (overdue)" : ""}</span>
-                {a.startDate && <> · Started: {a.startDate}</>}
-                {a.completed && a.completedAt && <> · Completed: {new Date(a.completedAt).toLocaleDateString()}</>}
+                Assigned to: {a.assignedToName || a.assignedTo} · Due: <span className={overdue ? "overdue" : ""}>{fmtDate(a.dueDate)}{overdue ? " (overdue)" : ""}</span>
+                {a.startDate && <> · Started: {fmtDate(a.startDate)}</>}
+                {a.completed && a.completedAt && <> · Completed: {fmtDate(a.completedAt)}</>}
               </p>
             )}
             {predecessors.length > 0 && (
@@ -733,7 +739,7 @@ function PlanActionsSection({ project, actions, onChanged }) {
             )}
             {conflicting.length > 0 && (
               <p className="hint-text mt-0 overdue">
-                ⚠ Starts before {conflicting.map((p) => `"${p.description}" (due ${p.dueDate})`).join(", ")} finishes
+                ⚠ Starts before {conflicting.map((p) => `"${p.description}" (due ${fmtDate(p.dueDate)})`).join(", ")} finishes
               </p>
             )}
           </div>
@@ -872,7 +878,9 @@ function addDaysISO(iso, days) {
 // start date and the resulting due date move together - and the (possibly
 // adjusted) rows can also be written back to the template from here.
 function ImportTemplateModal({ project, onClose, onImported }) {
-  const [type, setType] = useState(project.projectType || PROJECT_TYPES[0]);
+  const { catalog } = useProjectClassification();
+  const typeOptions = catalog?.allTypes || [];
+  const [type, setType] = useState(project.projectType || "GHG");
   const [templates, setTemplates] = useState(null);
   const [startDate, setStartDate] = useState(todayISO());
   const [tasks, setTasks] = useState([]);
@@ -961,12 +969,12 @@ function ImportTemplateModal({ project, onClose, onImported }) {
         <div>
           <label>Template (Project Type)</label>
           <select value={type} onChange={(e) => setType(e.target.value)}>
-            {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+            {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
         <div>
           <label>Start Date</label>
-          <input type="date" value={startDate} onChange={(e) => changeStart(e.target.value)} />
+          <DateInput value={startDate} onChange={(e) => changeStart(e.target.value)} />
         </div>
       </div>
 
@@ -983,7 +991,7 @@ function ImportTemplateModal({ project, onClose, onImported }) {
           </div>
           <div style={{ flex: "0 0 150px" }}>
             <label className="hint-text mt-0">Due Date</label>
-            <input type="date" value={t.dueDate} onChange={(e) => changeDue(i, e.target.value)} />
+            <DateInput value={t.dueDate} onChange={(e) => changeDue(i, e.target.value)} />
           </div>
           <div style={{ flex: "0 0 100px" }}>
             <label className="hint-text mt-0">Stage</label>
@@ -1014,6 +1022,8 @@ function ImportTemplateModal({ project, onClose, onImported }) {
 // row stays editable here before saving, same as editing a template
 // directly in Settings.
 function SaveAsTemplateModal({ project, actions, onClose }) {
+  const { catalog } = useProjectClassification();
+  const typeOptions = catalog?.allTypes || [];
   const [type, setType] = useState(project.projectType || "GHG");
   const [tasks, setTasks] = useState(() => {
     const baseline = actions.reduce((min, a) => {
@@ -1058,7 +1068,7 @@ function SaveAsTemplateModal({ project, actions, onClose }) {
       </p>
       <label>Project Type</label>
       <select value={type} onChange={(e) => setType(e.target.value)}>
-        {PROJECT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        {typeOptions.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
       </select>
 
       {tasks.map((t, i) => (
@@ -1244,8 +1254,8 @@ function AddPlanActionModal({ projectId, onClose, onAdded }) {
             {employees.map((emp) => <option key={emp.userId} value={emp.userId}>{emp.name} ({emp.userId})</option>)}
           </select>
           <div className="form-row">
-            <div><label>Action Start Date</label><input type="date" value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
-            <div><label>Due Date</label><input type="date" value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></div>
+            <div><label>Action Start Date</label><DateInput value={form.startDate} onChange={(e) => set("startDate", e.target.value)} /></div>
+            <div><label>Due Date</label><DateInput value={form.dueDate} onChange={(e) => set("dueDate", e.target.value)} required /></div>
             <div>
               <label>Invoice Stage (optional)</label>
               <select value={form.stage} onChange={(e) => set("stage", e.target.value)}>
@@ -1330,7 +1340,7 @@ function ProjectCostingTab({ projectId }) {
             {claims.map((c) => (
               <tr key={c.id}>
                 <td>{c.name || c.userId}</td>
-                <td>{c.voucherDate}</td>
+                <td>{fmtDate(c.voucherDate)}</td>
                 <td><StatusBadge status={c.type || "GENERAL"} /></td>
                 <td>₹{c.totalAmount.toFixed(2)}</td>
                 <td><StatusBadge status={c.status} /></td>

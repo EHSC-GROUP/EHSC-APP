@@ -3,6 +3,7 @@ import client, { errorMessage } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { numberToWords } from "../lib/numberToWords";
 import { ErrorText } from "./Misc";
+import DateInput from "./DateInput";
 
 const emptyTravelItem = () => ({ fromDate: "", fromPlace: "", toDate: "", toPlace: "", mode: "", paidTo: "", fare: "" });
 const emptyConveyanceItem = () => ({ date: "", from: "", to: "", mode: "", paidTo: "", fare: "" });
@@ -10,6 +11,8 @@ const emptyOtherItem = () => ({ date: "", details: "", amount: "" });
 const emptyProject = () => ({ projectId: "", amountSpent: "" });
 
 const MODE_OPTIONS = ["Bus", "Taxi", "Train", "Flight"];
+// Local conveyance is only ever Metro, Bus or Taxi.
+const CONVEYANCE_MODE_OPTIONS = ["Metro", "Bus", "Taxi"];
 
 // Cash advances are requested from the Advances tab now, not filed as a claim
 // type. Claim Type itself was dropped from this form — every voucher is
@@ -128,7 +131,7 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
 
       <div className="form-row">
         <div><label>Voucher No</label><input value={voucherNo || "…"} disabled title="Assigned automatically — this is a preview of the next number" /></div>
-        <div><label>Journey / Voucher Date</label><input type="date" value={voucherDate} onChange={(e) => setVoucherDate(e.target.value)} required /></div>
+        <div><label>Journey / Voucher Date</label><DateInput value={voucherDate} onChange={(e) => setVoucherDate(e.target.value)} required /></div>
       </div>
       <div className="form-row">
         <div><label>Raised By</label><input value={`${user?.name || ""} (${user?.userId || ""})`} disabled /></div>
@@ -136,8 +139,8 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
       </div>
 
       <div className="form-row">
-        <div><label>Destination</label><input value={journeyStation} onChange={(e) => setJourneyStation(e.target.value)} placeholder="Optional" /></div>
-        <div><label>Journey Purpose</label><input value={journeyPurpose} onChange={(e) => setJourneyPurpose(e.target.value)} placeholder="Optional" /></div>
+        <div><label>Destination</label><input value={journeyStation} onChange={(e) => setJourneyStation(e.target.value)} placeholder="In case of travel" /></div>
+        <div><label>Journey Purpose</label><input value={journeyPurpose} onChange={(e) => setJourneyPurpose(e.target.value)} placeholder="Reason" /></div>
       </div>
 
       <ItemSection
@@ -148,9 +151,9 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
         total={travelTotal}
         render={(item, i) => (
           <>
-            <div style={{ flex: "0 0 150px" }}><input type="date" value={item.fromDate} onChange={(e) => updateRow(setTravelItems, i, "fromDate", e.target.value)} title="From Date" /></div>
+            <div style={{ flex: "0 0 150px" }}><DateInput value={item.fromDate} onChange={(e) => updateRow(setTravelItems, i, "fromDate", e.target.value)} title="From Date" /></div>
             <div style={{ flex: "1 1 140px" }}><input value={item.fromPlace} onChange={(e) => updateRow(setTravelItems, i, "fromPlace", e.target.value)} placeholder="From Place" /></div>
-            <div style={{ flex: "0 0 150px" }}><input type="date" value={item.toDate} onChange={(e) => updateRow(setTravelItems, i, "toDate", e.target.value)} title="To Date" /></div>
+            <div style={{ flex: "0 0 150px" }}><DateInput value={item.toDate} onChange={(e) => updateRow(setTravelItems, i, "toDate", e.target.value)} title="To Date" /></div>
             <div style={{ flex: "1 1 140px" }}><input value={item.toPlace} onChange={(e) => updateRow(setTravelItems, i, "toPlace", e.target.value)} placeholder="To Place" /></div>
             <div style={{ flex: "0 0 110px" }}>
               <select value={item.mode} onChange={(e) => updateRow(setTravelItems, i, "mode", e.target.value)}>
@@ -172,13 +175,13 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
         total={conveyanceTotal}
         render={(item, i) => (
           <>
-            <div style={{ flex: "0 0 150px" }}><input type="date" value={item.date} onChange={(e) => updateRow(setConveyanceItems, i, "date", e.target.value)} title="Date" /></div>
+            <div style={{ flex: "0 0 150px" }}><DateInput value={item.date} onChange={(e) => updateRow(setConveyanceItems, i, "date", e.target.value)} title="Date" /></div>
             <div style={{ flex: "1 1 140px" }}><input value={item.from} onChange={(e) => updateRow(setConveyanceItems, i, "from", e.target.value)} placeholder="From" /></div>
             <div style={{ flex: "1 1 140px" }}><input value={item.to} onChange={(e) => updateRow(setConveyanceItems, i, "to", e.target.value)} placeholder="To" /></div>
             <div style={{ flex: "0 0 110px" }}>
               <select value={item.mode} onChange={(e) => updateRow(setConveyanceItems, i, "mode", e.target.value)}>
                 <option value="">Mode…</option>
-                {MODE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+                {CONVEYANCE_MODE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
             <div style={{ flex: "1 1 140px" }}><input value={item.paidTo} onChange={(e) => updateRow(setConveyanceItems, i, "paidTo", e.target.value)} placeholder="Paid To (e.g. Uber)" /></div>
@@ -195,8 +198,8 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
         total={otherTotal}
         render={(item, i) => (
           <>
-            <div style={{ flex: "0 0 150px" }}><input type="date" value={item.date} onChange={(e) => updateRow(setOtherItems, i, "date", e.target.value)} title="Date" /></div>
-            <div style={{ flex: "1 1 180px" }}><input value={item.details} onChange={(e) => updateRow(setOtherItems, i, "details", e.target.value)} placeholder="Details" /></div>
+            <div style={{ flex: "0 0 150px" }}><DateInput value={item.date} onChange={(e) => updateRow(setOtherItems, i, "date", e.target.value)} title="Date" /></div>
+            <div style={{ flex: "1 1 180px" }}><input value={item.details} onChange={(e) => updateRow(setOtherItems, i, "details", e.target.value)} placeholder="Breakfast, lunch or dinner" /></div>
             <div style={{ flex: "0 0 110px" }}><input type="number" min="0" step="0.01" value={item.amount} onChange={(e) => updateRow(setOtherItems, i, "amount", e.target.value)} placeholder="Amount" /></div>
           </>
         )}
@@ -216,7 +219,7 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
                   {(projectPicklist || []).map((pr) => <option key={pr.id} value={pr.projectId}>{pr.projectId} — {pr.clientName}</option>)}
                 </select>
               ) : (
-                <input value={p.projectId} onChange={(e) => updateRow(setProjects, i, "projectId", e.target.value)} placeholder="Project ID (e.g. PRJ150001)" />
+                <input value={p.projectId} onChange={(e) => updateRow(setProjects, i, "projectId", e.target.value)} placeholder="Project ID (e.g. CONS/ESG/ECOVADIS/2026/001)" />
               )}
             </div>
             <div style={{ flex: "0 0 200px" }}>
