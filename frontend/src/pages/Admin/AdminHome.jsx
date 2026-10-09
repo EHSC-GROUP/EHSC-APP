@@ -12,6 +12,10 @@ export default function AdminHome() {
   const { flags } = useFeatureFlags();
   const navigate = useNavigate();
   const isSuperAdmin = user?.role === "superadmin";
+  // A team lead sees the two admin pages they work in (leave and reimbursement
+  // approval) plus all of their own self-service.
+  const isTeamLead = user?.role === "team_lead";
+  const TEAM_LEAD_PATHS = ["/admin/leave", "/admin/reimbursements"];
   const [hasReimbAccess, setHasReimbAccess] = useState(null);
 
   useEffect(() => {
@@ -75,7 +79,8 @@ export default function AdminHome() {
     <div>
       <div className="page-header"><h2>Welcome, {user?.name}</h2></div>
       {groups.filter((g) => g.show).map((g) => {
-        const cards = g.cards.filter((c) => !c.superOnly || isSuperAdmin);
+        const cards = g.cards.filter((c) => (!c.superOnly || isSuperAdmin)
+          && (!isTeamLead || g.label.startsWith("Self Service") || TEAM_LEAD_PATHS.includes(c.to)));
         if (cards.length === 0) return null;
         return (
           <div key={g.label} style={{ marginBottom: 20 }}>

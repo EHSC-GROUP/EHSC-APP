@@ -98,7 +98,7 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={user?.role === "team_lead" ? <Navigate to="leave" replace /> : <AdminHome />} />
+        <Route index element={<AdminHome />} />
         <Route path="business-development" element={<StaffOnly><RequireFeature flag="projectManagement"><BusinessDevelopment /></RequireFeature></StaffOnly>} />
         <Route path="company-profiles" element={<StaffOnly><RequireFeature flag="projectManagement"><CompanyProfiles /></RequireFeature></StaffOnly>} />
         <Route path="project-tracker" element={<StaffOnly><RequireFeature flag="projectManagement"><ProjectTracker /></RequireFeature></StaffOnly>} />

@@ -114,11 +114,9 @@ export default function AdminLayout() {
         </div>
         <nav>
           <div className="sidebar-scroll">
-            {!isTeamLead && (
-              <div className="nav-group">
-                <NavLink to="/admin" end className={({ isActive }) => (isActive ? "active" : "")}>Home</NavLink>
-              </div>
-            )}
+            <div className="nav-group">
+              <NavLink to="/admin" end className={({ isActive }) => (isActive ? "active" : "")}>Home</NavLink>
+            </div>
             {visibleGroups.map((group) => (
               <div className="nav-group" key={group.label}>
                 <span className="nav-group-label">{group.label}</span>
