@@ -13,6 +13,13 @@ const emptyProject = () => ({ projectId: "", amountSpent: "" });
 const MODE_OPTIONS = ["Bus", "Taxi", "Train", "Flight"];
 // Local conveyance is only ever Metro, Bus or Taxi.
 const CONVEYANCE_MODE_OPTIONS = ["Metro", "Bus", "Taxi"];
+const BILL_ACCEPT = ".jpg,.jpeg,.png,.webp,.pdf";
+
+function addSelectedFiles(setter, event) {
+  const selected = Array.from(event.target.files || []);
+  if (selected.length) setter((files) => [...files, ...selected]);
+  event.target.value = "";
+}
 
 // Cash advances are requested from the Advances tab now, not filed as a claim
 // type. Claim Type itself was dropped from this form — every voucher is
@@ -38,17 +45,10 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
   const [otherItems, setOtherItems] = useState([emptyOtherItem()]);
 
   const [bills, setBills] = useState([]);
+  const [sectionBills, setSectionBills] = useState({ A: [], B: [], C: [] });
+  const [paidInCash, setPaidInCash] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [voucherNo, setVoucherNo] = useState("");
-
-  // Preview only — the real number is assigned atomically on submit, so
-  // this can occasionally be off by one under concurrent submissions.
-  useEffect(() => {
-    client.get("/reimbursements/next-voucher-no", { params: { date: voucherDate } })
-      .then(({ data }) => setVoucherNo(data.voucherNo))
-      .catch(() => setVoucherNo(""));
-  }, [voucherDate]);
 
   // Until Project Management is live (feature flag off) a project is just a
   // typed Project ID; once it's switched on this becomes a dropdown.
@@ -80,11 +80,12 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
   const namedProjects = projects.filter((p) => p.projectId.trim());
   const splitting = projects.length > 1;
   const allocated = projects.reduce((s, p) => s + (Number(p.amountSpent) || 0), 0);
+  const allBillFiles = [...bills, ...Object.values(sectionBills).flat()];
 
   async function submit(e) {
     e.preventDefault();
     setError("");
-    if (requireBill && bills.length === 0) return setError("At least one bill copy is required");
+    if ((requireBill || total > 500) && allBillFiles.length === 0) return setError("At least one bill copy is required for vouchers above ₹500");
 
     const validTravel = travelItems.filter((i) => i.fromDate && i.fromPlace && i.toDate && i.toPlace && Number(i.fare) > 0);
     const validConveyance = conveyanceItems.filter((i) => i.date && i.from && i.to && Number(i.fare) > 0);
@@ -102,7 +103,7 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
     setBusy(true);
     try {
       const form = new FormData();
-      form.append("voucherDate", voucherDate);
+      form.append("journeyDate", voucherDate);
       form.append("type", type);
       if (journeyPurpose) form.append("journeyPurpose", journeyPurpose);
       if (journeyStation) form.append("journeyStation", journeyStation);
@@ -111,6 +112,10 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
       form.append("conveyanceItems", JSON.stringify(validConveyance));
       form.append("otherItems", JSON.stringify(validOther));
       bills.forEach((b) => form.append("bills", b));
+      sectionBills.A.forEach((b) => form.append("billA", b));
+      sectionBills.B.forEach((b) => form.append("billB", b));
+      sectionBills.C.forEach((b) => form.append("billC", b));
+      form.append("paidInCash", paidInCash);
       await client.post("/reimbursements", form);
       onSubmitted();
     } catch (err) {
@@ -130,8 +135,8 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
       )}
 
       <div className="form-row">
-        <div><label>Voucher No</label><input value={voucherNo || "…"} disabled title="Assigned automatically — this is a preview of the next number" /></div>
-        <div><label>Journey / Voucher Date</label><DateInput value={voucherDate} onChange={(e) => setVoucherDate(e.target.value)} required /></div>
+        <div><label>Journey Date</label><DateInput value={voucherDate} onChange={(e) => setVoucherDate(e.target.value)} required /></div>
+        <div><label>Voucher No</label><input value="Assigned on approval" disabled /></div>
       </div>
       <div className="form-row">
         <div><label>Raised By</label><input value={`${user?.name || ""} (${user?.userId || ""})`} disabled /></div>
@@ -216,6 +221,7 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
               {costingEnabled ? (
                 <select value={p.projectId} onChange={(e) => updateRow(setProjects, i, "projectId", e.target.value)}>
                   <option value="">— Select project —</option>
+                  <option value="BD_EXPENSES">BD Expenses</option>
                   {(projectPicklist || []).map((pr) => <option key={pr.id} value={pr.projectId}>{pr.projectId} — {pr.clientName}</option>)}
                 </select>
               ) : (
@@ -252,16 +258,49 @@ export default function VoucherForm({ requireBill, onSubmitted }) {
       </div>
 
       <div style={{ marginTop: 16 }}>
-        <label>Bill Copies {requireBill ? "(at least one required)" : "(optional)"} — you can attach several</label>
+        <label>Bill Copies {total > 500 ? "(required above ₹500)" : "(optional below ₹500)"} — you can attach several</label>
         <input
           type="file"
           multiple
           accept=".jpg,.jpeg,.png,.webp,.pdf"
-          onChange={(e) => setBills(Array.from(e.target.files))}
-          required={requireBill}
+          onChange={(e) => addSelectedFiles(setBills, e)}
         />
+        <div className="toolbar" style={{ margin: "6px 0 0" }}>
+          <label className="btn-sm" style={{ cursor: "pointer" }}>
+            Add one file
+            <input type="file" accept={BILL_ACCEPT} onChange={(e) => addSelectedFiles(setBills, e)} style={{ display: "none" }} />
+          </label>
+          <span className="hint-text">Choose Files adds to the existing list; it does not replace it.</span>
+        </div>
         {bills.length > 0 && <p className="hint-text mt-0">{bills.length} file{bills.length > 1 ? "s" : ""}: {bills.map((b) => b.name).join(", ")}</p>}
       </div>
+      <div className="form-row" style={{ marginTop: 12 }}>
+        {["A", "B", "C"].map((section) => (
+          <div key={section}>
+            <label>Section {section} bills (optional)</label>
+            <input
+              type="file"
+              multiple
+              accept={BILL_ACCEPT}
+              onChange={(e) => addSelectedFiles((files) => setSectionBills((old) => ({ ...old, [section]: files(old[section]) })), e)}
+            />
+            <label className="btn-sm" style={{ display: "inline-block", marginTop: 6, cursor: "pointer" }}>
+              Add one file
+              <input
+                type="file"
+                accept={BILL_ACCEPT}
+                onChange={(e) => addSelectedFiles((files) => setSectionBills((old) => ({ ...old, [section]: files(old[section]) })), e)}
+                style={{ display: "none" }}
+              />
+            </label>
+            {sectionBills[section].length > 0 && <p className="hint-text mt-0">{sectionBills[section].length} file(s) selected</p>}
+          </div>
+        ))}
+      </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+        <input type="checkbox" style={{ width: "auto" }} checked={paidInCash} onChange={(e) => setPaidInCash(e.target.checked)} />
+        Paid in cash
+      </label>
 
       <ErrorText>{error}</ErrorText>
       <button className="btn-primary" style={{ marginTop: 16 }} disabled={busy}>{busy ? "Submitting…" : "Submit"}</button>

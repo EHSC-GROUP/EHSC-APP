@@ -112,7 +112,7 @@ export default function Reimbursements() {
             </select>
             <select value={type} onChange={(e) => setType(e.target.value)} style={{ width: 160 }}>
               <option value="">All types</option>
-              {["GENERAL", "TRAVEL", "ACCOMMODATION"].map((t) => <option key={t} value={t}>{t}</option>)}
+              {["GENERAL", "TRAVEL", "ACCOMMODATION", "BD_EXPENSES"].map((t) => <option key={t} value={t}>{t.replace(/_/g, " ")}</option>)}
             </select>
             <div className="spacer" />
             <button
@@ -133,15 +133,16 @@ export default function Reimbursements() {
           {!list ? <Loading /> : (
             <div className="card table-wrap">
               <table>
-                <thead><tr><th>Voucher No</th><th>Employee</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Voucher No</th><th>Employee</th><th>Journey Date</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {list.map((r) => (
                     <tr key={r.id}>
-                      <td>{r.voucherNo || "-"}</td>
+                      <td>{r.voucherNo || <span className="hint-text">After approval</span>}</td>
                       <td>{r.name || r.userId}<div className="hint-text mt-0">{r.department || "no department"}</div></td>
-                      <td>{fmtDate(r.voucherDate)}</td>
+                      <td>{fmtDate(r.journeyDate || r.voucherDate)}</td>
+                      <td>{r.journeyDate ? (fmtDate(r.voucherDate) || "-") : fmtDate(r.voucherDate)}</td>
                       <td><StatusBadge status={r.type || "GENERAL"} /></td>
-                      <td>₹{r.totalAmount.toFixed(2)} <BillLinks record={r} onError={setError} /></td>
+                      <td>₹{r.totalAmount.toFixed(2)} {r.paidInCash && <span className="hint-text">(Paid in cash)</span>} <BillLinks record={r} onError={setError} /></td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.advanceTaken || 0).toFixed(2)}` : "-"}</td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.payableAmount ?? r.totalAmount).toFixed(2)}` : "-"}</td>
                       <td>

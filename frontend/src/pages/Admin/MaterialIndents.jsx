@@ -82,13 +82,14 @@ export default function MaterialIndents() {
       {!list ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Voucher No</th><th>Employee</th><th>Raised Date</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Approved By</th><th></th></tr></thead>
+            <thead><tr><th>Voucher No</th><th>Employee</th><th>Raised Date</th><th>Voucher Date</th><th>Purpose</th><th>Amount</th><th>Status</th><th>Approved By</th><th></th></tr></thead>
             <tbody>
               {list.map((r) => (
                 <tr key={r.id}>
-                  <td>{r.voucherNo || "-"}</td>
+                  <td>{r.voucherNo || <span className="hint-text">After approval</span>}</td>
                   <td>{r.name || r.userId}</td>
                   <td>{fmtDate(r.raisedDate)}</td>
+                  <td>{fmtDate(r.voucherDate) || "-"}</td>
                   <td>{r.purpose}</td>
                   <td>₹{r.totalAmount.toFixed(2)}</td>
                   <td><StatusBadge status={r.status} /></td>

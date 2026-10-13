@@ -15,15 +15,6 @@ export default function MaterialIndentForm({ onSubmitted }) {
   const [items, setItems] = useState([emptyItem()]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [voucherNo, setVoucherNo] = useState("");
-
-  // Preview only — the real number is assigned atomically on submit, so
-  // this can occasionally be off by one under concurrent submissions.
-  useEffect(() => {
-    client.get("/material-indents/next-voucher-no", { params: { date: raisedDate } })
-      .then(({ data }) => setVoucherNo(data.voucherNo))
-      .catch(() => setVoucherNo(""));
-  }, [raisedDate]);
 
   function updateItem(i, field, value) {
     setItems((list) => list.map((it, idx) => (idx === i ? { ...it, [field]: value } : it)));
@@ -56,7 +47,7 @@ export default function MaterialIndentForm({ onSubmitted }) {
       <div className="form-row">
         <div>
           <label>Voucher No</label>
-          <input value={voucherNo || "…"} disabled title="Assigned automatically — this is a preview of the next number" />
+          <input value="Assigned on approval" disabled />
         </div>
         <div>
           <label>Raised Date</label>

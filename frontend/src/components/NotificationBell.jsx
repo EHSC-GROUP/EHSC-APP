@@ -120,7 +120,7 @@ export default function NotificationBell() {
 
       <div className="notification-bell" ref={boxRef}>
         <button type="button" className="notification-bell-toggle" onClick={() => setOpen((o) => !o)} title="Notifications">
-          🔔
+          🔔 <span style={{ marginLeft: 4 }}>Notifications</span>
           {count > 0 && <span className="badge-pill badge-PENDING notification-badge">{count > 99 ? "99+" : count}</span>}
         </button>
         {open && (

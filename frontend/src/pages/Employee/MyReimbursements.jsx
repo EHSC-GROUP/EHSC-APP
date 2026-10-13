@@ -14,7 +14,7 @@ export function BillLinks({ record, onError }) {
   const bills = record.bills?.length ? record.bills : record.billLink ? [{ link: record.billLink, name: "bill" }] : [];
   return bills.map((b, i) => (
     <button key={i} className="btn-sm" style={{ marginLeft: 4 }} title={b.name} onClick={() => openAuthedFile(b.link).catch((err) => onError(errorMessage(err)))}>
-      {bills.length > 1 ? `bill ${i + 1}` : "bill"}
+      {b.section ? `${b.section} bill ${i + 1}` : (bills.length > 1 ? `bill ${i + 1}` : "bill")}
     </button>
   ));
 }
@@ -70,12 +70,13 @@ export default function MyReimbursements() {
           {!list ? <Loading /> : (
             <div className="card table-wrap">
               <table>
-                <thead><tr><th>Voucher No</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
+                <thead><tr><th>Voucher No</th><th>Journey Date</th><th>Voucher Date</th><th>Type</th><th>Amount</th><th>Advance Applied</th><th>Payable</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   {list.map((r) => (
                     <tr key={r.id}>
-                      <td>{r.voucherNo || "-"}</td>
-                      <td>{fmtDate(r.voucherDate)}</td>
+                      <td>{r.voucherNo || <span className="hint-text">After approval</span>}</td>
+                      <td>{fmtDate(r.journeyDate || r.voucherDate)}</td>
+                      <td>{r.journeyDate ? (fmtDate(r.voucherDate) || "-") : fmtDate(r.voucherDate)}</td>
                       <td><StatusBadge status={r.type || "GENERAL"} /></td>
                       <td>₹{r.totalAmount.toFixed(2)} <BillLinks record={r} onError={setError} /></td>
                       <td>{["APPROVED", "SETTLED", "PAID"].includes(r.status) ? `₹${Number(r.advanceTaken || 0).toFixed(2)}` : "-"}</td>
@@ -94,7 +95,7 @@ export default function MyReimbursements() {
           )}
           {showNew && (
             <Modal title="New Expense Voucher" wide onClose={() => setShowNew(false)}>
-              <VoucherForm requireBill onSubmitted={() => { setShowNew(false); load(); }} />
+              <VoucherForm onSubmitted={() => { setShowNew(false); load(); }} />
             </Modal>
           )}
         </>
