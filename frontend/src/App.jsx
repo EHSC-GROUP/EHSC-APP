@@ -11,6 +11,7 @@ import CompanyProfiles from "./pages/Admin/CompanyProfiles";
 import ProjectTracker from "./pages/Admin/ProjectTracker";
 import EmployeeProfiles from "./pages/Admin/EmployeeProfiles";
 import AdminHome from "./pages/Admin/AdminHome";
+import Renewals from "./pages/Admin/Renewals";
 import Holidays from "./pages/Admin/Holidays";
 import Payslips from "./pages/Admin/Payslips";
 import Leave from "./pages/Admin/Leave";
@@ -114,6 +115,7 @@ export default function App() {
         <Route path="documents" element={<SuperAdminOnly><CompanyDocuments /></SuperAdminOnly>} />
         <Route path="travel" element={<StaffOnly><Travel /></StaffOnly>} />
         <Route path="settings" element={<SuperAdminOnly><Settings /></SuperAdminOnly>} />
+        <Route path="renewals" element={<SuperAdminOnly><Renewals /></SuperAdminOnly>} />
       </Route>
 
       <Route

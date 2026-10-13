@@ -38,6 +38,7 @@ const NAV_GROUPS = [
         label: "Finance",
         children: [
           { to: "/admin/company-wallet", label: "Company Wallet" },
+          { to: "/admin/renewals", label: "Renewals" },
           { to: "/admin/reimbursements", label: "Reimbursements" },
           { to: "/admin/material-indents", label: "Material Indents" },
         ],
@@ -93,7 +94,7 @@ export default function AdminLayout() {
   const { pathname } = useLocation();
   const isTeamLead = user?.role === "team_lead";
   const isSuperAdmin = user?.role === "superadmin";
-  const SUPERADMIN_ONLY_PATHS = ["/admin/profiles", "/admin/associates", "/admin/payslips", "/admin/documents", "/admin/settings", "/admin/company-wallet"];
+  const SUPERADMIN_ONLY_PATHS = ["/admin/profiles", "/admin/associates", "/admin/payslips", "/admin/documents", "/admin/settings", "/admin/company-wallet", "/admin/renewals"];
 
   const visibleGroups = NAV_GROUPS
     .filter((group) => group.label !== "PM" || (flags.projectManagement && !isTeamLead))

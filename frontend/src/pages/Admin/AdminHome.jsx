@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import client from "../../api/client";
 import { useAuth } from "../../context/AuthContext";
 import { useFeatureFlags } from "../../context/FeatureFlagsContext";
+import { RenewalAlerts } from "./Renewals";
 
 // Landing page for admins and the superadmin — same card grid as the
 // employee Hub, but each card only appears if that role may open the page
@@ -17,9 +18,12 @@ export default function AdminHome() {
   const isTeamLead = user?.role === "team_lead";
   const TEAM_LEAD_PATHS = ["/admin/leave", "/admin/reimbursements"];
   const [hasReimbAccess, setHasReimbAccess] = useState(null);
+  const [renewalAlerts, setRenewalAlerts] = useState(null);
 
   useEffect(() => {
     client.get("/me/profile").then((r) => setHasReimbAccess(!!r.data.reimbursementAccess)).catch(() => setHasReimbAccess(false));
+    // Renewals due tomorrow / today / overdue: the superadmin's alerts section.
+    if (user?.role === "superadmin") client.get("/renewals/alerts").then((r) => setRenewalAlerts(r.data)).catch(() => {});
   }, []);
 
   const groups = [
@@ -49,6 +53,7 @@ export default function AdminHome() {
       show: true,
       cards: [
         { to: "/admin/company-wallet", title: "Company Wallet", desc: "Balance and advances", superOnly: true },
+        { to: "/admin/renewals", title: "Renewals", desc: "Recurring payments and due-date reminders", superOnly: true },
         { to: "/admin/reimbursements", title: "Reimbursements", desc: "Review and approve vouchers" },
         { to: "/admin/material-indents", title: "Material Indents", desc: "Material requests for jobs" },
         { to: "/admin/travel", title: "Travel", desc: "Travel approval requests" },
@@ -78,6 +83,7 @@ export default function AdminHome() {
   return (
     <div>
       <div className="page-header"><h2>Welcome, {user?.name}</h2></div>
+      {isSuperAdmin && renewalAlerts && <RenewalAlerts items={renewalAlerts.items} frequencies={renewalAlerts.frequencies} onOpen={() => navigate("/admin/renewals")} />}
       {groups.filter((g) => g.show).map((g) => {
         const cards = g.cards.filter((c) => (!c.superOnly || isSuperAdmin)
           && (!isTeamLead || g.label.startsWith("Self Service") || TEAM_LEAD_PATHS.includes(c.to)));
