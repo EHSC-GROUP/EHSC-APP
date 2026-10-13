@@ -62,7 +62,18 @@ function applyStaffNameRules(body, { partial }) {
   return null;
 }
 
+// Gender is Male or Female (any capitalisation is accepted and tidied up).
+function normalizeGender(body) {
+  if (body.gender === undefined || body.gender === null || body.gender === "") return null;
+  const g = String(body.gender).trim().toLowerCase();
+  if (g !== "male" && g !== "female") return "Gender must be Male or Female";
+  body.gender = g === "male" ? "Male" : "Female";
+  return null;
+}
+
 function validateStaffFields(body, { partial }) {
+  const genderError = normalizeGender(body);
+  if (genderError) return genderError;
   if (body.department !== undefined || !partial) {
     if (!DEPARTMENTS.includes(body.department)) return `department must be one of: ${DEPARTMENTS.join(", ")}`;
   }
