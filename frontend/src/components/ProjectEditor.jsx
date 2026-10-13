@@ -5,6 +5,10 @@ import StatusBadge from "./StatusBadge";
 import Modal from "./Modal";
 import DateInput from "./DateInput";
 import { fmtDate } from "../lib/dates";
+import { openAuthedFile } from "../lib/openFile";
+
+// How a proposal was sent.
+const SUBMISSION_MODES = ["In Person", "Email", "WhatsApp"];
 import { useProjectClassification } from "../lib/useProjectClassification";
 import { useDropdownLists } from "../lib/useDropdownLists";
 import { TeamLeadSelect, TeamMembersPicker } from "./PeopleFields";
@@ -283,8 +287,8 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <table>
                     <tbody>
                       <tr><td>Final Proposal After Negotiation</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase2?.finalProposalAfterNegotiation || "-"}</td></tr>
-                      <tr><td>Work Order Date</td><td>{project.phase2?.workOrderDate || "-"}</td></tr>
-                      <tr><td>Work Order Number</td><td>{project.phase2?.workOrderNumber || "-"}</td></tr>
+                      <tr><td>Purchase Order Date</td><td>{project.phase2?.workOrderDate || "-"}</td></tr>
+                      <tr><td>Purchase Order Number</td><td>{project.phase2?.workOrderNumber || "-"}</td></tr>
                       <tr><td>Terms and Conditions</td><td style={{ whiteSpace: "pre-wrap" }}>{project.termsAndConditions || "-"}</td></tr>
                       <tr><td>Value of Contract</td><td>{project.contractValue ?? "-"}</td></tr>
                     </tbody>
@@ -298,9 +302,9 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
           {showPhases && section === "Implementation Phase" && (
             <table>
               <tbody>
-                <tr><td>Work Order Date</td><td>{project.phase3?.workOrderDate || "-"}</td></tr>
-                <tr><td>Work Order Number</td><td>{project.phase3?.workOrderNumber || "-"}</td></tr>
-                <tr><td>Work Order Description</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.workOrderDescription || "-"}</td></tr>
+                <tr><td>Purchase Order Date</td><td>{project.phase3?.workOrderDate || "-"}</td></tr>
+                <tr><td>Purchase Order Number</td><td>{project.phase3?.workOrderNumber || "-"}</td></tr>
+                <tr><td>Purchase Order Description</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.workOrderDescription || "-"}</td></tr>
                 <tr><td>Delivery Conditions / Scope of Work</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.deliveryConditions || "-"}</td></tr>
                 <tr><td>Payment Terms</td><td style={{ whiteSpace: "pre-wrap" }}>{project.phase3?.paymentTerms || "-"}</td></tr>
               </tbody>
@@ -378,9 +382,16 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
           {showPhase2 && section === "Conversation Stage" && (
             <div>
               <div className="form-row">
-                <div><label>Proposal No.</label><input value={form.phase2.proposalNo} onChange={(e) => setPhase2("proposalNo", e.target.value)} /></div>
+                <div><label>Proposal No.</label><input value={form.phase2.proposalNo || "Assigned when the proposal is shared"} disabled /></div>
                 <div><label>Proposal Date</label><DateInput value={form.phase2.proposalDate} onChange={(e) => setPhase2("proposalDate", e.target.value)} /></div>
-                <div><label>Mode of Submission</label><input value={form.phase2.modeOfSubmission} onChange={(e) => setPhase2("modeOfSubmission", e.target.value)} placeholder="e.g. Email, In-person" /></div>
+                <div>
+                  <label>Mode of Submission</label>
+                  <select value={form.phase2.modeOfSubmission || ""} onChange={(e) => setPhase2("modeOfSubmission", e.target.value)}>
+                    <option value="">Select…</option>
+                    {form.phase2.modeOfSubmission && !SUBMISSION_MODES.includes(form.phase2.modeOfSubmission) && <option value={form.phase2.modeOfSubmission}>{form.phase2.modeOfSubmission}</option>}
+                    {SUBMISSION_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
               </div>
               <div className="form-row">
                 <div><label>Whom It Has Been Submitted</label><input value={form.phase2.submittedTo} onChange={(e) => setPhase2("submittedTo", e.target.value)} /></div>
@@ -432,8 +443,8 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <label>Final Proposal Submission After Negotiation</label>
                   <textarea rows={2} value={form.phase2.finalProposalAfterNegotiation} onChange={(e) => setPhase2("finalProposalAfterNegotiation", e.target.value)} />
                   <div className="form-row">
-                    <div><label>Work Order Date</label><DateInput value={form.phase2.workOrderDate} onChange={(e) => setPhase2("workOrderDate", e.target.value)} /></div>
-                    <div><label>Work Order Number</label><input value={form.phase2.workOrderNumber} onChange={(e) => setPhase2("workOrderNumber", e.target.value)} /></div>
+                    <div><label>Purchase Order Date</label><DateInput value={form.phase2.workOrderDate} onChange={(e) => setPhase2("workOrderDate", e.target.value)} /></div>
+                    <div><label>Purchase Order Number</label><input value={form.phase2.workOrderNumber} onChange={(e) => setPhase2("workOrderNumber", e.target.value)} /></div>
                   </div>
                   <label>Terms and Conditions</label>
                   <textarea rows={3} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
@@ -449,10 +460,10 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
           {showPhases && section === "Implementation Phase" && (
             <div>
               <div className="form-row">
-                <div><label>Work Order Date</label><DateInput value={form.phase3.workOrderDate} onChange={(e) => setPhase3("workOrderDate", e.target.value)} /></div>
-                <div><label>Work Order Number</label><input value={form.phase3.workOrderNumber} onChange={(e) => setPhase3("workOrderNumber", e.target.value)} /></div>
+                <div><label>Purchase Order Date</label><DateInput value={form.phase3.workOrderDate} onChange={(e) => setPhase3("workOrderDate", e.target.value)} /></div>
+                <div><label>Purchase Order Number</label><input value={form.phase3.workOrderNumber} onChange={(e) => setPhase3("workOrderNumber", e.target.value)} /></div>
               </div>
-              <label>Work Order Description</label>
+              <label>Purchase Order Description</label>
               <textarea rows={2} value={form.phase3.workOrderDescription} onChange={(e) => setPhase3("workOrderDescription", e.target.value)} />
               <label>Delivery Conditions / Scope of Work</label>
               <textarea rows={2} value={form.phase3.deliveryConditions} onChange={(e) => setPhase3("deliveryConditions", e.target.value)} />
@@ -639,6 +650,17 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
               <span>Stage {r.n}{project[`invoiceStage${r.n}Name`] ? ` · ${project[`invoiceStage${r.n}Name`]}` : ""} — {isSet ? `${r.percent}%${amount !== null ? ` (₹${amount})` : ""}` : "not set"}</span>
             </label>
             {r.completed && r.completedAt && <span className="hint-text">Completed {fmtDate(r.completedAt)}</span>}
+            {isSet && (
+              <button
+                type="button"
+                className="btn-sm"
+                disabled={!r.completed}
+                title={r.completed ? "Download the invoice sheet for this stage" : "Available once this stage's work is completed"}
+                onClick={() => openAuthedFile(`/api/projects/${project.id}/invoice-stages/${r.n}/export`, { download: true, filename: `Invoice_Stage${r.n}.xlsx` }).catch((err) => setError(errorMessage(err)))}
+              >
+                Export to Excel
+              </button>
+            )}
           </div>
         );
       })}
@@ -1489,7 +1511,7 @@ function ProjectCostingTab({ projectId }) {
             {claims.map((c) => (
               <tr key={c.id}>
                 <td>{c.name || c.userId}</td>
-                <td>{fmtDate(c.voucherDate)}</td>
+                <td>{fmtDate(c.journeyDate || c.voucherDate)}</td>
                 <td><StatusBadge status={c.type || "GENERAL"} /></td>
                 <td>₹{c.totalAmount.toFixed(2)}</td>
                 <td><StatusBadge status={c.status} /></td>
