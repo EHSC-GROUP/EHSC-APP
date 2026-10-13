@@ -7,6 +7,8 @@ import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { emptyPhase2, emptyPhase3, emptyPhase3b, emptyPhase4, emptyInvoiceStages } from "../lib/companyProfile.js";
 import { buildGanttWorkbook } from "../lib/ganttExcel.js";
 import { notifyAdmins } from "../lib/notifications.js";
+import { buildInvoiceRows, buildInvoiceWorkbook, invoiceRowFor } from "../lib/pipeline.js";
+import { SUBMISSION_MODES } from "../lib/proposalNumber.js";
 import { INVOICE_STAGE_NUMBERS, isValidStage } from "../lib/constants.js";
 import { getProjectPlanTemplate, buildPlanActionsFromTemplate } from "../lib/projectPlanTemplate.js";
 import { resolveClassification, nextProjectId } from "../lib/projectClassification.js";
@@ -34,6 +36,50 @@ router.get("/picklist", authenticate, async (req, res, next) => {
 // flattenActions/statusOf in ProjectTracker.jsx), so the export matches
 // what's visible when the button is clicked. Optional ?clientName= mirrors
 // the page's company filter.
+// "Invoice to be raised" sheet for Accounts: every completed invoice stage.
+router.get("/invoices-to-raise", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await buildInvoiceRows());
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/invoices-to-raise/export", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const wb = await buildInvoiceWorkbook(await buildInvoiceRows());
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Invoice_To_Be_Raised_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The invoice template filled in for ONE stage of ONE project, available only
+// once that stage is completed. Blank cells = not known yet.
+router.get("/:id/invoice-stages/:stage/export", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const stage = Number(req.params.stage);
+    if (!isValidStage(stage)) return res.status(400).json({ error: "stage must be 1 to 5" });
+    const snap = await db.collection(COLLECTIONS.PROJECTS).doc(req.params.id).get();
+    if (!snap.exists) return res.status(404).json({ error: "Not found" });
+    const row = invoiceRowFor(snap.data(), stage);
+    if (!row) return res.status(400).json({ error: "Set a percentage for this stage first" });
+    if (!snap.data()[`invoiceStage${stage}Completed`]) {
+      return res.status(400).json({ error: "The invoice sheet is available once this stage's work is completed" });
+    }
+    const wb = await buildInvoiceWorkbook([row]);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Invoice_${String(snap.data().projectId).replace(/[^A-Za-z0-9]+/g, "_")}_Stage${stage}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get("/gantt-export", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const snap = await db.collection(COLLECTIONS.PROJECTS).get();
@@ -154,8 +200,9 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
+// proposalNo is assigned by the server (see businessDevelopment.js), never typed.
 const PHASE2_FIELDS = [
-  "proposalNo", "proposalDate", "modeOfSubmission", "submittedTo", "submittedBy",
+  "proposalDate", "modeOfSubmission", "submittedTo", "submittedBy",
   "nextFollowUpDueOn", "nextFollowUpDate", "respondedInFavour",
   "finalProposalAfterNegotiation", "workOrderDate", "workOrderNumber",
 ];
@@ -242,6 +289,10 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     // here even if the caller's phase2 payload omits them.
     if (phase2 !== undefined) {
       const merged = { ...(existing.phase2 || emptyPhase2()) };
+      const mode = phase2.modeOfSubmission;
+      if (mode && !SUBMISSION_MODES.includes(mode) && mode !== existing.phase2?.modeOfSubmission) {
+        return res.status(400).json({ error: `Mode of submission must be one of: ${SUBMISSION_MODES.join(", ")}` });
+      }
       for (const f of PHASE2_FIELDS) if (phase2[f] !== undefined) merged[f] = phase2[f];
       updates.phase2 = merged;
 
