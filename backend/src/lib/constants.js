@@ -43,6 +43,7 @@ export const COLLECTIONS = Object.freeze({
   HR_BILLS: "hr_bills",
   HR_HOLIDAYS: "hr_holidays",
   HR_SETTINGS: "hr_settings",
+  HR_RENEWALS: "hr_renewals",
   HR_LEAVE_TYPES: "hr_leave_types",
   HR_LEAVE_BALANCES: "hr_leave_balances",
   HR_LEAVE_REQUESTS: "hr_leave_requests",
@@ -84,6 +85,7 @@ export const REIMBURSEMENT_TYPE = Object.freeze({
   GENERAL: "GENERAL",
   TRAVEL: "TRAVEL",
   ACCOMMODATION: "ACCOMMODATION",
+  BD_EXPENSES: "BD_EXPENSES",
 });
 // Cash advances are their own module now (COLLECTIONS.HR_ADVANCES). Claims
 // filed earlier with type ADVANCE still exist and just keep that label.
@@ -173,8 +175,13 @@ export const APPROACH_MODE = Object.freeze({
 // "Result" is the enquiry's current outcome/stage. IN_PROGRESS is the
 // default for a freshly logged enquiry; the other four are exactly the
 // terminal outcomes the business asked to track.
+// The enquiry funnel, in order: Enquiry (IN_PROGRESS, kept for older records),
+// Proposal shared, Technical negotiation, Commercial negotiation, then PO.
 export const BD_RESULT = Object.freeze({
   IN_PROGRESS: "IN_PROGRESS",
+  PROPOSAL_SHARED: "PROPOSAL_SHARED",
+  TECHNICAL_NEGOTIATION: "TECHNICAL_NEGOTIATION",
+  COMMERCIAL_NEGOTIATION: "COMMERCIAL_NEGOTIATION",
   PURCHASE_ORDER_RECEIVED: "PURCHASE_ORDER_RECEIVED",
   CONTRACT_ACCEPTED: "CONTRACT_ACCEPTED",
   ENQUIRY_ON_HOLD: "ENQUIRY_ON_HOLD",
@@ -226,6 +233,7 @@ export const OOO_REQUEST_STATUS = Object.freeze({
   PENDING: "PENDING",
   APPROVED: "APPROVED",
   REJECTED: "REJECTED",
+  CANCELLED: "CANCELLED",
 });
 
 // Toggleable, admin-controlled features that ship disabled until a
