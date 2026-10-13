@@ -210,6 +210,9 @@ label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom
 .badge-PENDING_OOO { background: #fef3c7; color: #92400e; }
 .badge-TRAVEL { background: #dbeafe; color: #1e40af; }
 .badge-WFH { background: #ccfbf1; color: #0f766e; }
+.badge-PROPOSAL_SHARED { background: #dbeafe; color: #1e40af; }
+.badge-TECHNICAL_NEGOTIATION { background: #fef3c7; color: #92400e; }
+.badge-COMMERCIAL_NEGOTIATION { background: #fde68a; color: #78350f; }
 .badge-PENDING_WFH { background: #fef3c7; color: #92400e; }
 .badge-PENDING_TRAVEL { background: #fef3c7; color: #92400e; }
 .badge-GENERAL { background: #f3f4f6; color: #374151; }

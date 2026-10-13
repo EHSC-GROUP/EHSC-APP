@@ -5,6 +5,10 @@ const LABELS = {
   PENDING_OOO: "On Duty — pending approval",
   ABSENT: "LOP",
   WFH: "Work From Home",
+  IN_PROGRESS: "Enquiry",
+  PROPOSAL_SHARED: "Proposal Shared",
+  TECHNICAL_NEGOTIATION: "Technical Negotiation",
+  COMMERCIAL_NEGOTIATION: "Commercial Negotiation",
   PENDING_WFH: "Work From Home — pending approval",
 };
 

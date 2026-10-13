@@ -43,3 +43,14 @@ export function parseDMY(text) {
   if (d.getFullYear() !== Number(yyyy) || d.getMonth() !== Number(mm) - 1 || d.getDate() !== Number(dd)) return "";
   return `${yyyy}-${mm}-${dd}`;
 }
+
+// "08/10/2026" for one day, "08/10/2026 – 12/10/2026" for a range request.
+export function fmtRange(r) {
+  const from = fmtDate(r.date);
+  return r.toDate && r.toDate !== r.date ? `${from} – ${fmtDate(r.toDate)}` : from;
+}
+
+// True if `day` (ISO) falls inside a request's From..To.
+export function rangeCovers(r, day) {
+  return r.date <= day && (r.toDate || r.date) >= day;
+}
