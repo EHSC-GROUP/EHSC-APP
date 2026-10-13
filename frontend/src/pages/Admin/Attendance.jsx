@@ -4,7 +4,7 @@ import { Loading, ErrorText } from "../../components/Misc";
 import StatusBadge from "../../components/StatusBadge";
 import { getCurrentPosition } from "../../lib/geolocation";
 import { useAuth } from "../../context/AuthContext";
-import { fmtDate } from "../../lib/dates";
+import { fmtDate, fmtRange } from "../../lib/dates";
 import DateInput from "../../components/DateInput";
 
 function currentMonth() {
@@ -131,7 +131,7 @@ function DailyStatusTab({ canApproveOoo, canEdit }) {
         nobody marked counts as LOP.
       </p>
 
-      <GeofenceSettings />
+      {canEdit && <GeofenceSettings />}
 
       <WfhRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />
       {canApproveOoo && <OooRequestsQueue onDecided={() => { loadRoster(); loadSummary(); }} />}
@@ -301,15 +301,26 @@ function GeofenceSettings() {
       {open && (
         <form onSubmit={save}>
           <p className="hint-text mt-0">
-            Employees never see these coordinates — only whether check-in is available and the required radius.
+            Type the office latitude and longitude, or use your current location. Employees never see these
+            coordinates — only whether check-in is available and the required radius.
           </p>
           <div className="toolbar">
             <button type="button" onClick={useMyLocation} disabled={locating}>
               {locating ? "Getting location…" : "Use my current location as the office"}
             </button>
             {form.lat !== "" && form.lng !== "" && (
-              <span className="hint-text">Office set to {Number(form.lat).toFixed(5)}, {Number(form.lng).toFixed(5)}</span>
+              <span className="hint-text">Office set to {Number(form.lat).toFixed(6)}, {Number(form.lng).toFixed(6)}</span>
             )}
+          </div>
+          <div className="form-row">
+            <div>
+              <label>Office Latitude</label>
+              <input type="number" step="any" min="-90" max="90" value={form.lat} onChange={(e) => set("lat", e.target.value)} placeholder="e.g. 12.958145" />
+            </div>
+            <div>
+              <label>Office Longitude</label>
+              <input type="number" step="any" min="-180" max="180" value={form.lng} onChange={(e) => set("lng", e.target.value)} placeholder="e.g. 77.521632" />
+            </div>
           </div>
           <div className="form-row">
             <div>
@@ -374,12 +385,13 @@ function WfhRequestsQueue({ onDecided }) {
       <ErrorText>{error}</ErrorText>
       {!requests ? <Loading /> : (
         <table>
-          <thead><tr><th>Employee</th><th>Date</th><th></th></tr></thead>
+          <thead><tr><th>Employee</th><th>Date</th><th>Hours</th><th></th></tr></thead>
           <tbody>
             {requests.map((r) => (
               <tr key={r.id}>
                 <td>{r.name} <span className="text-muted">({r.userId})</span></td>
-                <td>{fmtDate(r.date)}</td>
+                <td>{fmtRange(r)}</td>
+                <td>{r.startTime ? `${r.startTime} - ${r.endTime}` : "Full day"}</td>
                 <td>
                   {r.userId === user?.userId ? (
                     <span className="hint-text">Needs another approver</span>
@@ -446,7 +458,7 @@ function OooRequestsQueue({ onDecided }) {
             {requests.map((r) => (
               <tr key={r.id}>
                 <td>{r.name} <span className="text-muted">({r.userId})</span></td>
-                <td>{fmtDate(r.date)}</td>
+                <td>{fmtRange(r)}</td>
                 <td>{r.startTime} - {r.endTime}</td>
                 <td>{r.reason}</td>
                 <td className="text-muted">{r.distanceMeters != null ? `${r.distanceMeters}m` : "-"}</td>

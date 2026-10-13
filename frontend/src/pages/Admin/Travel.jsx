@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import client, { errorMessage } from "../../api/client";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
-import { fmtDate } from "../../lib/dates";
+import { fmtRange } from "../../lib/dates";
 
 // Approval of travel requests. Approving marks the employee as "Travel"
 // (counted as present) on the requested date.
@@ -40,8 +40,8 @@ export default function Travel() {
     <div>
       <div className="page-header"><h2>Travel</h2></div>
       <p className="hint-text mt-0">
-        Employees ask for approval to travel on a date, often in advance. Approving marks them as on Travel for that
-        day, which counts as present.
+        Employees ask for approval to travel from one date to another, often in advance. Approving marks them as on
+        Travel for every working day in that range, which counts as present.
       </p>
 
       <div className="toolbar">
@@ -57,12 +57,12 @@ export default function Travel() {
       {!requests ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Employee</th><th>Travel Date</th><th>Reason</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Employee</th><th>Travel Dates</th><th>Reason</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id}>
                   <td>{r.name} <span className="text-muted">({r.userId})</span></td>
-                  <td>{fmtDate(r.date)}</td>
+                  <td>{fmtRange(r)}</td>
                   <td>{r.reason}</td>
                   <td><StatusBadge status={r.status} /></td>
                   <td>
