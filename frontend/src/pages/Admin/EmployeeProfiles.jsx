@@ -9,6 +9,7 @@ import Form22 from "./Form22";
 import DateInput from "../../components/DateInput";
 import { fmtDate } from "../../lib/dates";
 import { useAuth } from "../../context/AuthContext";
+import { ReportingManagerSelect } from "../../components/PeopleFields";
 
 // kind "staff" = employees and admins; kind "associate" = external parties.
 export default function EmployeeProfiles({ kind = "staff" }) {
@@ -111,7 +112,7 @@ function CreateProfileModal({ kind, onClose, onCreated }) {
   const [form, setForm] = useState({
     name: "", firstName: "", lastName: "", designation: "", department: "",
     address: "", professionalEmail: "", personalEmail: "", email: "", phone: "",
-    reportingManager: "", emergencyContactName: "", emergencyContactPhone: "",
+    reportingManager: "", gender: "", emergencyContactName: "", emergencyContactPhone: "",
   });
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -179,7 +180,17 @@ function CreateProfileModal({ kind, onClose, onCreated }) {
             </div>
             <div className="form-row">
               <div><label>Phone</label><input value={form.phone} onChange={(e) => set("phone", e.target.value)} /></div>
-              <div><label>Reporting Manager</label><input value={form.reportingManager} onChange={(e) => set("reportingManager", e.target.value)} /></div>
+              <div>
+                <label>Gender</label>
+                <select value={form.gender} onChange={(e) => set("gender", e.target.value)}>
+                  <option value="">Select…</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-row">
+              <div><label>Reporting Manager</label><ReportingManagerSelect value={form.reportingManager} onChange={(v) => set("reportingManager", v)} /></div>
             </div>
             <div className="form-row">
               <div><label>Emergency Contact Name</label><input value={form.emergencyContactName} onChange={(e) => set("emergencyContactName", e.target.value)} /></div>
@@ -433,7 +444,14 @@ function ProfileTab({ profile, onSaved }) {
                 {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
-            <div><label>Gender</label><input value={form.gender || ""} onChange={(e) => set("gender", e.target.value)} /></div>
+            <div>
+              <label>Gender</label>
+              <select value={form.gender || ""} onChange={(e) => set("gender", e.target.value)}>
+                <option value="">Select…</option>
+                <option value="Male">Male</option>
+                <option value="Female">Female</option>
+              </select>
+            </div>
           </div>
           <div className="form-row">
             <div><label>Date of Joining</label><DateInput value={form.dateOfJoining || ""} onChange={(e) => set("dateOfJoining", e.target.value)} /></div>
@@ -460,7 +478,7 @@ function ProfileTab({ profile, onSaved }) {
           </div>
           <div className="form-row">
             <div><label>Phone</label><input value={form.phone || ""} onChange={(e) => set("phone", e.target.value)} /></div>
-            <div><label>Reporting Manager</label><input value={form.reportingManager || ""} onChange={(e) => set("reportingManager", e.target.value)} /></div>
+            <div><label>Reporting Manager</label><ReportingManagerSelect value={form.reportingManager || ""} onChange={(v) => set("reportingManager", v)} /></div>
           </div>
         </>
       )}

@@ -94,6 +94,7 @@ export default function MyLeave() {
       {showApply && (
         <ApplyLeaveModal
           leaveTypeIds={Object.keys(balances || {})}
+          requests={requests}
           onClose={() => setShowApply(false)}
           onSubmitted={() => { setShowApply(false); load(); }}
         />
@@ -102,19 +103,25 @@ export default function MyLeave() {
   );
 }
 
-function ApplyLeaveModal({ leaveTypeIds, onClose, onSubmitted }) {
+function ApplyLeaveModal({ leaveTypeIds, requests, onClose, onSubmitted }) {
   const [leaveTypes, setLeaveTypes] = useState([]);
   const [leaveType, setLeaveType] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [halfDay, setHalfDay] = useState(false);
   const [reason, setReason] = useState("");
-  const [file, setFile] = useState(null);
+  const [compOffSourceLeaveId, setCompOffSourceLeaveId] = useState("");
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [compOffOptions, setCompOffOptions] = useState([]);
 
   useEffect(() => { client.get("/leave-types").then((r) => setLeaveTypes(r.data)); }, []);
+  useEffect(() => {
+    if (leaveType.toUpperCase().replace(/[- ]/g, "_").includes("COMP_OFF")) {
+      client.get("/leave/comp-off-options").then((r) => setCompOffOptions(r.data)).catch(() => setCompOffOptions([]));
+    }
+  }, [leaveType]);
 
   useEffect(() => {
     if (!fromDate || !toDate || fromDate > toDate) { setPreview(null); return; }
@@ -122,13 +129,11 @@ function ApplyLeaveModal({ leaveTypeIds, onClose, onSubmitted }) {
       .then((r) => setPreview(r.data)).catch(() => setPreview(null));
   }, [fromDate, toDate, halfDay]);
 
-  const medicalCertRequired = preview?.medicalCertRequired;
-  const halfDayAllowed = !medicalCertRequired;
+  const halfDayAllowed = true;
 
   async function submit(e) {
     e.preventDefault();
     setError("");
-    if (medicalCertRequired && !file) return setError("A medical certificate is required for leave longer than 3 working days");
     setBusy(true);
     try {
       const form = new FormData();
@@ -137,7 +142,9 @@ function ApplyLeaveModal({ leaveTypeIds, onClose, onSubmitted }) {
       form.append("toDate", toDate);
       form.append("halfDay", halfDayAllowed && halfDay);
       form.append("reason", reason);
-      if (file) form.append("medicalCert", file);
+      if (leaveType.toUpperCase().replace(/[- ]/g, "_").includes("COMP_OFF")) {
+        form.append("compOffSourceLeaveId", compOffSourceLeaveId);
+      }
       await client.post("/leave/requests/self", form);
       onSubmitted();
     } catch (err) {
@@ -155,6 +162,16 @@ function ApplyLeaveModal({ leaveTypeIds, onClose, onSubmitted }) {
           <option value="">Select…</option>
           {leaveTypes.map((lt) => <option key={lt.id} value={lt.id}>{lt.name}</option>)}
         </select>
+        {leaveType.toUpperCase().replace(/[- ]/g, "_").includes("COMP_OFF") && (
+          <>
+            <label>Holiday leave to replace</label>
+            <select value={compOffSourceLeaveId} onChange={(e) => setCompOffSourceLeaveId(e.target.value)} required>
+              <option value="">Select an approved holiday leave…</option>
+              {compOffOptions.map((r) => <option key={r.id} value={r.id}>{fmtDate(r.fromDate)} - {fmtDate(r.toDate)} ({r.leaveType})</option>)}
+            </select>
+            <p className="hint-text">Choose the approved leave you took on a company holiday.</p>
+          </>
+        )}
         <div className="form-row">
           <div><label>From</label><DateInput value={fromDate} onChange={(e) => setFromDate(e.target.value)} required /></div>
           <div><label>To</label><DateInput value={toDate} onChange={(e) => setToDate(e.target.value)} required /></div>
@@ -171,13 +188,6 @@ function ApplyLeaveModal({ leaveTypeIds, onClose, onSubmitted }) {
 
         <label>Reason</label>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
-
-        {medicalCertRequired && (
-          <>
-            <label>Medical Certificate (required for &gt;3 working days)</label>
-            <input type="file" accept=".jpg,.jpeg,.png,.webp,.pdf" onChange={(e) => setFile(e.target.files[0])} required />
-          </>
-        )}
 
         <ErrorText>{error}</ErrorText>
         <button className="btn-primary" style={{ marginTop: 12 }} disabled={busy}>{busy ? "Submitting…" : "Apply"}</button>

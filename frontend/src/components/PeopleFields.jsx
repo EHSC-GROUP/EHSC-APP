@@ -14,6 +14,20 @@ export function TeamLeadSelect({ value, onChange }) {
   );
 }
 
+// Reporting Manager: a team leader or an admin (stored as their name).
+export function ReportingManagerSelect({ value, onChange }) {
+  const managers = usePeople().filter((p) => p.type === "team_leader" || p.type === "admin");
+  const known = managers.some((m) => m.name === value);
+  return (
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Select…</option>
+      {/* An older free-typed name that isn't a team leader or admin is kept visible so saving never drops it. */}
+      {value && !known && <option value={value}>{value}</option>}
+      {managers.map((m) => <option key={m.userId} value={m.name}>{m.name} ({m.userId}) · {TYPE_TAG[m.type]}</option>)}
+    </select>
+  );
+}
+
 // Team Members: pick any number of people (associates included). Shown as
 // removable chips with an "add" dropdown, so it's easy to see who is on the team.
 export function TeamMembersPicker({ value = [], onChange }) {
