@@ -9,7 +9,8 @@ import {
 } from "../lib/constants.js";
 import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { haversineMeters, isValidCoordinate } from "../lib/geo.js";
-import { eachDate } from "../lib/dateUtils.js";
+import { eachDate, weekdayOf } from "../lib/dateUtils.js";
+import { getHolidaySetForRange, getWeeklyOffDays } from "../lib/calendar.js";
 
 const router = Router();
 
@@ -70,7 +71,7 @@ router.post("/mark-status", authenticate, requireSuperAdmin, async (req, res, ne
   }
 });
 
-router.get("/geofence", authenticate, requireAdmin, async (req, res, next) => {
+router.get("/geofence", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const snap = await GEOFENCE_DOC().get();
     res.json(snap.exists ? snap.data() : null);
@@ -79,7 +80,7 @@ router.get("/geofence", authenticate, requireAdmin, async (req, res, next) => {
   }
 });
 
-router.put("/geofence", authenticate, requireAdmin, async (req, res, next) => {
+router.put("/geofence", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { lat, lng, radiusMeters, enabled } = req.body;
     if (!isValidCoordinate(Number(lat), Number(lng))) {
@@ -146,17 +147,24 @@ router.post("/check-in", authenticate, async (req, res, next) => {
     }
 
     const ref = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(req.user.userId, date));
-    await ref.set({
-      userId: req.user.userId,
-      date,
-      status: ATTENDANCE_STATUS_VALUES.PRESENT,
-      note: "",
-      source: ATTENDANCE_SOURCE.SELF_GEOFENCE,
-      markedAt: new Date().toISOString(),
-      markedBy: req.user.userId,
-      checkedInAt: new Date().toISOString(),
-      distanceMeters: Math.round(distanceMeters),
-    });
+    const existing = await ref.get();
+    if (existing.exists && existing.data().startTime) {
+      // An approved part-day Work From Home / On Duty: keep it, and just record
+      // that they also checked in at the office for the rest of the day.
+      await ref.update({ checkedInAt: new Date().toISOString(), distanceMeters: Math.round(distanceMeters) });
+    } else {
+      await ref.set({
+        userId: req.user.userId,
+        date,
+        status: ATTENDANCE_STATUS_VALUES.PRESENT,
+        note: "",
+        source: ATTENDANCE_SOURCE.SELF_GEOFENCE,
+        markedAt: new Date().toISOString(),
+        markedBy: req.user.userId,
+        checkedInAt: new Date().toISOString(),
+        distanceMeters: Math.round(distanceMeters),
+      });
+    }
 
     res.json({ ok: true, distanceMeters: Math.round(distanceMeters) });
   } catch (err) {
@@ -193,7 +201,7 @@ router.post("/check-out", authenticate, async (req, res, next) => {
 
     const ref = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(req.user.userId, date));
     const snap = await ref.get();
-    if (!snap.exists || snap.data().status !== ATTENDANCE_STATUS_VALUES.PRESENT) {
+    if (!snap.exists || (snap.data().status !== ATTENDANCE_STATUS_VALUES.PRESENT && !(snap.data().startTime && snap.data().checkedInAt))) {
       return res.status(400).json({ error: "You must check in at the office before checking out." });
     }
     if (snap.data().checkedOutAt) {
@@ -213,93 +221,73 @@ router.post("/check-out", authenticate, async (req, res, next) => {
   }
 });
 
-// ---- On Duty (formerly Out of Office) requests: the escape valve when a legitimate
-// off-site employee fails the geofence check. Never writes an attendance
-// record itself — only approval does that — so a self-check-in still
-// never lets someone pick their own status unchecked.
-const OOO_DOC = (id) => db.collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS).doc(id);
+// ---- Date-range requests: On Duty, Work From Home and Travel -------------
+// Each is requested for a From..To range (the same day twice for a single
+// day), today or in advance, and only an approval ever writes attendance
+// records — so nobody can pick their own status unchecked. Approving marks
+// every working day in the range (holidays and weekly-offs are left alone).
+const MAX_RANGE_DAYS = 31;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const validDay = (d) => typeof d === "string" && ISO_DAY.test(d) && !Number.isNaN(new Date(`${d}T00:00:00Z`).getTime());
+const addIsoDays = (d, n) => new Date(new Date(`${d}T00:00:00Z`).getTime() + n * 86400000).toISOString().slice(0, 10);
 
-router.post("/ooo-requests", authenticate, async (req, res, next) => {
+// {from, to} from the body (fromDate/toDate, or the older single `date`).
+function parseRange(body, label) {
+  const today = new Date().toISOString().slice(0, 10);
+  const from = body.fromDate || body.date || today;
+  const to = body.toDate || from;
+  if (!validDay(from) || !validDay(to)) return { error: "Dates must be valid (YYYY-MM-DD)" };
+  if (from < today) return { error: `${label} can only be requested from today onwards` };
+  if (to < from) return { error: "The To date can't be before the From date" };
+  if (new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`) > (MAX_RANGE_DAYS - 1) * 86400000) {
+    return { error: `Please request ${MAX_RANGE_DAYS} days or fewer at a time` };
+  }
+  return { from, to };
+}
+
+// The days in a range that an approval should actually mark.
+async function markableDates(from, to) {
+  const [holidays, weeklyOff] = await Promise.all([getHolidaySetForRange(from, to), getWeeklyOffDays()]);
+  return [...eachDate(from, to)].filter((d) => !holidays.has(d) && !weeklyOff.includes(weekdayOf(d)));
+}
+
+async function createRangeRequest(req, res, next, { collection, label, extra }) {
   try {
-    const { date, startTime, endTime, reason, lat, lng } = req.body;
-    const today = new Date().toISOString().slice(0, 10);
-    if (!date || !startTime || !endTime || !reason) {
-      return res.status(400).json({ error: "date, startTime, endTime and reason are required" });
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
-      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
-    }
-    if (date < today) return res.status(400).json({ error: "On Duty can only be requested for today or a future date" });
-    const startMinutes = /^\d{2}:\d{2}$/.test(startTime)
-      ? Number(startTime.slice(0, 2)) * 60 + Number(startTime.slice(3))
-      : NaN;
-    const endMinutes = /^\d{2}:\d{2}$/.test(endTime)
-      ? Number(endTime.slice(0, 2)) * 60 + Number(endTime.slice(3))
-      : NaN;
-    if (!Number.isInteger(startMinutes) || !Number.isInteger(endMinutes)
-      || startMinutes < 0 || startMinutes > 1439 || endMinutes < 1 || endMinutes > 1439
-      || startMinutes >= endMinutes) {
-      return res.status(400).json({ error: "startTime and endTime must be valid, and endTime must be later than startTime" });
+    const range = parseRange(req.body, label);
+    if (range.error) return res.status(400).json({ error: range.error });
+    const { from, to } = range;
+    if ((await markableDates(from, to)).length === 0) {
+      return res.status(400).json({ error: "Those dates are all holidays or weekly offs — pick working days" });
     }
 
-    const existingSnap = await db
-      .collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS)
-      .where("userId", "==", req.user.userId)
-      .where("date", "==", date)
-      .where("status", "==", OOO_REQUEST_STATUS.PENDING)
-      .get();
-    if (!existingSnap.empty) {
-      return res.status(400).json({ error: "You already have a pending On Duty request for this date." });
-    }
-
-    let distanceMeters = null;
-    const latNum = Number(lat);
-    const lngNum = Number(lng);
-    if (isValidCoordinate(latNum, lngNum)) {
-      const geofenceSnap = await GEOFENCE_DOC().get();
-      if (geofenceSnap.exists && geofenceSnap.data().lat != null) {
-        const geofence = geofenceSnap.data();
-        distanceMeters = Math.round(haversineMeters(latNum, lngNum, geofence.lat, geofence.lng));
-      }
-    }
+    // One pending request at a time for any overlapping days.
+    const pending = await db.collection(collection).where("userId", "==", req.user.userId).where("status", "==", OOO_REQUEST_STATUS.PENDING).get();
+    const overlap = pending.docs.some((d) => d.data().date <= to && (d.data().toDate || d.data().date) >= from);
+    if (overlap) return res.status(400).json({ error: `You already have a pending ${label} request that overlaps these dates.` });
 
     const id = uuid();
     const doc = {
       userId: req.user.userId,
       name: req.user.name,
-      date,
-      startTime,
-      endTime,
-      reason,
-      lat: isValidCoordinate(latNum, lngNum) ? latNum : null,
-      lng: isValidCoordinate(latNum, lngNum) ? lngNum : null,
-      distanceMeters,
+      date: from,
+      toDate: to,
+      ...(extra ? extra(req) : {}),
       status: OOO_REQUEST_STATUS.PENDING,
       requestedAt: admin.firestore.FieldValue.serverTimestamp(),
       requestedBy: req.user.userId,
     };
-    await OOO_DOC(id).set(doc);
+    await db.collection(collection).doc(id).set(doc);
     res.status(201).json({ id, ...doc });
   } catch (err) {
     next(err);
   }
-});
+}
 
-router.get("/ooo-requests/mine", authenticate, async (req, res, next) => {
+async function listRangeRequests(req, res, next, { collection, mineOnly }) {
   try {
-    const snap = await db.collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS).where("userId", "==", req.user.userId).get();
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => (a.date < b.date ? 1 : -1));
-    res.json(list);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/ooo-requests", authenticate, requireSuperAdmin, async (req, res, next) => {
-  try {
-    let query = db.collection(COLLECTIONS.ATTENDANCE_OOO_REQUESTS);
-    if (req.query.status) query = query.where("status", "==", req.query.status);
+    let query = db.collection(collection);
+    if (mineOnly) query = query.where("userId", "==", req.user.userId);
+    else if (req.query.status) query = query.where("status", "==", req.query.status);
     const snap = await query.get();
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     list.sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -307,11 +295,16 @@ router.get("/ooo-requests", authenticate, requireSuperAdmin, async (req, res, ne
   } catch (err) {
     next(err);
   }
-});
+}
 
-router.put("/ooo-requests/:id/approve", authenticate, requireSuperAdmin, async (req, res, next) => {
+// `statusRecord(request)` is what gets written for each marked day.
+async function approveRangeRequest(req, res, next, { collection, statusRecord, allowOwn }) {
   try {
-    const ref = OOO_DOC(req.params.id);
+    const ref = db.collection(collection).doc(req.params.id);
+    const pre = await ref.get();
+    if (!pre.exists) return res.status(404).json({ error: "Not found" });
+    const dates = await markableDates(pre.data().date, pre.data().toDate || pre.data().date);
+
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
@@ -319,286 +312,39 @@ router.put("/ooo-requests/:id/approve", authenticate, requireSuperAdmin, async (
       if (request.status !== OOO_REQUEST_STATUS.PENDING) {
         throw Object.assign(new Error("Only PENDING requests can be approved"), { status: 400 });
       }
-
-      tx.update(ref, {
-        status: OOO_REQUEST_STATUS.APPROVED,
-        decidedBy: req.user.userId,
-        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      const statusRef = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, request.date));
-      tx.set(statusRef, {
-        userId: request.userId,
-        date: request.date,
-        status: ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE,
-        note: request.reason,
-        source: ATTENDANCE_SOURCE.SELF_OOO_REQUEST,
-        markedAt: new Date().toISOString(),
-        markedBy: req.user.userId,
-        startTime: request.startTime,
-        endTime: request.endTime,
-      });
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put("/ooo-requests/:id/reject", authenticate, requireSuperAdmin, async (req, res, next) => {
-  try {
-    const ref = OOO_DOC(req.params.id);
-    const snap = await ref.get();
-    if (!snap.exists) return res.status(404).json({ error: "Not found" });
-    if (snap.data().status !== OOO_REQUEST_STATUS.PENDING) {
-      return res.status(400).json({ error: "Only PENDING requests can be rejected" });
-    }
-    await ref.update({
-      status: OOO_REQUEST_STATUS.REJECTED,
-      decidedBy: req.user.userId,
-      decidedAt: admin.firestore.FieldValue.serverTimestamp(),
-      comment: req.body.comment || null,
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ---- Travel requests: an employee proactively asking to be marked Travel
-// for a day of work travel (e.g. an on-site client visit) — same
-// admin-approval shape as an Out-of-Office request, but not tied to a
-// failed geofence check-in. Never writes an attendance record itself —
-// only approval does that.
-const TRAVEL_DOC = (id) => db.collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS).doc(id);
-
-router.post("/travel-requests", authenticate, async (req, res, next) => {
-  try {
-    const { date, reason } = req.body;
-    if (!date || !reason) return res.status(400).json({ error: "date and reason are required" });
-    // Travel is requested for today or a future day (in advance), never a past one.
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
-      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
-    }
-    if (date < new Date().toISOString().slice(0, 10)) {
-      return res.status(400).json({ error: "Travel can only be requested for today or a future date" });
-    }
-
-    const existingSnap = await db
-      .collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS)
-      .where("userId", "==", req.user.userId)
-      .where("date", "==", date)
-      .where("status", "==", OOO_REQUEST_STATUS.PENDING)
-      .get();
-    if (!existingSnap.empty) {
-      return res.status(400).json({ error: "You already have a pending travel request for this date." });
-    }
-
-    const id = uuid();
-    const doc = {
-      userId: req.user.userId,
-      name: req.user.name,
-      date,
-      reason,
-      status: OOO_REQUEST_STATUS.PENDING,
-      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
-      requestedBy: req.user.userId,
-    };
-    await TRAVEL_DOC(id).set(doc);
-    res.status(201).json({ id, ...doc });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/travel-requests/mine", authenticate, async (req, res, next) => {
-  try {
-    const snap = await db.collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS).where("userId", "==", req.user.userId).get();
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => (a.date < b.date ? 1 : -1));
-    res.json(list);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/travel-requests", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    let query = db.collection(COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS);
-    if (req.query.status) query = query.where("status", "==", req.query.status);
-    const snap = await query.get();
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => (a.date < b.date ? 1 : -1));
-    res.json(list);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put("/travel-requests/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    const ref = TRAVEL_DOC(req.params.id);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
-      const request = snap.data();
-      if (request.status !== OOO_REQUEST_STATUS.PENDING) {
-        throw Object.assign(new Error("Only PENDING requests can be approved"), { status: 400 });
-      }
-
-      tx.update(ref, {
-        status: OOO_REQUEST_STATUS.APPROVED,
-        decidedBy: req.user.userId,
-        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      const statusRef = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, request.date));
-      tx.set(statusRef, {
-        userId: request.userId,
-        date: request.date,
-        status: ATTENDANCE_STATUS_VALUES.TRAVEL,
-        note: request.reason,
-        source: ATTENDANCE_SOURCE.SELF_TRAVEL_REQUEST,
-        markedAt: new Date().toISOString(),
-        markedBy: req.user.userId,
-      });
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put("/travel-requests/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    const ref = TRAVEL_DOC(req.params.id);
-    const snap = await ref.get();
-    if (!snap.exists) return res.status(404).json({ error: "Not found" });
-    if (snap.data().status !== OOO_REQUEST_STATUS.PENDING) {
-      return res.status(400).json({ error: "Only PENDING requests can be rejected" });
-    }
-    await ref.update({
-      status: OOO_REQUEST_STATUS.REJECTED,
-      decidedBy: req.user.userId,
-      decidedAt: admin.firestore.FieldValue.serverTimestamp(),
-      comment: req.body.comment || null,
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ---- Work From Home requests: one tap, no description. Goes to an admin
-// for approval; only approval writes the WFH attendance record (counts as a
-// full present day). Nobody can approve their own request.
-const WFH_DOC = (id) => db.collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS).doc(id);
-
-router.post("/wfh-requests", authenticate, async (req, res, next) => {
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    const date = req.body.date || today;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00Z`).getTime())) {
-      return res.status(400).json({ error: "date must be a valid YYYY-MM-DD date" });
-    }
-    if (date < today) return res.status(400).json({ error: "Work From Home can only be requested for today or a future date" });
-
-    const existingSnap = await db
-      .collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS)
-      .where("userId", "==", req.user.userId)
-      .where("date", "==", date)
-      .where("status", "==", OOO_REQUEST_STATUS.PENDING)
-      .get();
-    if (!existingSnap.empty) {
-      return res.status(400).json({ error: "You already have a pending Work From Home request for this date." });
-    }
-
-    const id = uuid();
-    const doc = {
-      userId: req.user.userId,
-      name: req.user.name,
-      date,
-      status: OOO_REQUEST_STATUS.PENDING,
-      requestedAt: admin.firestore.FieldValue.serverTimestamp(),
-      requestedBy: req.user.userId,
-    };
-    await WFH_DOC(id).set(doc);
-    res.status(201).json({ id, ...doc });
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/wfh-requests/mine", authenticate, async (req, res, next) => {
-  try {
-    const snap = await db.collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS).where("userId", "==", req.user.userId).get();
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => (a.date < b.date ? 1 : -1));
-    res.json(list);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get("/wfh-requests", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    let query = db.collection(COLLECTIONS.ATTENDANCE_WFH_REQUESTS);
-    if (req.query.status) query = query.where("status", "==", req.query.status);
-    const snap = await query.get();
-    const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => (a.date < b.date ? 1 : -1));
-    res.json(list);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.put("/wfh-requests/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
-  try {
-    const ref = WFH_DOC(req.params.id);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
-      const request = snap.data();
-      if (request.status !== OOO_REQUEST_STATUS.PENDING) {
-        throw Object.assign(new Error("Only PENDING requests can be approved"), { status: 400 });
-      }
-      if (request.userId === req.user.userId) {
+      if (!allowOwn && request.userId === req.user.userId) {
         throw Object.assign(new Error("You can't approve your own request"), { status: 403 });
       }
-
       tx.update(ref, {
         status: OOO_REQUEST_STATUS.APPROVED,
         decidedBy: req.user.userId,
         decidedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-
-      const statusRef = db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, request.date));
-      tx.set(statusRef, {
-        userId: request.userId,
-        date: request.date,
-        status: ATTENDANCE_STATUS_VALUES.WFH,
-        note: "",
-        source: ATTENDANCE_SOURCE.SELF_WFH_REQUEST,
-        markedAt: new Date().toISOString(),
-        markedBy: req.user.userId,
-      });
+      for (const date of dates) {
+        tx.set(db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, date)), {
+          userId: request.userId,
+          date,
+          ...statusRecord(request),
+          markedAt: new Date().toISOString(),
+          markedBy: req.user.userId,
+        });
+      }
     });
     res.json({ ok: true });
   } catch (err) {
     next(err);
   }
-});
+}
 
-router.put("/wfh-requests/:id/reject", authenticate, requireAdmin, async (req, res, next) => {
+async function rejectRangeRequest(req, res, next, { collection, allowOwn }) {
   try {
-    const ref = WFH_DOC(req.params.id);
+    const ref = db.collection(collection).doc(req.params.id);
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: "Not found" });
     if (snap.data().status !== OOO_REQUEST_STATUS.PENDING) {
       return res.status(400).json({ error: "Only PENDING requests can be rejected" });
     }
-    if (snap.data().userId === req.user.userId) {
+    if (!allowOwn && snap.data().userId === req.user.userId) {
       return res.status(403).json({ error: "You can't reject your own request" });
     }
     await ref.update({
@@ -611,7 +357,133 @@ router.put("/wfh-requests/:id/reject", authenticate, requireAdmin, async (req, r
   } catch (err) {
     next(err);
   }
+}
+
+// ---- On Duty (formerly Out of Office): needs hours and a reason; approved
+// by the superadmin. Also the escape valve when a legitimate off-site
+// employee fails the geofence check.
+const OOO_COL = COLLECTIONS.ATTENDANCE_OOO_REQUESTS;
+const minutesOf = (t) => (/^\d{2}:\d{2}$/.test(t) ? Number(t.slice(0, 2)) * 60 + Number(t.slice(3)) : NaN);
+
+router.post("/ooo-requests", authenticate, async (req, res, next) => {
+  const { startTime, endTime, reason, lat, lng } = req.body;
+  if (!startTime || !endTime || !reason) {
+    return res.status(400).json({ error: "dates, startTime, endTime and reason are required" });
+  }
+  const s = minutesOf(startTime);
+  const e = minutesOf(endTime);
+  if (!Number.isInteger(s) || !Number.isInteger(e) || s < 0 || s > 1439 || e < 1 || e > 1439 || s >= e) {
+    return res.status(400).json({ error: "startTime and endTime must be valid, and endTime must be later than startTime" });
+  }
+  let distanceMeters = null;
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  const hasCoords = isValidCoordinate(latNum, lngNum);
+  if (hasCoords) {
+    try {
+      const geofenceSnap = await GEOFENCE_DOC().get();
+      if (geofenceSnap.exists && geofenceSnap.data().lat != null) {
+        const g = geofenceSnap.data();
+        distanceMeters = Math.round(haversineMeters(latNum, lngNum, g.lat, g.lng));
+      }
+    } catch (err) {
+      return next(err);
+    }
+  }
+  return createRangeRequest(req, res, next, {
+    collection: OOO_COL,
+    label: "On Duty",
+    extra: () => ({ startTime, endTime, reason, lat: hasCoords ? latNum : null, lng: hasCoords ? lngNum : null, distanceMeters }),
+  });
 });
+router.get("/ooo-requests/mine", authenticate, (req, res, next) => listRangeRequests(req, res, next, { collection: OOO_COL, mineOnly: true }));
+router.get("/ooo-requests", authenticate, requireSuperAdmin, (req, res, next) => listRangeRequests(req, res, next, { collection: OOO_COL }));
+router.put("/ooo-requests/:id/approve", authenticate, requireSuperAdmin, (req, res, next) => approveRangeRequest(req, res, next, {
+  collection: OOO_COL,
+  allowOwn: true,
+  statusRecord: (r) => ({ status: ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE, note: r.reason, source: ATTENDANCE_SOURCE.SELF_OOO_REQUEST, startTime: r.startTime, endTime: r.endTime }),
+}));
+router.put("/ooo-requests/:id/reject", authenticate, requireSuperAdmin, (req, res, next) => rejectRangeRequest(req, res, next, { collection: OOO_COL, allowOwn: true }));
+router.put("/ooo-requests/:id/cancel", authenticate, async (req, res, next) => {
+  try {
+    const ref = db.collection(OOO_COL).doc(req.params.id);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const request = snap.data();
+      if (request.userId !== req.user.userId && req.user.role !== "superadmin") {
+        throw Object.assign(new Error("Forbidden"), { status: 403 });
+      }
+      if (![OOO_REQUEST_STATUS.PENDING, OOO_REQUEST_STATUS.APPROVED].includes(request.status)) {
+        throw Object.assign(new Error("Only pending or approved On Duty requests can be cancelled"), { status: 400 });
+      }
+      tx.update(ref, {
+        status: OOO_REQUEST_STATUS.CANCELLED,
+        cancelledBy: req.user.userId,
+        cancelledAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      if (request.status === OOO_REQUEST_STATUS.APPROVED) {
+        const dates = await markableDates(request.date, request.toDate || request.date);
+        for (const date of dates) {
+          tx.delete(db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(request.userId, date)));
+        }
+      }
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ---- Travel: an employee asking in advance to be marked Travel (e.g. an
+// on-site client visit). Approved by an admin.
+const TRAVEL_COL = COLLECTIONS.ATTENDANCE_TRAVEL_REQUESTS;
+router.post("/travel-requests", authenticate, (req, res, next) => {
+  if (!req.body.reason) return res.status(400).json({ error: "dates and reason are required" });
+  return createRangeRequest(req, res, next, { collection: TRAVEL_COL, label: "Travel", extra: (r) => ({ reason: r.body.reason }) });
+});
+router.get("/travel-requests/mine", authenticate, (req, res, next) => listRangeRequests(req, res, next, { collection: TRAVEL_COL, mineOnly: true }));
+router.get("/travel-requests", authenticate, requireAdmin, (req, res, next) => listRangeRequests(req, res, next, { collection: TRAVEL_COL }));
+router.put("/travel-requests/:id/approve", authenticate, requireAdmin, (req, res, next) => approveRangeRequest(req, res, next, {
+  collection: TRAVEL_COL,
+  allowOwn: true,
+  statusRecord: (r) => ({ status: ATTENDANCE_STATUS_VALUES.TRAVEL, note: r.reason, source: ATTENDANCE_SOURCE.SELF_TRAVEL_REQUEST }),
+}));
+router.put("/travel-requests/:id/reject", authenticate, requireAdmin, (req, res, next) => rejectRangeRequest(req, res, next, { collection: TRAVEL_COL, allowOwn: true }));
+
+// ---- Work From Home: one tap, no description. Approved by an admin, and
+// nobody approves their own request.
+const WFH_COL = COLLECTIONS.ATTENDANCE_WFH_REQUESTS;
+// Optional hours let someone work from home for only part of the day (the rest
+ // in the office, or on duty). No hours = the whole day.
+router.post("/wfh-requests", authenticate, (req, res, next) => {
+  const { startTime, endTime } = req.body;
+  if (startTime || endTime) {
+    const s = minutesOf(startTime || "");
+    const e = minutesOf(endTime || "");
+    if (!Number.isInteger(s) || !Number.isInteger(e) || s < 0 || s > 1439 || e < 1 || e > 1439 || s >= e) {
+      return res.status(400).json({ error: "Give both a start and an end time, with the end later than the start (or leave both empty for the whole day)" });
+    }
+  }
+  return createRangeRequest(req, res, next, {
+    collection: WFH_COL,
+    label: "Work From Home",
+    extra: () => (startTime && endTime ? { startTime, endTime } : {}),
+  });
+});
+router.get("/wfh-requests/mine", authenticate, (req, res, next) => listRangeRequests(req, res, next, { collection: WFH_COL, mineOnly: true }));
+router.get("/wfh-requests", authenticate, requireAdmin, (req, res, next) => listRangeRequests(req, res, next, { collection: WFH_COL }));
+router.put("/wfh-requests/:id/approve", authenticate, requireAdmin, (req, res, next) => approveRangeRequest(req, res, next, {
+  collection: WFH_COL,
+  allowOwn: false,
+  statusRecord: (r) => ({
+    status: ATTENDANCE_STATUS_VALUES.WFH,
+    note: r.startTime ? `Part-day: ${r.startTime} - ${r.endTime}` : "",
+    source: ATTENDANCE_SOURCE.SELF_WFH_REQUEST,
+    ...(r.startTime ? { startTime: r.startTime, endTime: r.endTime } : {}),
+  }),
+}));
+router.put("/wfh-requests/:id/reject", authenticate, requireAdmin, (req, res, next) => rejectRangeRequest(req, res, next, { collection: WFH_COL, allowOwn: false }));
 
 // Caller's own daily-status history for one month. Queried by userId only
 // and filtered/sorted in JS, so it never needs a composite Firestore index.
