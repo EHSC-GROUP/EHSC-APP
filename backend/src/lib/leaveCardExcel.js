@@ -18,7 +18,9 @@ function safeSheetName(workbook, name) {
   const base = name.replace(/[*?:/\\[\]]/g, " ").slice(0, 28);
   let candidate = base || "Employee";
   let n = 2;
-  while (workbook.getWorksheet(candidate)) {
+  // Excel treats sheet names as case-insensitive ("ADITYA" and "Aditya" clash).
+  const taken = () => workbook.worksheets.some((w) => w.name.toLowerCase() === candidate.toLowerCase());
+  while (taken()) {
     candidate = `${base} (${n++})`.slice(0, 31);
   }
   return candidate;

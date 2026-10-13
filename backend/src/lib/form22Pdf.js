@@ -44,7 +44,12 @@ function drawPage(doc, period, p) {
 
   // Day-by-day muster row.
   doc.moveDown(0.5);
-  const marks = p.dayMarks || [];
+  // Day marks are plain codes ("P", "W", "LOP"...); payslips made long ago stored
+  // {day, mark} objects instead, so accept both.
+  const shortCode = (m) => (m === "A" ? "LOP" : m === "OOO" ? "OD" : m);
+  const marks = (p.dayMarks || []).map((m, i) => (
+    typeof m === "string" ? { day: i + 1, mark: shortCode(m) } : { day: m.day ?? i + 1, mark: shortCode(m.mark ?? "-") }
+  ));
   const startX = 30;
   const colW = (802 - 60) / Math.max(marks.length, 1);
   const rowY = doc.y;
@@ -55,7 +60,7 @@ function drawPage(doc, period, p) {
   doc.y = rowY + 26;
 
   doc.moveDown();
-  doc.fontSize(8).font("Helvetica-Oblique").text("H = Holiday, W = Weekly Off, P = Present, LOP = Loss of Pay, HD = Half Day, other codes = leave type", 30, doc.y);
+  doc.fontSize(8).font("Helvetica-Oblique").text("H = Holiday, W = Weekly Off, P = Present, LOP = Loss of Pay, HD = Half Day, OD = On Duty, WFH = Work From Home, - = not yet due, other codes = leave type", 30, doc.y);
   doc.moveDown();
 
   const tableTop = doc.y + 6;

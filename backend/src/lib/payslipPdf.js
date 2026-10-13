@@ -82,7 +82,9 @@ function drawPayslipPage(doc, payslip) {
   ];
 
   doc.font("Helvetica").fontSize(9);
-  let rowY = headerTop + 24;
+  const ROW_H = 17;
+  const rowsTop = headerTop + 18;
+  let rowY = rowsTop + 4;
   const rowCount = Math.max(earnings.length, deductions.length);
   for (let i = 0; i < rowCount; i++) {
     if (earnings[i]) {
@@ -93,18 +95,34 @@ function drawPayslipPage(doc, payslip) {
       doc.text(deductions[i][0], colX[2], rowY, { width: colX[3] - colX[2] - 6 });
       doc.text(money(deductions[i][1]), colX[3], rowY, { width: PAGE.right - colX[3], align: "right" });
     }
-    rowY += 15;
+    rowY += ROW_H;
   }
-  doc.moveTo(PAGE.left, rowY).lineTo(PAGE.right, rowY).lineWidth(0.5).stroke();
+  const rowsEnd = rowsTop + rowCount * ROW_H;
 
   // Totals row, light-grey fill.
-  const totalsTop = rowY + 2;
+  const totalsTop = rowsEnd;
   doc.rect(PAGE.left, totalsTop, PAGE.right - PAGE.left, 18).fill(LIGHT_GREY);
   doc.fillColor("#000").font("Helvetica-Bold").fontSize(9);
   doc.text("Gross Income:", colX[0], totalsTop + 5, { width: colX[1] - colX[0] - 6 });
   doc.text(money(payslip.totalEarnings), colX[1] - 60, totalsTop + 5, { width: 60, align: "right" });
   doc.text("Total Deduction:", colX[2], totalsTop + 5, { width: colX[3] - colX[2] - 6 });
   doc.text(money(payslip.totalDeductions), colX[3], totalsTop + 5, { width: PAGE.right - colX[3], align: "right" });
+
+  // Table borders: a line under every row, a divider between the Earnings and
+  // Deductions halves, dividers before each amount column, and an outer frame.
+  const tableBottom = totalsTop + 18;
+  const dividerX = PAGE.left + 245;
+  doc.strokeColor("#9ca3af").lineWidth(0.5);
+  for (let i = 1; i <= rowCount; i++) {
+    doc.moveTo(PAGE.left, rowsTop + i * ROW_H).lineTo(PAGE.right, rowsTop + i * ROW_H).stroke();
+  }
+  for (const x of [colX[1] - 66, colX[3] - 6]) {
+    doc.moveTo(x, headerTop + 18).lineTo(x, tableBottom).stroke();
+  }
+  doc.strokeColor("#374151").lineWidth(0.75);
+  doc.moveTo(dividerX, headerTop).lineTo(dividerX, tableBottom).stroke();
+  doc.rect(PAGE.left, headerTop, PAGE.right - PAGE.left, tableBottom - headerTop).stroke();
+  doc.strokeColor("#000").lineWidth(0.75);
 
   doc.y = totalsTop + 30;
 

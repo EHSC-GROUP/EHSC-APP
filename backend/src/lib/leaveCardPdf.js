@@ -48,6 +48,16 @@ function drawCardPage(doc, card) {
   drawTable(doc, PAGE_LEFT, doc.y, columns, rows);
 }
 
+// Foot note just above the address footer on every page.
+function drawSystemNote(doc) {
+  const { bottom } = doc.page.margins;
+  doc.page.margins.bottom = 0;
+  doc.font("Helvetica-Oblique").fontSize(8.5).fillColor("#444")
+    .text("This is a system generated report.", PAGE_LEFT, doc.page.height - 60, { width: PAGE_RIGHT - PAGE_LEFT, align: "center", lineBreak: false });
+  doc.fillColor("#000");
+  doc.page.margins.bottom = bottom;
+}
+
 // One employee's Leave Card per page — header details (name, emp code,
 // department, location, joining/confirmation dates, previous accumulation
 // & this year's eligibility) plus a running leave log with blank
@@ -63,6 +73,7 @@ export function renderLeaveCardPdf(cards) {
     cards.forEach((card, idx) => {
       if (idx > 0) doc.addPage();
       drawCardPage(doc, card);
+      drawSystemNote(doc);
       drawFooter(doc, { left: PAGE_LEFT, right: PAGE_RIGHT });
     });
 
