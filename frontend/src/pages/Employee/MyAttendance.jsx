@@ -4,7 +4,7 @@ import { Loading, ErrorText } from "../../components/Misc";
 import StatusBadge from "../../components/StatusBadge";
 import { getCurrentPosition } from "../../lib/geolocation";
 import { useAuth } from "../../context/AuthContext";
-import { fmtDate } from "../../lib/dates";
+import { fmtDate, fmtRange, rangeCovers } from "../../lib/dates";
 import DateInput from "../../components/DateInput";
 
 function currentMonth() {
@@ -53,6 +53,12 @@ function DailyStatusSection() {
   const [showOooForm, setShowOooForm] = useState(false);
   const [oooReason, setOooReason] = useState("");
   const [oooDate, setOooDate] = useState(todayISO());
+  const [oooToDate, setOooToDate] = useState(todayISO());
+  const [showWfhForm, setShowWfhForm] = useState(false);
+  const [wfhFrom, setWfhFrom] = useState(todayISO());
+  const [wfhTo, setWfhTo] = useState(todayISO());
+  const [wfhStart, setWfhStart] = useState("");
+  const [wfhEnd, setWfhEnd] = useState("");
   const [oooStartTime, setOooStartTime] = useState("09:00");
   const [oooEndTime, setOooEndTime] = useState("17:00");
   const [submittingOoo, setSubmittingOoo] = useState(false);
@@ -100,15 +106,23 @@ function DailyStatusSection() {
 
   const today = todayISO();
   const todayRecord = (history || []).find((h) => h.date === today);
-  const pendingOooToday = (oooRequests || []).find((r) => r.date === today && r.status === "PENDING");
-  const pendingWfhToday = (wfhRequests || []).find((r) => r.date === today && r.status === "PENDING");
+  const pendingOooToday = (oooRequests || []).find((r) => rangeCovers(r, today) && r.status === "PENDING");
+  const pendingWfhToday = (wfhRequests || []).find((r) => rangeCovers(r, today) && r.status === "PENDING");
 
-  // One tap, no description — goes to an admin for approval.
+  // Pick the From and To dates (today or later, in advance) — no description;
+  // it goes to an admin for approval.
   async function requestWfh() {
+    if (!wfhFrom || !wfhTo || wfhTo < wfhFrom) return setError("Choose valid dates. The To date can't be before the From date.");
+    if ((wfhStart || wfhEnd) && (!wfhStart || !wfhEnd || wfhEnd <= wfhStart)) return setError("For a part-day, give both times with the end later than the start — or leave both empty for the whole day.");
     setSubmittingWfh(true);
     setError("");
     try {
-      await client.post("/attendance/wfh-requests", { date: today });
+      await client.post("/attendance/wfh-requests", { fromDate: wfhFrom, toDate: wfhTo, ...(wfhStart ? { startTime: wfhStart, endTime: wfhEnd } : {}) });
+      setShowWfhForm(false);
+      setWfhFrom(today);
+      setWfhTo(today);
+      setWfhStart("");
+      setWfhEnd("");
       loadWfhRequests();
     } catch (err) {
       setError(errorMessage(err));
@@ -161,14 +175,26 @@ function DailyStatusSection() {
 
   async function submitOoo() {
     if (!oooReason.trim()) return setError("Please give a reason for the On Duty request.");
-    if (!oooDate || !oooStartTime || !oooEndTime || oooEndTime <= oooStartTime) {
-      return setError("Choose a date and valid hours. End time must be later than start time.");
+    if (!oooDate || !oooToDate || oooToDate < oooDate || !oooStartTime || !oooEndTime || oooEndTime <= oooStartTime) {
+      return setError("Choose valid dates and hours. The To date can't be before the From date, and the end time must be later than the start time.");
+    }
+
+    async function cancelOoo(id) {
+      if (!window.confirm("Send a cancellation request for this On Duty request?")) return;
+      try {
+        await client.put(`/attendance/ooo-requests/${id}/cancel`);
+        loadOooRequests();
+        loadHistory();
+      } catch (err) {
+        setError(errorMessage(err));
+      }
     }
     setSubmittingOoo(true);
     setError("");
     try {
       await client.post("/attendance/ooo-requests", {
-        date: oooDate,
+        fromDate: oooDate,
+        toDate: oooToDate,
         startTime: oooStartTime,
         endTime: oooEndTime,
         reason: oooReason,
@@ -178,6 +204,7 @@ function DailyStatusSection() {
       setShowOooForm(false);
       setOooReason("");
       setOooDate(today);
+      setOooToDate(today);
       setOooStartTime("09:00");
       setOooEndTime("17:00");
       setCheckInResult(null);
@@ -223,22 +250,50 @@ function DailyStatusSection() {
         <p className="hint-text">Self check-in isn't enabled. Ask your admin to mark your attendance.</p>
       )}
 
-      {!pendingOooToday && (
+      {(
         <div style={{ marginTop: 8 }}>
           <div className="toolbar" style={{ margin: 0 }}>
-            {!todayRecord && !pendingWfhToday && (
-              <button className="btn-sm" onClick={requestWfh} disabled={submittingWfh}>
-                {submittingWfh ? "Sending…" : "Work From Home"}
-              </button>
-            )}
-            {!showOooForm && <button className="btn-sm" onClick={() => setShowOooForm(true)}>On Duty</button>}
+            {!showWfhForm && <button className="btn-sm" onClick={() => { setShowWfhForm(true); setShowOooForm(false); }}>Work From Home</button>}
+            {!showOooForm && <button className="btn-sm" onClick={() => { setShowOooForm(true); setShowWfhForm(false); }}>On Duty</button>}
+            <span className="hint-text">You can request ahead of time for today or any later dates.</span>
           </div>
+          {showWfhForm && (
+            <div style={{ marginTop: 8 }}>
+              <div className="form-row" style={{ alignItems: "flex-end" }}>
+                <div>
+                  <label>From</label>
+                  <DateInput min={today} value={wfhFrom} onChange={(e) => { setWfhFrom(e.target.value); if (wfhTo < e.target.value) setWfhTo(e.target.value); }} />
+                </div>
+                <div>
+                  <label>To</label>
+                  <DateInput min={wfhFrom || today} value={wfhTo} onChange={(e) => setWfhTo(e.target.value)} />
+                </div>
+                <div>
+                  <label>From time (optional)</label>
+                  <input type="time" value={wfhStart} onChange={(e) => setWfhStart(e.target.value)} />
+                </div>
+                <div>
+                  <label>To time (optional)</label>
+                  <input type="time" value={wfhEnd} onChange={(e) => setWfhEnd(e.target.value)} />
+                </div>
+              </div>
+              <p className="hint-text">Leave the times empty to work from home the whole day. Add times to work from home for part of the day, and be in the office or on duty for the rest.</p>
+              <div className="toolbar" style={{ marginTop: 4 }}>
+                <button className="btn-sm btn-primary" onClick={requestWfh} disabled={submittingWfh}>{submittingWfh ? "Sending…" : "Request Work From Home"}</button>
+                <button className="btn-sm" onClick={() => setShowWfhForm(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
           {showOooForm && (
             <div style={{ marginTop: 8 }}>
               <div className="form-row" style={{ alignItems: "flex-start" }}>
                 <div>
-                  <label>Date</label>
-                  <DateInput min={today} value={oooDate} onChange={(e) => setOooDate(e.target.value)} />
+                  <label>From date</label>
+                  <DateInput min={today} value={oooDate} onChange={(e) => { setOooDate(e.target.value); if (oooToDate < e.target.value) setOooToDate(e.target.value); }} />
+                </div>
+                <div>
+                  <label>To date</label>
+                  <DateInput min={oooDate || today} value={oooToDate} onChange={(e) => setOooToDate(e.target.value)} />
                 </div>
                 <div>
                   <label>From</label>
@@ -308,11 +363,12 @@ function DailyStatusSection() {
         <div style={{ marginTop: 20 }}>
           <h3>My Work From Home Requests</h3>
           <table>
-            <thead><tr><th>Date</th><th>Status</th></tr></thead>
+            <thead><tr><th>Dates</th><th>Hours</th><th>Status</th></tr></thead>
             <tbody>
               {wfhRequests.map((r) => (
                 <tr key={r.id}>
-                  <td>{fmtDate(r.date)}</td>
+                  <td>{fmtRange(r)}</td>
+                  <td>{r.startTime ? `${r.startTime} - ${r.endTime}` : "Full day"}</td>
                   <td><span className={`badge-pill badge-${r.status}`}>{r.status}</span></td>
                 </tr>
               ))}
@@ -324,14 +380,15 @@ function DailyStatusSection() {
         <div style={{ marginTop: 20 }}>
           <h3>My On Duty Requests</h3>
           <table>
-            <thead><tr><th>Date</th><th>Hours</th><th>Reason</th><th>Status</th></tr></thead>
+            <thead><tr><th>Dates</th><th>Hours</th><th>Reason</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {oooRequests.map((r) => (
                 <tr key={r.id}>
-                  <td>{fmtDate(r.date)}</td>
+                  <td>{fmtRange(r)}</td>
                   <td>{r.startTime} - {r.endTime}</td>
                   <td>{r.reason}</td>
                   <td><span className={`badge-pill badge-${r.status}`}>{r.status}</span></td>
+                  <td>{["PENDING", "APPROVED"].includes(r.status) && <button className="btn-sm btn-danger" onClick={() => cancelOoo(r.id)}>Cancel request</button>}</td>
                 </tr>
               ))}
             </tbody>

@@ -3,7 +3,8 @@ import client, { errorMessage } from "../../api/client";
 import CalendarPicker from "../../components/CalendarPicker";
 import StatusBadge from "../../components/StatusBadge";
 import { Loading, ErrorText } from "../../components/Misc";
-import { fmtDate } from "../../lib/dates";
+import DateInput from "../../components/DateInput";
+import { fmtDate, fmtRange } from "../../lib/dates";
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -12,6 +13,7 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 export default function MyTravel() {
   const [requests, setRequests] = useState(null);
   const [date, setDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -31,12 +33,15 @@ export default function MyTravel() {
     e.preventDefault();
     setError("");
     setNotice("");
-    if (!date) return setError("Pick the date of travel on the calendar.");
+    if (!date) return setError("Pick the first day of travel on the calendar.");
+    const end = toDate || date;
+    if (end < date) return setError("The To date can't be before the From date.");
     setBusy(true);
     try {
-      await client.post("/attendance/travel-requests", { date, reason });
-      setNotice(`Travel request for ${fmtDate(date)} sent for approval.`);
+      await client.post("/attendance/travel-requests", { fromDate: date, toDate: end, reason });
+      setNotice(`Travel request for ${fmtDate(date)}${end !== date ? ` – ${fmtDate(end)}` : ""} sent for approval.`);
       setDate("");
+      setToDate("");
       setReason("");
       load();
     } catch (err) {
@@ -49,14 +54,18 @@ export default function MyTravel() {
   // Dot colours on the calendar: pending = amber, approved = green.
   const markers = {};
   for (const r of requests || []) {
-    if (r.status === "PENDING") markers[r.date] = "pending";
-    else if (r.status === "APPROVED" && !markers[r.date]) markers[r.date] = "approved";
+    const last = r.toDate || r.date;
+    for (let d = r.date, i = 0; d <= last && i < 62; i++) {
+      if (r.status === "PENDING") markers[d] = "pending";
+      else if (r.status === "APPROVED" && !markers[d]) markers[d] = "approved";
+      d = new Date(new Date(`${d}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
+    }
   }
 
   return (
     <div>
       <div className="page-header"><h2>Travel</h2></div>
-      <p className="hint-text mt-0">Pick the day you'll be travelling — you can request it well ahead of time.</p>
+      <p className="hint-text mt-0">Pick the first day on the calendar, then the last day if you're travelling for more than one day. You can request it well ahead of time.</p>
 
       <form className="card" onSubmit={submit}>
         <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
@@ -67,8 +76,16 @@ export default function MyTravel() {
             </div>
           </div>
           <div style={{ flex: "1 1 260px" }}>
-            <label style={{ marginTop: 0 }}>Date of travel</label>
-            <input value={fmtDate(date)} readOnly placeholder="Select a date on the calendar" />
+            <div className="form-row">
+              <div>
+                <label style={{ marginTop: 0 }}>From</label>
+                <input value={fmtDate(date)} readOnly placeholder="Pick on the calendar" />
+              </div>
+              <div>
+                <label style={{ marginTop: 0 }}>To (last day)</label>
+                <DateInput min={date || todayISO()} value={toDate} onChange={(e) => setToDate(e.target.value)} placeholder="Same day" />
+              </div>
+            </div>
             <label>Where are you travelling, and why?</label>
             <textarea rows={4} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Client site visit in Hyderabad" required />
             <ErrorText>{error}</ErrorText>
@@ -82,11 +99,11 @@ export default function MyTravel() {
       {!requests ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Travel Date</th><th>Reason</th><th>Status</th></tr></thead>
+            <thead><tr><th>Travel Dates</th><th>Reason</th><th>Status</th></tr></thead>
             <tbody>
               {requests.map((r) => (
                 <tr key={r.id}>
-                  <td>{fmtDate(r.date)}</td>
+                  <td>{fmtRange(r)}</td>
                   <td>{r.reason}</td>
                   <td><StatusBadge status={r.status} /></td>
                 </tr>
