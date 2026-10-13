@@ -4,6 +4,7 @@ import { fmtDMY } from "./dateUtils.js";
 const COLUMNS = [
   { header: "Voucher No", key: "voucherNo", width: 16 },
   { header: "Raised Date", key: "raisedDate", width: 14 },
+  { header: "Voucher Date", key: "voucherDate", width: 14 },
   { header: "Indent By", key: "name", width: 20 },
   { header: "Item / Material", key: "itemMaterial", width: 28 },
   { header: "Required Date", key: "requiredDate", width: 14 },
@@ -29,6 +30,7 @@ export async function buildMaterialIndentRegisterWorkbook(records) {
       sheet.addRow({
         voucherNo: r.voucherNo || "",
         raisedDate: fmtDMY(r.raisedDate),
+        voucherDate: fmtDMY(r.voucherDate),
         name: r.name || r.userId,
         itemMaterial: item.itemMaterial,
         requiredDate: fmtDMY(item.requiredDate),

@@ -40,13 +40,14 @@ function drawClaimPage(doc, record) {
   const submissionDate = fmtDMY(record.appliedAt?.toDate ? record.appliedAt.toDate().toISOString().slice(0, 10) : (record.appliedAt || "-"));
   const left = [
     ["Name of the Claimant", record.name],
-    ["Journey Date", fmtDMY(record.voucherDate)],
+    ["Journey Date", fmtDMY(record.journeyDate || record.voucherDate)],
     ["Journey Purpose", record.journeyPurpose],
     ["Project(s)", formatProjects(record)],
     ["Destination", record.journeyStation],
   ];
   const right = [
     ["Designation", record.designation],
+    ...(record.journeyDate && record.voucherDate ? [["Voucher Date", fmtDMY(record.voucherDate)]] : []),
     ["Submission Date", submissionDate],
     ["Claim Type", record.type],
     ["Raised By", `${record.name || ""} (${record.userId || ""})`],
