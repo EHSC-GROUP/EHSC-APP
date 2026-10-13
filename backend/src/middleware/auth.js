@@ -34,9 +34,11 @@
   // Associates (external parties) can only use Reimbursements for now: the
   // routes that page needs, and nothing else.
   const ASSOCIATE_ALLOWED_PREFIXES = [
-    "/api/auth", "/api/reimbursements", "/api/advances", "/api/me",
+    "/api/auth", "/api/reimbursements", "/api/advances",
     "/api/settings", "/api/projects", "/api/notifications",
   ];
+  // Of the self-service routes, only the profile (for the access check) and the badges.
+  const ASSOCIATE_ALLOWED_EXACT = ["/api/me/profile", "/api/me/badges"];
 
   export async function authenticate(req, res, next) {
     const header = req.headers.authorization || "";
@@ -53,7 +55,9 @@
     try {
       const state = await loadUserState(payload.userId);
       if (!state) return res.status(401).json({ error: "This account is no longer active" });
-      if (state.isAssociate && !ASSOCIATE_ALLOWED_PREFIXES.some((p) => req.baseUrl === p || req.baseUrl.startsWith(`${p}/`))) {
+      const fullPath = req.originalUrl.split("?")[0];
+      if (state.isAssociate && !ASSOCIATE_ALLOWED_EXACT.includes(fullPath)
+        && !ASSOCIATE_ALLOWED_PREFIXES.some((p) => req.baseUrl === p || req.baseUrl.startsWith(`${p}/`))) {
         return res.status(403).json({ error: "Associates can only use Reimbursements" });
       }
       req.user = { ...payload, role: state.role }; // { userId, name, role } — role is the current one
