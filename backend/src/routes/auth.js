@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "../config/firebase.js";
 import { COLLECTIONS, TEMP_PASSWORD } from "../lib/constants.js";
 import { signToken } from "../lib/jwt.js";
-import { authenticate, requireAdmin } from "../middleware/auth.js";
+import { authenticate, requireSuperAdmin } from "../middleware/auth.js";
 import { isValidId } from "../lib/validateId.js";
 
 const router = Router();
@@ -96,7 +96,7 @@ router.get("/me", authenticate, async (req, res, next) => {
 
 // Admin-initiated reset: sets the standard temporary password and forces the
 // user to change it on next login.
-router.post("/admin/reset-password/:userId", authenticate, requireAdmin, async (req, res, next) => {
+router.post("/admin/reset-password/:userId", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.USERS).doc(req.params.userId.toUpperCase());
     const snap = await ref.get();
