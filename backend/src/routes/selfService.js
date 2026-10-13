@@ -14,10 +14,15 @@ const SENSITIVE_FIELDS = ["bankAccountNumber", "bankIfsc", "bankName"];
 
 router.get("/profile", authenticate, async (req, res, next) => {
   try {
-    const [profileSnap, userSnap] = await Promise.all([
+    const [directProfileSnap, userSnap] = await Promise.all([
       db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(req.user.userId).get(),
       db.collection(COLLECTIONS.USERS).doc(req.user.userId).get(),
     ]);
+    let profileSnap = directProfileSnap;
+    if (!profileSnap.exists) {
+      const fallback = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).where("userId", "==", req.user.userId).limit(1).get();
+      if (!fallback.empty) profileSnap = fallback.docs[0];
+    }
     if (!profileSnap.exists) {
       // Admin/superadmin accounts can exist without an HR profile (e.g. the seeded
       // superadmin). They don't need reimbursement access to file their own
@@ -80,6 +85,59 @@ router.put("/personal-details", authenticate, async (req, res, next) => {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedBy: req.user.userId,
     });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Staff (employees, admins, team leaders) can correct their own personal HR
+// details. Anything the company controls stays locked: employee ID, name,
+// designation, department, joining/leaving dates, reporting manager,
+// professional email, ESI/UAN and bank details.
+const SELF_EDITABLE = ["phone", "address", "personalEmail", "gender", "emergencyContactName", "emergencyContactPhone", "fatherOrHusbandName", "dateOfBirth", "anniversaryDate"];
+const validDate = (d) => ISO_DATE.test(d || "") && !Number.isNaN(new Date(`${d}T00:00:00Z`).getTime());
+
+router.put("/profile", authenticate, async (req, res, next) => {
+  try {
+    const ref = db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(req.user.userId);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Profile not found" });
+    if (snap.data().type === "associate") return res.status(403).json({ error: "Associates can't edit HR details here" });
+
+    const updates = {};
+    for (const key of SELF_EDITABLE) {
+      if (req.body[key] === undefined) continue;
+      updates[key] = typeof req.body[key] === "string" ? req.body[key].trim() : req.body[key];
+    }
+    if (updates.phone !== undefined && updates.phone !== "" && !/^[+\d][\d\s-]{6,17}$/.test(updates.phone)) {
+      return res.status(400).json({ error: "Phone number isn't valid" });
+    }
+    if (updates.emergencyContactPhone !== undefined && updates.emergencyContactPhone !== "" && !/^[+\d][\d\s-]{6,17}$/.test(updates.emergencyContactPhone)) {
+      return res.status(400).json({ error: "Emergency contact phone isn't valid" });
+    }
+    if (updates.personalEmail !== undefined && updates.personalEmail !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.personalEmail)) {
+      return res.status(400).json({ error: "Personal email isn't valid" });
+    }
+    if (updates.gender !== undefined && updates.gender !== "") {
+      const g = String(updates.gender).toLowerCase();
+      if (g !== "male" && g !== "female") return res.status(400).json({ error: "Gender must be Male or Female" });
+      updates.gender = g === "male" ? "Male" : "Female";
+    }
+    if (updates.dateOfBirth !== undefined) {
+      if (!validDate(updates.dateOfBirth)) return res.status(400).json({ error: "A valid birth date is required" });
+      if (updates.dateOfBirth > new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: "Birth date can't be in the future" });
+    }
+    if (updates.anniversaryDate !== undefined) {
+      if (updates.anniversaryDate === "") updates.anniversaryDate = null;
+      else if (!validDate(updates.anniversaryDate)) return res.status(400).json({ error: "Anniversary date is not a valid date" });
+    }
+    if (updates.fatherOrHusbandName !== undefined && !updates.fatherOrHusbandName) {
+      return res.status(400).json({ error: "Father / spouse name can't be empty" });
+    }
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: "Nothing to update" });
+
+    await ref.update({ ...updates, updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId });
     res.json({ ok: true });
   } catch (err) {
     next(err);
