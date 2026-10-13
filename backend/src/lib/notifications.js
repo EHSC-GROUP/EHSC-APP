@@ -19,5 +19,19 @@ export async function notifyAdmins({ message, link }) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
+
+  await batch.commit();
+}
+
+export async function notifySuperAdmins({ message, link }) {
+  const usersSnap = await db.collection(COLLECTIONS.USERS).where("role", "==", "superadmin").get();
+  const batch = db.batch();
+  for (const doc of usersSnap.docs) {
+    if (doc.data().disabled) continue;
+    batch.set(db.collection(COLLECTIONS.NOTIFICATIONS).doc(), {
+      userId: doc.id, message, link: link || null, read: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  }
   await batch.commit();
 }
