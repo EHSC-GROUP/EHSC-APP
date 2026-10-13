@@ -25,6 +25,7 @@ import advanceRoutes from "./routes/advances.js";
 import companyWalletRoutes from "./routes/companyWallet.js";
 import notificationRoutes from "./routes/notifications.js";
 import { requireFeatureFlag } from "./lib/featureFlags.js";
+import renewalRoutes from "./routes/renewals.js";
 
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -66,6 +67,10 @@ app.use("/api", rateLimit({
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
+  // Only FAILED sign-ins count towards the limit. A whole office shares one
+  // IP address, so counting every successful login would lock everyone out
+  // after a handful of people signed in; brute-force guessing is still capped.
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many login attempts. Please wait a few minutes and try again." },
@@ -98,6 +103,7 @@ app.use("/api/material-indents", materialIndentRoutes);
 app.use("/api/advances", advanceRoutes);
 app.use("/api/company-wallet", companyWalletRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/renewals", renewalRoutes);
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
