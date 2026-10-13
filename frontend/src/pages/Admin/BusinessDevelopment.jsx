@@ -7,14 +7,20 @@ import { Loading, ErrorText, ConfirmButton } from "../../components/Misc";
 import ProjectEditor from "../../components/ProjectEditor";
 import DateInput from "../../components/DateInput";
 import { fmtDate } from "../../lib/dates";
+import { openAuthedFile } from "../../lib/openFile";
 import { useProjectClassification } from "../../lib/useProjectClassification";
 import ClassificationFields from "../../components/ClassificationFields";
+import MisReport from "../../components/MisReport";
 
 const APPROACH_MODES = ["EMAIL", "PHONE", "ON_SITE"];
 const MARKETING_SOURCES = ["Email Campaign", "Referral", "Website", "Exhibition"];
-const RESULTS = ["IN_PROGRESS", "PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED", "ENQUIRY_ON_HOLD", "ENQUIRY_DROPPED"];
+const RESULTS = ["IN_PROGRESS", "PROPOSAL_SHARED", "TECHNICAL_NEGOTIATION", "COMMERCIAL_NEGOTIATION", "PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED", "ENQUIRY_ON_HOLD", "ENQUIRY_DROPPED"];
+const OPEN_STAGES = ["IN_PROGRESS", "PROPOSAL_SHARED", "TECHNICAL_NEGOTIATION", "COMMERCIAL_NEGOTIATION"];
 const RESULT_LABELS = {
-  IN_PROGRESS: "In Progress",
+  IN_PROGRESS: "Enquiry",
+  PROPOSAL_SHARED: "Proposal Shared",
+  TECHNICAL_NEGOTIATION: "Technical Negotiation",
+  COMMERCIAL_NEGOTIATION: "Commercial Negotiation",
   PURCHASE_ORDER_RECEIVED: "Purchase Order Received",
   CONTRACT_ACCEPTED: "Contract Accepted",
   ENQUIRY_ON_HOLD: "Enquiry On Hold",
@@ -37,6 +43,7 @@ export default function BusinessDevelopment() {
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [showPipeline, setShowPipeline] = useState(false);
 
   async function load() {
     setError("");
@@ -59,7 +66,7 @@ export default function BusinessDevelopment() {
   const stats = (list || []).reduce(
     (acc, e) => {
       acc.total++;
-      if (e.result === "IN_PROGRESS") acc.inProgress++;
+      if (OPEN_STAGES.includes(e.result)) acc.inProgress++;
       else if (["PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED"].includes(e.result)) acc.won++;
       else if (e.result === "ENQUIRY_ON_HOLD") acc.onHold++;
       else if (e.result === "ENQUIRY_DROPPED") acc.dropped++;
@@ -72,7 +79,11 @@ export default function BusinessDevelopment() {
     <div>
       <div className="page-header">
         <h2>Business Development</h2>
-        <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New Enquiry</button>
+        <div className="toolbar" style={{ margin: 0 }}>
+          <button onClick={() => setShowPipeline(true)}>MIS Report BD</button>
+          <button onClick={() => openAuthedFile("/api/projects/invoices-to-raise/export", { download: true, filename: "Invoice_To_Be_Raised.xlsx" }).catch((err) => setError(errorMessage(err)))}>Invoices to Raise (Excel)</button>
+          <button className="btn-primary" onClick={() => setShowCreate(true)}>+ New Enquiry</button>
+        </div>
       </div>
 
       <div className="stat-cards">
@@ -125,6 +136,7 @@ export default function BusinessDevelopment() {
         </div>
       )}
 
+      {showPipeline && <MisReport onClose={() => setShowPipeline(false)} />}
       {showCreate && (
         <CreateEnquiryModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />
       )}
