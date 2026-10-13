@@ -7,6 +7,9 @@ import { resolveClassification, nextProjectId } from "../lib/projectClassificati
 import { getDropdownLists, listValueError, startingValues } from "../lib/dropdownLists.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { newProjectDoc } from "../lib/companyProfile.js";
+import { buildPipelineRows, pipelineTotals, buildPipelineWorkbook } from "../lib/pipeline.js";
+import { nextProposalNumber } from "../lib/proposalNumber.js";
+import { buildMis, buildMisWorkbook, currentFY } from "../lib/misReport.js";
 import { emptyBranch } from "./companyProfiles.js";
 
 const router = Router();
@@ -56,6 +59,56 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
     }
     list.sort((a, b) => (a.enquiryNo < b.enquiryNo ? 1 : -1));
     res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Pipeline report: every live enquiry grouped into Confirmed / Assured /
+// Anticipated / Lost, with totals. Registered before "/:id" so it isn't
+// swallowed by that parameter.
+// MIS Report BD: dashboard, monthly lists, the BD MIS and the pipeline, for one
+// financial year (?fy=2026 means Apr 2026 - Mar 2027). Registered before "/:id".
+const parseFy = (v) => (/^\d{4}$/.test(String(v || "")) ? Number(v) : currentFY());
+
+router.get("/mis", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    res.json(await buildMis(parseFy(req.query.fy)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/mis/export", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const fy = parseFy(req.query.fy);
+    const month = /^\d{4}-\d{2}$/.test(String(req.query.month || "")) ? req.query.month : null;
+    const wb = await buildMisWorkbook(await buildMis(fy), month);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="MIS_Report_BD_FY${fy}-${String(fy + 1).slice(2)}${month ? `_${month}` : ""}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/pipeline", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await buildPipelineRows();
+    res.json({ rows, totals: pipelineTotals(rows) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/pipeline/export", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const wb = await buildPipelineWorkbook(await buildPipelineRows());
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename="Project_Pipeline_${new Date().toISOString().slice(0, 10)}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (err) {
     next(err);
   }
@@ -274,12 +327,27 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
     if (outcomeOfDiscussion !== undefined) updates.outcomeOfDiscussion = outcomeOfDiscussion;
     if (estimatedValue !== undefined) updates.estimatedValue = estimatedValue === "" ? null : Number(estimatedValue);
     if (result !== undefined) updates.result = result;
+    // Remember the day an enquiry first became a PO, for the MIS (used when no Purchase Order date is typed).
+    if (["PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED"].includes(result) && !snap.data().poReceivedAt) {
+      updates.poReceivedAt = new Date().toISOString().slice(0, 10);
+    }
     if (remarks !== undefined) updates.remarks = remarks;
     if (region !== undefined) updates.region = region || "";
     // Category, service and project type are fixed once the enquiry exists:
     // the project ID was built from them.
 
     await ref.update(updates);
+
+    // The proposal number is generated the first time the enquiry moves past
+    // the Enquiry stage (proposal shared, negotiations, PO). It is kept for good.
+    if (result && result !== BD_RESULT.IN_PROGRESS && ![BD_RESULT.ENQUIRY_ON_HOLD, BD_RESULT.ENQUIRY_DROPPED].includes(result)) {
+      const projects = await db.collection(COLLECTIONS.PROJECTS).where("sourceEnquiryId", "==", req.params.id).get();
+      for (const p of projects.docs) {
+        if (!p.data().phase2?.proposalNo) {
+          await p.ref.update({ "phase2.proposalNo": await nextProposalNumber(), "phase2.proposalSharedAt": new Date().toISOString().slice(0, 10) });
+        }
+      }
+    }
     res.json({ ok: true });
   } catch (err) {
     next(err);
