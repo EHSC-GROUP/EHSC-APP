@@ -128,11 +128,12 @@ router.post("/", authenticate, async (req, res, next) => {
     const items = withAmounts(req.body.items);
     const totalAmount = computeTotal(items);
     const docId = uuid();
-    const voucherNo = await nextVoucherNumber("MI", raisedDate);
     const doc = {
       userId: req.user.userId,
       name: req.user.name,
-      voucherNo,
+      // Voucher number and voucher date are assigned when the indent is approved.
+      voucherNo: null,
+      voucherDate: null,
       raisedDate,
       purpose,
       items,
@@ -168,6 +169,10 @@ router.get("/:id/pdf", authenticate, async (req, res, next) => {
 router.put("/:id/approve", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const ref = db.collection(COLLECTIONS.MATERIAL_INDENTS).doc(req.params.id);
+    const approvalDate = new Date().toISOString().slice(0, 10);
+    const pre = await ref.get();
+    const needsVoucherNo = pre.exists && pre.data().status === MATERIAL_INDENT_STATUS.PENDING && !pre.data().voucherNo;
+    const newVoucherNo = needsVoucherNo ? await nextVoucherNumber("MI", approvalDate) : null;
     let companyWalletBalance;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
@@ -184,6 +189,8 @@ router.put("/:id/approve", authenticate, requireAdmin, async (req, res, next) =>
         userId: req.user.userId,
       });
       tx.update(ref, {
+        voucherNo: indent.voucherNo || newVoucherNo,
+        voucherDate: indent.voucherNo ? indent.voucherDate || null : approvalDate,
         status: MATERIAL_INDENT_STATUS.APPROVED,
         verifiedApprovedBy: req.user.name,
         decidedBy: req.user.userId,

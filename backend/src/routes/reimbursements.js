@@ -135,7 +135,7 @@ async function queryScopedList(reqQuery, user) {
   let list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const [visibleDept, deptMap] = await Promise.all([visibleDepartmentFor(user), loadDepartmentMap()]);
   list = filterByDepartment(list, visibleDept, deptMap);
-  list.sort((a, b) => (a.voucherDate < b.voucherDate ? 1 : -1));
+  list.sort((a, b) => ((a.journeyDate || a.voucherDate || "") < (b.journeyDate || b.voucherDate || "") ? 1 : -1));
   return list;
 }
 
@@ -151,7 +151,7 @@ router.get("/mine", authenticate, async (req, res, next) => {
   try {
     const snap = await col().where("userId", "==", req.user.userId).get();
     const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    list.sort((a, b) => (a.voucherDate < b.voucherDate ? 1 : -1));
+    list.sort((a, b) => ((a.journeyDate || a.voucherDate || "") < (b.journeyDate || b.voucherDate || "") ? 1 : -1));
     res.json(await decorate(list, { ...req.user, role: ROLES.EMPLOYEE }));
   } catch (err) {
     next(err);
@@ -240,27 +240,45 @@ router.put("/access", authenticate, requireAdmin, async (req, res, next) => {
 // Submit — always for the caller themself. Non-admin employees need
 // reimbursementAccess and at least one bill copy; admins/superadmins
 // submitting their own expense vouchers need neither. Up to 10 bills.
-router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, { name: "bill", maxCount: 1 }]), async (req, res, next) => {
+router.post("/", authenticate, upload.fields([
+  { name: "bills", maxCount: 10 }, { name: "bill", maxCount: 1 },
+  { name: "billA", maxCount: 10 }, { name: "billB", maxCount: 10 }, { name: "billC", maxCount: 10 },
+]), async (req, res, next) => {
   try {
     const isEmployee = req.user.role === ROLES.EMPLOYEE;
-    const files = [...(req.files?.bills || []), ...(req.files?.bill || [])];
+    const sectionFiles = {
+      A: [...(req.files?.billA || [])],
+      B: [...(req.files?.billB || [])],
+      C: [...(req.files?.billC || [])],
+    };
+    const files = [
+      ...sectionFiles.A.map((file) => ({ file, section: "A" })),
+      ...sectionFiles.B.map((file) => ({ file, section: "B" })),
+      ...sectionFiles.C.map((file) => ({ file, section: "C" })),
+      ...(req.files?.bills || []).map((file) => ({ file, section: null })),
+      ...(req.files?.bill || []).map((file) => ({ file, section: null })),
+    ];
 
     if (isEmployee) {
       const profileSnap = await db.collection(COLLECTIONS.HR_EMPLOYEE_PROFILES).doc(req.user.userId).get();
       if (!profileSnap.exists || !(profileSnap.data().reimbursementAccess || profileSnap.data().type === "associate")) {
         return res.status(403).json({ error: "Reimbursement access has not been granted to you" });
       }
-      if (files.length === 0) {
+      const totalForBillRule = computeTotal(parseMaybeJSON(req.body.travelItems), parseMaybeJSON(req.body.conveyanceItems), parseMaybeJSON(req.body.otherItems));
+      if (files.length === 0 && totalForBillRule > 500) {
         return res.status(400).json({ error: "At least one bill copy is required" });
       }
     }
 
-    const { voucherDate, projectId, journeyPurpose, journeyStation } = req.body;
+    // The employee gives the journey date. The voucher number and voucher date
+    // are only assigned when the superadmin finally approves (see final-approve).
+    const { projectId, journeyPurpose, journeyStation } = req.body;
+    const journeyDate = req.body.journeyDate || req.body.voucherDate;
     const type = req.body.type || REIMBURSEMENT_TYPE.GENERAL;
     const travelItems = parseMaybeJSON(req.body.travelItems);
     const conveyanceItems = parseMaybeJSON(req.body.conveyanceItems);
     const otherItems = parseMaybeJSON(req.body.otherItems);
-    if (!voucherDate) return res.status(400).json({ error: "voucherDate is required" });
+    if (!journeyDate) return res.status(400).json({ error: "journeyDate is required" });
     if (!Object.values(REIMBURSEMENT_TYPE).includes(type)) {
       return res.status(400).json({ error: `type must be one of ${Object.values(REIMBURSEMENT_TYPE).join(", ")}` });
     }
@@ -282,12 +300,12 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
     const department = profileSnap.exists ? profileSnap.data().department || null : null;
 
     const docId = uuid();
-    const voucherNo = await nextVoucherNumber("EV", voucherDate);
     const bills = [];
-    for (const [i, file] of files.entries()) {
+    for (const [i, entry] of files.entries()) {
+      const { file, section } = entry;
       const fileId = `reimbursement-bills/${docId}-${i}-${safeFileName(file.originalname)}`;
       await uploadBuffer(fileId, file.buffer, file.mimetype);
-      bills.push({ fileId, name: file.originalname, link: `/api/reimbursements/${docId}/bills/${i}` });
+      bills.push({ fileId, name: file.originalname, section, link: `/api/reimbursements/${docId}/bills/${i}` });
     }
 
     const doc = {
@@ -295,8 +313,9 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
       name: req.user.name,
       designation,
       department,
-      voucherNo,
-      voucherDate,
+      voucherNo: null,
+      voucherDate: null,
+      journeyDate,
       type,
       projectId: resolvedProjectId,
       projects: projectResult.projects,
@@ -314,6 +333,12 @@ router.post("/", authenticate, upload.fields([{ name: "bills", maxCount: 10 }, {
       payableAmount: totalAmount,
       amountInWords: numberToWords(totalAmount),
       bills,
+      billsBySection: {
+        A: bills.filter((b) => b.section === "A"),
+        B: bills.filter((b) => b.section === "B"),
+        C: bills.filter((b) => b.section === "C"),
+      },
+      paidInCash: req.body.paidInCash === "true" || req.body.paidInCash === true,
       billFileId: bills[0]?.fileId || null,
       billLink: bills[0]?.link || null,
       status: REIMBURSEMENT_STATUS.PENDING,
@@ -451,6 +476,12 @@ router.put("/:id/final-approve", authenticate, requireAdmin, async (req, res, ne
       return res.status(403).json({ error: "Only the superadmin (and not on their own voucher) can give final approval" });
     }
 
+    // Final approval is the moment the voucher gets its number and date.
+    // (Vouchers raised before this rule already have both and keep them.)
+    const approvalDate = new Date().toISOString().slice(0, 10);
+    const needsVoucherNo = found.data.status === REIMBURSEMENT_STATUS.DEPT_APPROVED && !found.data.voucherNo;
+    const newVoucherNo = needsVoucherNo ? await nextVoucherNumber("EV", approvalDate) : null;
+
     let outcome;
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(found.ref);
@@ -479,6 +510,8 @@ router.put("/:id/final-approve", authenticate, requireAdmin, async (req, res, ne
       }
 
       tx.update(found.ref, {
+        voucherNo: voucher.voucherNo || newVoucherNo,
+        voucherDate: voucher.voucherNo ? voucher.voucherDate : approvalDate,
         status: settled ? REIMBURSEMENT_STATUS.SETTLED : REIMBURSEMENT_STATUS.APPROVED,
         advanceTaken: wallet.total,
         advanceOffsets: wallet.offsets,
