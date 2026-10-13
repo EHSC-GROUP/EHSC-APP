@@ -8,14 +8,13 @@ import {
   LOP,
   HALF_DAY,
   LEAVE_STATUS,
-  MEDICAL_CERT_THRESHOLD_DAYS,
   STAFF_PROFILE_TYPES,
 } from "../lib/constants.js";
 import { authenticate, requireAdmin, requireApprover, requireSuperAdmin } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, safeFileName } from "../lib/storage.js";
-import { financialYearOf } from "../lib/dateUtils.js";
-import { workingDaysForRange } from "../lib/calendar.js";
+import { financialYearOf, eachDate } from "../lib/dateUtils.js";
+import { workingDaysForRange, getHolidaySetForRange } from "../lib/calendar.js";
 import {
   getLeaveTypes,
   getLeaveBalancesForYear,
@@ -63,7 +62,7 @@ router.get("/working-days-preview", authenticate, async (req, res, next) => {
     const fullDays = await workingDaysForRange(from, to);
     const isHalfDay = halfDay === "true";
     const days = isHalfDay ? Math.max(0, fullDays - 0.5) : fullDays;
-    res.json({ fullDays, days, medicalCertRequired: fullDays > MEDICAL_CERT_THRESHOLD_DAYS });
+    res.json({ fullDays, days, medicalCertRequired: false });
   } catch (err) {
     next(err);
   }
@@ -113,6 +112,23 @@ router.get("/requests/mine", authenticate, async (req, res, next) => {
     }
     list.sort((a, b) => (a.fromDate < b.fromDate ? 1 : -1));
     res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/comp-off-options", authenticate, async (req, res, next) => {
+  try {
+    const leaveSnap = await db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).where("userId", "==", req.user.userId).get();
+    const approved = leaveSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .filter((r) => r.status === LEAVE_STATUS.APPROVED);
+    const options = [];
+    for (const r of approved) {
+      const holidayDates = await getHolidaySetForRange(r.fromDate, r.toDate);
+      if ([...eachDate(r.fromDate, r.toDate)].some((date) => holidayDates.has(date))) options.push(r);
+    }
+    options.sort((a, b) => (a.fromDate < b.fromDate ? 1 : -1));
+    res.json(options);
   } catch (err) {
     next(err);
   }
@@ -179,7 +195,7 @@ router.post("/requests", authenticate, requireAdmin, upload.single("medicalCert"
 // ---- create: self-service apply -----------------------------------------
 router.post("/requests/self", authenticate, upload.single("medicalCert"), async (req, res, next) => {
   try {
-    const { leaveType, fromDate, toDate, halfDay, reason } = req.body;
+    const { leaveType, fromDate, toDate, halfDay, reason, compOffSourceLeaveId } = req.body;
     if (!leaveType || !fromDate || !toDate) {
       return res.status(400).json({ error: "leaveType, fromDate and toDate are required" });
     }
@@ -192,18 +208,22 @@ router.post("/requests/self", authenticate, upload.single("medicalCert"), async 
     if (!leaveTypes.some((lt) => lt.id === leaveType)) {
       return res.status(400).json({ error: "Unknown leave type" });
     }
+    const isCompOff = leaveType.toUpperCase().replace(/[- ]/g, "_").includes("COMP_OFF");
+    if (isCompOff) {
+      if (!compOffSourceLeaveId) return res.status(400).json({ error: "Select the approved holiday leave this Comp Off replaces" });
+      const source = await db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).doc(compOffSourceLeaveId).get();
+      if (!source.exists || source.data().userId !== req.user.userId || source.data().status !== LEAVE_STATUS.APPROVED) {
+        return res.status(400).json({ error: "The selected Comp Off source leave is not valid" });
+      }
+      const sourceData = source.data();
+      const holidayDates = await getHolidaySetForRange(sourceData.fromDate, sourceData.toDate);
+      if (![...eachDate(sourceData.fromDate, sourceData.toDate)].some((date) => holidayDates.has(date))) {
+        return res.status(400).json({ error: "Comp Off can only replace leave taken on a company holiday" });
+      }
+    }
 
     const fullDays = await workingDaysForRange(fromDate, toDate);
     const isHalfDay = halfDay === "true" || halfDay === true;
-
-    if (fullDays > MEDICAL_CERT_THRESHOLD_DAYS) {
-      if (isHalfDay) {
-        return res.status(400).json({ error: "Half-day trim is not available for requests longer than 3 working days" });
-      }
-      if (!req.file) {
-        return res.status(400).json({ error: "A medical certificate is required for leave longer than 3 working days" });
-      }
-    }
 
     const requestedDays = req.body.days !== undefined ? Number(req.body.days) : (isHalfDay ? fullDays - 0.5 : fullDays);
     const validDays = isHalfDay ? fullDays - 0.5 : fullDays;
@@ -222,6 +242,7 @@ router.post("/requests/self", authenticate, upload.single("medicalCert"), async 
       halfDay: isHalfDay,
       days: Math.max(0, validDays),
       reason: reason || "",
+      ...(isCompOff ? { compOffSourceLeaveId } : {}),
       ...medicalCert,
       status: LEAVE_STATUS.PENDING,
       appliedAt: admin.firestore.FieldValue.serverTimestamp(),
