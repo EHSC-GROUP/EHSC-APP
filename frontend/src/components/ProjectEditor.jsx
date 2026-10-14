@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import client, { errorMessage } from "../api/client";
-import { ErrorText, Loading } from "./Misc";
+import { ErrorText, Loading, ConfirmButton } from "./Misc";
 import StatusBadge from "./StatusBadge";
 import Modal from "./Modal";
 import DateInput from "./DateInput";
@@ -113,6 +113,11 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Invoice stages are all-or-nothing: no percentages at all, or they total exactly 100%.
+  const enteredStages = INVOICE_STAGES.map((n) => form[`invoiceStage${n}Percent`]).filter((v) => v !== "" && v !== null && v !== undefined);
+  const stageTotal = enteredStages.reduce((s, v) => s + (Number(v) || 0), 0);
+  const stagesInvalid = enteredStages.length > 0 && Math.abs(stageTotal - 100) > 0.01;
+
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
   function setPhase2(k, v) { setForm((f) => ({ ...f, phase2: { ...f.phase2, [k]: v } })); }
   function setPhase3(k, v) { setForm((f) => ({ ...f, phase3: { ...f.phase3, [k]: v } })); }
@@ -121,6 +126,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
   async function save(e) {
     e.preventDefault();
     setError("");
+    if (stagesInvalid) return setError(`The invoice stage percentages add up to ${Math.round(stageTotal * 100) / 100}%. They must total exactly 100%, or leave all of them blank.`);
     setBusy(true);
     try {
       await client.put(`/projects/${project.id}`, form);
@@ -444,7 +450,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
                   <textarea rows={2} value={form.phase2.finalProposalAfterNegotiation} onChange={(e) => setPhase2("finalProposalAfterNegotiation", e.target.value)} />
                   <div className="form-row">
                     <div><label>Purchase Order Date</label><DateInput value={form.phase2.workOrderDate} onChange={(e) => setPhase2("workOrderDate", e.target.value)} /></div>
-                    <div><label>Purchase Order Number</label><input value={form.phase2.workOrderNumber} onChange={(e) => setPhase2("workOrderNumber", e.target.value)} /></div>
+                    <div><label>Purchase Order Number</label><input value={form.phase2.workOrderNumber || "Assigned when the purchase order is received"} disabled /></div>
                   </div>
                   <label>Terms and Conditions</label>
                   <textarea rows={3} value={form.termsAndConditions} onChange={(e) => set("termsAndConditions", e.target.value)} />
@@ -461,7 +467,7 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
             <div>
               <div className="form-row">
                 <div><label>Purchase Order Date</label><DateInput value={form.phase3.workOrderDate} onChange={(e) => setPhase3("workOrderDate", e.target.value)} /></div>
-                <div><label>Purchase Order Number</label><input value={form.phase3.workOrderNumber} onChange={(e) => setPhase3("workOrderNumber", e.target.value)} /></div>
+                <div><label>Purchase Order Number</label><input value={form.phase3.workOrderNumber || "Assigned when the purchase order is received"} disabled /></div>
               </div>
               <label>Purchase Order Description</label>
               <textarea rows={2} value={form.phase3.workOrderDescription} onChange={(e) => setPhase3("workOrderDescription", e.target.value)} />
@@ -503,7 +509,8 @@ export default function ProjectEditor({ project, company, onChanged, showPhases 
 
           <ErrorText>{error}</ErrorText>
           <div className="toolbar" style={{ marginTop: 16 }}>
-            <button className="btn-primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+            <button className="btn-primary" disabled={busy || stagesInvalid} title={stagesInvalid ? "Fix the invoice stage percentages first" : undefined}>{busy ? "Saving…" : "Save"}</button>
+            {stagesInvalid && <span className="overdue">Invoice stages total {Math.round(stageTotal * 100) / 100}% — they must be exactly 100%.</span>}
             <button type="button" onClick={() => { setForm(toFormShape(project)); setEditing(false); }}>Cancel</button>
           </div>
         </form>
@@ -610,6 +617,8 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
     percent: project[`invoiceStage${n}Percent`],
     completed: !!project[`invoiceStage${n}Completed`],
     completedAt: project[`invoiceStage${n}CompletedAt`],
+    paid: !!project[`invoiceStage${n}Paid`],
+    paidAt: project[`invoiceStage${n}PaidAt`],
   }));
   const anySet = rows.some((r) => r.percent !== null && r.percent !== undefined);
   const total = rows.reduce((sum, r) => sum + (Number(r.percent) || 0), 0);
@@ -619,6 +628,19 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
     setBusyStage(n);
     try {
       await client.put(`/projects/${project.id}/invoice-stages/${n}`, { completed });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusyStage(null);
+    }
+  }
+
+  async function setPaid(n, paid) {
+    setError("");
+    setBusyStage(n);
+    try {
+      await client.put(`/projects/${project.id}/invoice-stages/${n}/paid`, { paid });
       onChanged();
     } catch (err) {
       setError(errorMessage(err));
@@ -661,6 +683,26 @@ function InvoiceStagesCard({ project, editable, onChanged }) {
                 Export to Excel
               </button>
             )}
+            {isSet && !r.paid && (
+              <ConfirmButton
+                className="btn-sm btn-primary"
+                disabled={!editable || !r.completed || busyStage === r.n}
+                confirmText={`Mark Stage ${r.n}${amount !== null ? ` (₹${amount})` : ""} as paid? The payment is recorded today.`}
+                onConfirm={() => setPaid(r.n, true)}
+              >
+                Paid
+              </ConfirmButton>
+            )}
+            {isSet && r.paid && (
+              <>
+                <span className="badge-pill badge-APPROVED">Paid {fmtDate(r.paidAt)}</span>
+                {editable && (
+                  <ConfirmButton className="btn-sm" disabled={busyStage === r.n} confirmText={`Undo the payment recorded for Stage ${r.n}?`} onConfirm={() => setPaid(r.n, false)}>
+                    Undo
+                  </ConfirmButton>
+                )}
+              </>
+            )}
           </div>
         );
       })}
@@ -688,7 +730,12 @@ function InvoiceStageInputs({ form, set }) {
           </div>
         </div>
       ))}
-      <p className="hint-text" style={{ marginTop: 6 }}>Total {Math.round(total * 100) / 100}%{total > 100.0001 ? " — more than 100%, it can't be saved." : total > 0 && Math.abs(total - 100) > 0.01 ? " — the stages should add up to 100%." : ""}</p>
+      <p className="hint-text" style={{ marginTop: 6 }}>
+        Total {Math.round(total * 100) / 100}%
+        {total > 0 && Math.abs(total - 100) > 0.01
+          ? <span className="overdue"> — it must be exactly 100% to save ({total > 100 ? "reduce" : "add"} {Math.round(Math.abs(100 - total) * 100) / 100}%)</span>
+          : total === 0 ? " — leave all blank to skip invoice stages" : ""}
+      </p>
     </div>
   );
 }

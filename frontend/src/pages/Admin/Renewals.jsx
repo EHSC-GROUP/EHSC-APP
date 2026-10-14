@@ -72,20 +72,6 @@ export default function Renewals() {
       setError(errorMessage(err));
     }
   }
-  async function loadStarter() {
-    setBusy(true);
-    setError("");
-    try {
-      const r = await client.post("/renewals/seed-defaults");
-      setNotice(`${r.data.added} items loaded from the company's renewals sheet.`);
-      load();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function sendNow() {
     setBusy(true);
     setError("");
@@ -150,14 +136,7 @@ export default function Renewals() {
                 </td>
               </tr>
             ))}
-            {data.items.length === 0 && (
-              <tr>
-                <td colSpan={7} className="empty-state">
-                  No items yet. Add them one by one, or load the company's list (Electricity bill, Airtel recharge, Act WiFi, Quick Heal, Microsoft 365, Rent agreement renewal).
-                  <div style={{ marginTop: 10 }}><button className="btn-primary" onClick={loadStarter} disabled={busy}>Load the company's renewals list</button></div>
-                </td>
-              </tr>
-            )}
+            {data.items.length === 0 && <tr><td colSpan={7} className="empty-state">No items yet. Click "+ Add Item" to add the first recurring payment or renewal.</td></tr>}
           </tbody>
         </table>
       </div>
