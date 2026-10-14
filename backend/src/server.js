@@ -16,7 +16,7 @@ const { default: app } = await import("./app.js");
 const { startAttendancePruneJob } = await import("./lib/attendancePrune.js");
 const { startLeaveAccrualJob, runMonthlyLeaveAccrual } = await import("./lib/leaveAccrual.js");
 const { startReimbursementReminderJob } = await import("./lib/reimbursementReminder.js");
-const { startRenewalReminderJob, runRenewalReminders } = await import("./lib/renewals.js");
+const { startRenewalReminderJob, runRenewalReminders, ensureRenewalDefaults } = await import("./lib/renewals.js");
 
 const PORT = process.env.PORT || 4000;
 
@@ -29,7 +29,9 @@ app.listen(PORT, () => {
   // Same startup check as the leave accrual: a Cloud Run instance that was
   // asleep at 9am still sends today's reminders when it wakes. Safe to repeat,
   // each item is only reminded once per due date.
-  runRenewalReminders().catch((err) => console.error("Renewal reminder startup check failed:", err));
+  ensureRenewalDefaults()
+    .then(() => runRenewalReminders())
+    .catch((err) => console.error("Renewal startup check failed:", err));
   // Also check once right now — on a Cloud Run instance that scaled to
   // zero overnight, this is what actually catches "it's the 1st of the
   // month" instead of waiting on the daily cron tick to line up with a
