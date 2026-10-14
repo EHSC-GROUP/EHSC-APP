@@ -15,25 +15,6 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Monday–Sunday week containing dateStr.
-function weekBoundsOf(dateStr) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  const day = d.getDay(); // 0=Sun, 1=Mon, ...
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  const iso = (x) => x.toISOString().slice(0, 10);
-  return { from: iso(monday), to: iso(sunday) };
-}
-
-// Calendar month containing dateStr.
-function monthBoundsOf(dateStr) {
-  const [y, m] = dateStr.split("-").map(Number);
-  const lastDay = new Date(y, m, 0).getDate();
-  return { from: `${dateStr.slice(0, 7)}-01`, to: `${dateStr.slice(0, 7)}-${String(lastDay).padStart(2, "0")}` };
-}
-
 const STATUSES = ["PRESENT", "ABSENT", "LEAVE", "HALF_DAY", "OUT_OF_OFFICE", "TRAVEL", "WFH"];
 const STATUS_LABEL = { PRESENT: "Present", ABSENT: "LOP", LEAVE: "Leave", HALF_DAY: "Half Day", OUT_OF_OFFICE: "On Duty", TRAVEL: "Travel", WFH: "Work From Home" };
 const SOURCE_LABEL = { ADMIN: "admin-marked", SELF_GEOFENCE: "self check-in", BULK: "bulk", SELF_OOO_REQUEST: "On Duty request approved", SELF_TRAVEL_REQUEST: "Travel request approved", SELF_WFH_REQUEST: "WFH request approved" };
@@ -54,14 +35,16 @@ function DailyStatusTab({ canApproveOoo, canEdit }) {
   const [month, setMonth] = useState(currentMonth());
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [leaveTypes, setLeaveTypes] = useState([]);
+
+  const [dayType, setDayType] = useState(null);
 
   async function loadRoster() {
     setError("");
     try {
       const { data } = await client.get("/attendance/roster", { params: { date } });
       setRoster(data.roster);
+      setDayType(data.dayType || null);
     } catch (err) {
       setError(errorMessage(err));
     }
@@ -91,38 +74,6 @@ function DailyStatusTab({ canApproveOoo, canEdit }) {
     }
   }
 
-  async function markAllPresent() {
-    setBusy(true);
-    setError("");
-    try {
-      const { data } = await client.post("/attendance/mark-all-present", { date });
-      await loadRoster();
-      if (month === date.slice(0, 7)) loadSummary();
-      alert(`Marked ${data.count} employee(s) present.`);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function markPresentRange(fromDate, toDate, label) {
-    setBusy(true);
-    setError("");
-    try {
-      const { data } = await client.post("/attendance/mark-all-present-range", { fromDate, toDate });
-      await loadRoster();
-      await loadSummary();
-      alert(`Marked ${data.count} record(s) present across ${data.days} day(s) (${label}, ${fmtDate(fromDate)} to ${fmtDate(toDate)}). Days that already had a status were left untouched.`);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const unmarkedCount = (roster || []).filter((r) => !r.status).length;
-
   return (
     <div>
       <p className="hint-text mt-0">
@@ -141,29 +92,7 @@ function DailyStatusTab({ canApproveOoo, canEdit }) {
           <h3 className="mt-0" style={{ marginRight: 8 }}>Today's Roster</h3>
           <DateInput value={date} onChange={(e) => setDate(e.target.value)} />
           <div className="spacer" />
-          {canEdit && unmarkedCount > 0 && (
-            <button className="btn-primary" onClick={markAllPresent} disabled={busy}>
-              {busy ? "Marking…" : `Mark all present (${unmarkedCount})`}
-            </button>
-          )}
         </div>
-        {canEdit && <div className="toolbar" style={{ marginTop: 0 }}>
-          <span className="hint-text" style={{ marginRight: 4 }}>Bulk-mark present (gap-fill only, based on {fmtDate(date)}):</span>
-          <button
-            className="btn-sm"
-            disabled={busy}
-            onClick={() => { const { from, to } = weekBoundsOf(date); markPresentRange(from, to, "this week"); }}
-          >
-            This Week
-          </button>
-          <button
-            className="btn-sm"
-            disabled={busy}
-            onClick={() => { const { from, to } = monthBoundsOf(date); markPresentRange(from, to, "this month"); }}
-          >
-            This Month
-          </button>
-        </div>}
         <ErrorText>{error}</ErrorText>
         {!roster ? <Loading /> : (
           <table>
@@ -173,7 +102,7 @@ function DailyStatusTab({ canApproveOoo, canEdit }) {
                 <tr key={r.userId}>
                   <td>{r.name} <span className="text-muted">({r.userId})</span></td>
                   <td>
-                    {r.status ? <StatusBadge status={r.status} /> : date < todayISO() ? <span className="badge-pill badge-ABSENT">LOP (not marked)</span> : <span className="text-muted">Not marked</span>}
+                    {r.status ? <StatusBadge status={r.status} /> : dayType ? <span className="badge-pill badge-PENDING">{dayType.type === "HOLIDAY" ? `Holiday: ${dayType.name}` : "Weekly Off"}</span> : date < todayISO() ? <span className="badge-pill badge-ABSENT">LOP (not marked)</span> : <span className="text-muted">Not marked</span>}
                     {r.status === "LEAVE" && r.leaveTypeId && <div className="hint-text mt-0">{leaveTypeName(r.leaveTypeId)}</div>}
                   </td>
                   <td className="text-muted">{r.source ? SOURCE_LABEL[r.source] : "-"}</td>
@@ -361,6 +290,7 @@ function WfhRequestsQueue({ onDecided }) {
   useEffect(() => { load(); }, []);
 
   async function decide(id, action) {
+    if (/approve/.test(action) && !window.confirm("Do you want to confirm this approval?")) return;
     setBusyId(id);
     setError("");
     try {
@@ -429,6 +359,7 @@ function OooRequestsQueue({ onDecided }) {
   useEffect(() => { load(); }, []);
 
   async function decide(id, action) {
+    if (/approve/.test(action) && !window.confirm("Do you want to confirm this approval?")) return;
     setBusyId(id);
     setError("");
     try {

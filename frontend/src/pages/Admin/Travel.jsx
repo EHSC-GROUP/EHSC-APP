@@ -24,6 +24,7 @@ export default function Travel() {
   useEffect(() => { load(); }, [status]);
 
   async function decide(id, action) {
+    if (/approve/.test(action) && !window.confirm("Do you want to confirm this approval?")) return;
     setBusyId(id);
     setError("");
     try {

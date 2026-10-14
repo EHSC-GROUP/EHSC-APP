@@ -94,8 +94,7 @@ export async function computeMusterAndLeave(userId, period) {
     }
   }
 
-  // Monthly-cap -> LOP conversion, per leave type. LOP is always fully
-  // unpaid; HALF_DAY is never capped.
+  // Paid leave per type. LOP is always fully unpaid; HALF_DAY is never capped.
   const leaveBreakdown = [];
   let paidLeaveDays = 0;
   let lopDays = 0;
@@ -103,12 +102,11 @@ export async function computeMusterAndLeave(userId, period) {
 
   for (const lt of leaveTypes) {
     const consumed = rawTotals.get(lt.id) || 0;
-    const cap = lt.monthlyCap ?? null;
-    const paid = cap != null ? Math.min(consumed, cap) : consumed;
-    const excessLop = cap != null ? round1(Math.max(0, consumed - cap)) : 0;
-    paidLeaveDays = round1(paidLeaveDays + paid);
-    lopDays = round1(lopDays + excessLop);
-    leaveBreakdown.push({ id: lt.id, name: lt.name, days: consumed, monthlyCap: cap, excessLop });
+    // There is no monthly limit on leave: every approved day is paid for as long
+    // as the balance lasts (days past the balance are already Loss of Pay, see
+    // lopExcessDays on the request).
+    paidLeaveDays = round1(paidLeaveDays + consumed);
+    leaveBreakdown.push({ id: lt.id, name: lt.name, days: consumed, monthlyCap: null, excessLop: 0 });
   }
 
   const lopConsumed = rawTotals.get(LOP) || 0;

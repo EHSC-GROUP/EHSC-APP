@@ -49,7 +49,8 @@ export async function getLeaveBalancesForYear(userId, fyStartYear) {
       entitlement = round1(storedEntry.entitlement);
     } else {
       const carryIn = await getCarryInForType(userId, fyStartYear, lt, directGet);
-      entitlement = round1((lt.paidDaysPerYear ?? 0) + carryIn);
+      // A type that accrues monthly grows from carry-in; it is not handed over as a lump sum.
+      entitlement = round1((Number(lt.accrualPerMonth) > 0 ? 0 : lt.paidDaysPerYear ?? 0) + carryIn);
     }
     const used = round1(storedEntry?.used || 0);
     view[lt.id] = { entitlement, used, remaining: round1(entitlement - used) };
@@ -75,7 +76,7 @@ export async function adjustUsedInTransaction(tx, userId, fyStartYear, leaveType
     entitlement = existing.entitlement;
   } else {
     const carryIn = await getCarryInForType(userId, fyStartYear, leaveType, (r) => tx.get(r));
-    entitlement = round1((leaveType.paidDaysPerYear ?? 0) + carryIn);
+    entitlement = round1((Number(leaveType.accrualPerMonth) > 0 ? 0 : leaveType.paidDaysPerYear ?? 0) + carryIn);
   }
 
   const remainingBefore = round1(entitlement - (existing?.used || 0));
@@ -99,9 +100,9 @@ export async function adjustUsedInTransaction(tx, userId, fyStartYear, leaveType
 // from carry-in only, never from paidDaysPerYear — for an accrual-driven
 // type, paidDaysPerYear is the annual figure the balance grows *towards*
 // over the year (accrualPerMonth * 12), not a lump sum granted up front.
-export async function accrueEntitlementInTransaction(tx, userId, fyStartYear, leaveType, deltaDays) {
+export async function accrueEntitlementInTransaction(tx, userId, fyStartYear, leaveType, deltaDays, throughMonth = null, preSnap = null) {
   const ref = db.collection(COLLECTIONS.HR_LEAVE_BALANCES).doc(balanceDocId(userId, fyStartYear));
-  const snap = await tx.get(ref);
+  const snap = preSnap || (await tx.get(ref));
   const data = snap.exists ? snap.data() : { userId, year: fyStartYear, balances: {} };
   const balances = data.balances || {};
   const existing = balances[leaveType.id];
@@ -120,7 +121,11 @@ export async function accrueEntitlementInTransaction(tx, userId, fyStartYear, le
 
   tx.set(
     ref,
-    { userId, year: fyStartYear, balances, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+    {
+      userId, year: fyStartYear, balances, updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      // The last month this leave type was credited for, so it is never credited twice.
+      ...(throughMonth ? { accruedThrough: { [leaveType.id]: throughMonth } } : {}),
+    },
     { merge: true }
   );
 }

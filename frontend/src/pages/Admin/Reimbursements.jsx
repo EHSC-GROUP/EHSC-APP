@@ -34,6 +34,7 @@ export default function Reimbursements() {
   useEffect(() => { load(); }, [status, type]);
 
   async function decide(id, verb, extra) {
+    if (/approve/.test(verb) && !window.confirm("Do you want to confirm this approval?")) return;
     try {
       await client.put(`/reimbursements/${id}/${verb}`, extra || {});
       load();

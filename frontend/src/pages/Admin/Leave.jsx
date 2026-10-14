@@ -15,7 +15,7 @@ export default function Leave() {
   const [tab, setTab] = useState("Register");
   const { user } = useAuth();
   // Balances and Types are the superadmin's; admins only see the register.
-  const tabs = user?.role === "superadmin" ? ["Register", "Balances", "Types"] : ["Register"];
+  const tabs = user?.role === "superadmin" ? ["Register", "Comp Off", "Balances", "Types"] : ["Register", "Comp Off"];
   return (
     <div>
       <div className="page-header"><h2>Leave Management</h2></div>
@@ -25,8 +25,72 @@ export default function Leave() {
         ))}
       </div>
       {tab === "Register" && <LeaveRegister />}
+      {tab === "Comp Off" && <CompOffQueue />}
       {tab === "Balances" && tabs.includes("Balances") && <LeaveBalances />}
       {tab === "Types" && tabs.includes("Types") && <LeaveTypes />}
+    </div>
+  );
+}
+
+// Comp Off: a day worked on a holiday / weekly off that gives a leave day back.
+function CompOffQueue() {
+  const [list, setList] = useState(null);
+  const [error, setError] = useState("");
+
+  async function load() {
+    try {
+      const { data } = await client.get("/leave/comp-off");
+      setList(data);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function decide(id, verb) {
+    if (verb === "approve" && !window.confirm("Do you want to confirm this approval?")) return;
+    const comment = verb === "reject" ? window.prompt("Reason (optional):") || "" : undefined;
+    try {
+      await client.put(`/leave/comp-off/${id}/${verb}`, comment !== undefined ? { comment } : {});
+      load();
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  return (
+    <div>
+      <p className="hint-text mt-0">
+        An employee who worked on a holiday or weekly off can ask for it to give back a leave day they took. On approval the day is added back to that leave balance.
+      </p>
+      <ErrorText>{error}</ErrorText>
+      {!list ? <Loading /> : (
+        <div className="card table-wrap">
+          <table>
+            <thead><tr><th>Employee</th><th>Dept</th><th>Day worked</th><th>Makes up leave</th><th>Days back</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+              {list.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.name || c.userId}</td>
+                  <td>{c.department || "-"}</td>
+                  <td>{fmtDate(c.workedDate)}</td>
+                  <td>{c.leaveType} · {fmtDate(c.leaveFrom)} - {fmtDate(c.leaveTo)}</td>
+                  <td>{c.credit}</td>
+                  <td><StatusBadge status={c.status} /></td>
+                  <td>
+                    <div className="toolbar" style={{ margin: 0 }}>
+                      {c.actions?.canApprove && <button className="btn-sm" onClick={() => decide(c.id, "approve")}>Approve</button>}
+                      {c.actions?.canApprove && <button className="btn-sm" onClick={() => decide(c.id, "reject")}>Reject</button>}
+                      {c.status === "PENDING" && !c.actions?.canApprove && <span className="hint-text">Awaiting {c.department || "department"} admin</span>}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {list.length === 0 && <tr><td colSpan={7} className="empty-state">No comp off requests.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -51,6 +115,7 @@ function LeaveRegister() {
   useEffect(() => { load(); }, [fy, status]);
 
   async function decide(id, verb) {
+    if (/approve/.test(verb) && !window.confirm("Do you want to confirm this approval?")) return;
     const comment = verb === "reject" ? window.prompt("Reason (optional):") || "" : undefined;
     try {
       await client.put(`/leave/requests/${id}/${verb}`, comment !== undefined ? { comment } : {});
@@ -199,7 +264,7 @@ function LeaveBalances() {
 function LeaveTypes() {
   const [list, setList] = useState(null);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({ name: "", paidDaysPerYear: "", carryForward: false, monthlyCap: "", accrualPerMonth: "" });
+  const [form, setForm] = useState({ name: "", paidDaysPerYear: "", carryForward: false, accrualPerMonth: "" });
   const [busy, setBusy] = useState(false);
 
   async function load() {
@@ -222,10 +287,9 @@ function LeaveTypes() {
       await client.post("/leave-types", {
         ...form,
         paidDaysPerYear: Number(form.paidDaysPerYear),
-        monthlyCap: form.monthlyCap === "" ? null : Number(form.monthlyCap),
         accrualPerMonth: form.accrualPerMonth === "" ? null : Number(form.accrualPerMonth),
       });
-      setForm({ name: "", paidDaysPerYear: "", carryForward: false, monthlyCap: "", accrualPerMonth: "" });
+      setForm({ name: "", paidDaysPerYear: "", carryForward: false, accrualPerMonth: "" });
       load();
     } catch (err) {
       setError(errorMessage(err));
@@ -253,7 +317,6 @@ function LeaveTypes() {
           <div><label>Paid Days / Year</label><input type="number" min="0" value={form.paidDaysPerYear} onChange={(e) => set("paidDaysPerYear", e.target.value)} required /></div>
         </div>
         <div className="form-row">
-          <div><label>Monthly Cap (blank = uncapped)</label><input type="number" min="0" value={form.monthlyCap} onChange={(e) => set("monthlyCap", e.target.value)} /></div>
           <div><label>Accrual / Month (blank = none)</label><input type="number" min="0" step="0.5" value={form.accrualPerMonth} onChange={(e) => set("accrualPerMonth", e.target.value)} /></div>
         </div>
         <div className="form-row">
@@ -276,12 +339,12 @@ function LeaveTypes() {
       {!list ? <Loading /> : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>ID</th><th>Name</th><th>Paid Days/Yr</th><th>Monthly Cap</th><th>Accrual/Month</th><th>Carry Forward</th><th></th></tr></thead>
+            <thead><tr><th>ID</th><th>Name</th><th>Paid Days/Yr</th><th>Accrual/Month</th><th>Carry Forward</th><th></th></tr></thead>
             <tbody>
               {list.map((lt) => (
                 <tr key={lt.id}>
                   <td>{lt.id}</td><td>{lt.name}</td><td>{lt.paidDaysPerYear}</td>
-                  <td>{lt.monthlyCap ?? "Uncapped"}</td><td>{lt.accrualPerMonth ?? "None"}</td><td>{lt.carryForward ? "Yes" : "No"}</td>
+                  <td>{lt.accrualPerMonth ?? "None"}</td><td>{lt.carryForward ? "Yes" : "No"}</td>
                   <td><button className="btn-sm btn-danger" onClick={() => remove(lt.id)}>Delete</button></td>
                 </tr>
               ))}

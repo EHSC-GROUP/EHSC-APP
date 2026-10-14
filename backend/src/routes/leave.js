@@ -9,12 +9,13 @@ import {
   HALF_DAY,
   LEAVE_STATUS,
   STAFF_PROFILE_TYPES,
+  ATTENDANCE_STATUS_VALUES,
 } from "../lib/constants.js";
 import { authenticate, requireAdmin, requireApprover, requireSuperAdmin } from "../middleware/auth.js";
 import { upload } from "../middleware/upload.js";
 import { uploadBuffer, streamFile, safeFileName } from "../lib/storage.js";
-import { financialYearOf, eachDate } from "../lib/dateUtils.js";
-import { workingDaysForRange, getHolidaySetForRange } from "../lib/calendar.js";
+import { financialYearOf, eachDate, round1, weekdayOf } from "../lib/dateUtils.js";
+import { workingDaysForRange, getHolidaySetForRange, getWeeklyOffDays } from "../lib/calendar.js";
 import {
   getLeaveTypes,
   getLeaveBalancesForYear,
@@ -117,18 +118,191 @@ router.get("/requests/mine", authenticate, async (req, res, next) => {
   }
 });
 
-router.get("/comp-off-options", authenticate, async (req, res, next) => {
+// ---- Comp Off -----------------------------------------------------------
+// Work on a company holiday or weekly off to give back a leave day already
+// taken. The employee picks the day they worked (it must have a Present, On
+// Duty, Travel, WFH or Half Day record on a holiday / weekly off) and the
+// approved leave it makes up for. When the approver confirms, those days are
+// credited back to that leave type's balance, so they are not deducted.
+const COMP_COL = () => db.collection(COLLECTIONS.HR_COMP_OFF_REQUESTS);
+const WORKED_WEIGHT = {
+  [ATTENDANCE_STATUS_VALUES.PRESENT]: 1,
+  [ATTENDANCE_STATUS_VALUES.OUT_OF_OFFICE]: 1,
+  [ATTENDANCE_STATUS_VALUES.TRAVEL]: 1,
+  [ATTENDANCE_STATUS_VALUES.WFH]: 1,
+  [ATTENDANCE_STATUS_VALUES.HALF_DAY]: 0.5,
+};
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const OPEN_COMP = [LEAVE_STATUS.PENDING, LEAVE_STATUS.APPROVED];
+
+async function offDaySet(dates) {
+  if (!dates.length) return new Set();
+  const sorted = [...dates].sort();
+  const [holidays, weeklyOff] = await Promise.all([getHolidaySetForRange(sorted[0], sorted[sorted.length - 1]), getWeeklyOffDays()]);
+  return new Set(dates.filter((d) => holidays.has(d) || weeklyOff.includes(weekdayOf(d))));
+}
+
+// What this employee can claim right now: worked holiday/off days not yet used,
+// and approved leaves that still have days to give back.
+async function compOffOptionsFor(userId) {
+  const [attSnap, compSnap, leaveSnap] = await Promise.all([
+    db.collection(COLLECTIONS.ATTENDANCE_STATUS).where("userId", "==", userId).get(),
+    COMP_COL().where("userId", "==", userId).get(),
+    db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).where("userId", "==", userId).get(),
+  ]);
+  const comps = compSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((c) => OPEN_COMP.includes(c.status));
+  const usedDates = new Set(comps.map((c) => c.workedDate));
+  const worked = attSnap.docs.map((d) => d.data()).filter((r) => r.date <= todayISO() && WORKED_WEIGHT[r.status] && !usedDates.has(r.date));
+  const off = await offDaySet(worked.map((r) => r.date));
+  const workedDays = worked.filter((r) => off.has(r.date)).sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map((r) => ({ date: r.date, status: r.status, credit: WORKED_WEIGHT[r.status] }));
+
+  const pendingByLeave = new Map();
+  for (const c of comps.filter((x) => x.status === LEAVE_STATUS.PENDING)) {
+    pendingByLeave.set(c.leaveRequestId, round1((pendingByLeave.get(c.leaveRequestId) || 0) + c.credit));
+  }
+  const leaves = leaveSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .filter((r) => r.status === LEAVE_STATUS.APPROVED && r.leaveType !== LOP && r.leaveType !== HALF_DAY)
+    .map((r) => ({ id: r.id, leaveType: r.leaveType, fromDate: r.fromDate, toDate: r.toDate, days: r.days, available: round1(r.days - (r.compOffCredit || 0) - (pendingByLeave.get(r.id) || 0)) }))
+    .filter((r) => r.available > 0)
+    .sort((a, b) => (a.fromDate < b.fromDate ? 1 : -1));
+  return { workedDays, leaves };
+}
+
+router.get("/comp-off/options", authenticate, async (req, res, next) => {
   try {
-    const leaveSnap = await db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).where("userId", "==", req.user.userId).get();
-    const approved = leaveSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .filter((r) => r.status === LEAVE_STATUS.APPROVED);
-    const options = [];
-    for (const r of approved) {
-      const holidayDates = await getHolidaySetForRange(r.fromDate, r.toDate);
-      if ([...eachDate(r.fromDate, r.toDate)].some((date) => holidayDates.has(date))) options.push(r);
+    res.json(await compOffOptionsFor(req.user.userId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/comp-off", authenticate, async (req, res, next) => {
+  try {
+    const { workedDate, leaveRequestId } = req.body;
+    if (!workedDate || !leaveRequestId) return res.status(400).json({ error: "Choose the day you worked and the leave it makes up for" });
+    const { workedDays, leaves } = await compOffOptionsFor(req.user.userId);
+    const day = workedDays.find((d) => d.date === workedDate);
+    if (!day) return res.status(400).json({ error: "That day is not available. It must be a holiday or weekly off with your attendance marked, and not already used for a Comp Off." });
+    const leave = leaves.find((l) => l.id === leaveRequestId);
+    if (!leave) return res.status(400).json({ error: "That leave is not available. It must be your approved leave with days still to give back." });
+    const credit = Math.min(day.credit, leave.available);
+    const doc = {
+      userId: req.user.userId,
+      name: req.user.name,
+      workedDate,
+      leaveRequestId,
+      leaveType: leave.leaveType,
+      leaveFrom: leave.fromDate,
+      leaveTo: leave.toDate,
+      credit,
+      status: LEAVE_STATUS.PENDING,
+      appliedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    const ref = COMP_COL().doc();
+    await ref.set(doc);
+    res.status(201).json({ id: ref.id, ...doc });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/comp-off/mine", authenticate, async (req, res, next) => {
+  try {
+    const snap = await COMP_COL().where("userId", "==", req.user.userId).get();
+    res.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.workedDate < b.workedDate ? 1 : -1)));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/comp-off", authenticate, requireApprover, async (req, res, next) => {
+  try {
+    const snap = await COMP_COL().get();
+    let list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const [visibleDept, deptMap] = await Promise.all([visibleDepartmentFor(req.user), loadDepartmentMap()]);
+    list = filterByDepartment(list, visibleDept, deptMap);
+    list = await Promise.all(list.map(async (c) => ({
+      ...c,
+      department: deptMap.get(c.userId) || null,
+      actions: { canApprove: c.status === LEAVE_STATUS.PENDING && (await canApproveLeave(req.user, c)) },
+    })));
+    list.sort((a, b) => (a.workedDate < b.workedDate ? 1 : -1));
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/comp-off/:id/approve", authenticate, requireApprover, async (req, res, next) => {
+  try {
+    const ref = COMP_COL().doc(req.params.id);
+    const leaveTypes = await getLeaveTypes();
+    const pre = await ref.get();
+    if (!pre.exists) return res.status(404).json({ error: "Not found" });
+    if (!(await canApproveLeave(req.user, pre.data()))) {
+      return res.status(403).json({ error: "Only an admin or team lead of this employee's department can approve this" });
     }
-    options.sort((a, b) => (a.fromDate < b.fromDate ? 1 : -1));
-    res.json(options);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const comp = snap.data();
+      if (comp.status !== LEAVE_STATUS.PENDING) throw Object.assign(new Error("Only PENDING requests can be approved"), { status: 400 });
+      const leaveRef = db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).doc(comp.leaveRequestId);
+      const leaveSnap = await tx.get(leaveRef);
+      const leave = leaveSnap.exists ? leaveSnap.data() : null;
+      if (!leave || leave.status !== LEAVE_STATUS.APPROVED) {
+        throw Object.assign(new Error("The leave this Comp Off is for is no longer approved"), { status: 400 });
+      }
+      const room = round1(leave.days - (leave.compOffCredit || 0));
+      const credit = Math.min(comp.credit, room);
+      if (credit <= 0) throw Object.assign(new Error("That leave has no days left to give back"), { status: 400 });
+
+      const lt = leaveTypes.find((l) => l.id === leave.leaveType);
+      if (lt) await adjustUsedInTransaction(tx, leave.userId, leave.balanceYear, lt, -credit);
+      tx.update(leaveRef, {
+        compOffCredit: round1((leave.compOffCredit || 0) + credit),
+        // Days that had gone past the balance (Loss of Pay) are made up first.
+        lopExcessDays: Math.max(0, round1((leave.lopExcessDays || 0) - credit)),
+      });
+      tx.update(ref, {
+        status: LEAVE_STATUS.APPROVED,
+        credit,
+        decidedBy: req.user.userId,
+        decidedAt: admin.firestore.FieldValue.serverTimestamp(),
+        comment: req.body.comment || null,
+      });
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/comp-off/:id/reject", authenticate, requireApprover, async (req, res, next) => {
+  try {
+    const ref = COMP_COL().doc(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: "Not found" });
+    if (snap.data().status !== LEAVE_STATUS.PENDING) return res.status(400).json({ error: "Only PENDING requests can be rejected" });
+    if (!(await canApproveLeave(req.user, snap.data()))) {
+      return res.status(403).json({ error: "Only an admin or team lead of this employee's department can reject this" });
+    }
+    await ref.update({ status: LEAVE_STATUS.REJECTED, decidedBy: req.user.userId, decidedAt: admin.firestore.FieldValue.serverTimestamp(), comment: req.body.comment || null });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// The employee can withdraw a request that is still waiting.
+router.put("/comp-off/:id/cancel", authenticate, async (req, res, next) => {
+  try {
+    const ref = COMP_COL().doc(req.params.id);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data().userId !== req.user.userId) return res.status(404).json({ error: "Not found" });
+    if (snap.data().status !== LEAVE_STATUS.PENDING) return res.status(400).json({ error: "Only a PENDING request can be cancelled" });
+    await ref.update({ status: LEAVE_STATUS.CANCELLED });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }
@@ -195,7 +369,7 @@ router.post("/requests", authenticate, requireAdmin, upload.single("medicalCert"
 // ---- create: self-service apply -----------------------------------------
 router.post("/requests/self", authenticate, upload.single("medicalCert"), async (req, res, next) => {
   try {
-    const { leaveType, fromDate, toDate, halfDay, reason, compOffSourceLeaveId } = req.body;
+    const { leaveType, fromDate, toDate, halfDay, reason } = req.body;
     if (!leaveType || !fromDate || !toDate) {
       return res.status(400).json({ error: "leaveType, fromDate and toDate are required" });
     }
@@ -208,20 +382,6 @@ router.post("/requests/self", authenticate, upload.single("medicalCert"), async 
     if (!leaveTypes.some((lt) => lt.id === leaveType)) {
       return res.status(400).json({ error: "Unknown leave type" });
     }
-    const isCompOff = leaveType.toUpperCase().replace(/[- ]/g, "_").includes("COMP_OFF");
-    if (isCompOff) {
-      if (!compOffSourceLeaveId) return res.status(400).json({ error: "Select the approved holiday leave this Comp Off replaces" });
-      const source = await db.collection(COLLECTIONS.HR_LEAVE_REQUESTS).doc(compOffSourceLeaveId).get();
-      if (!source.exists || source.data().userId !== req.user.userId || source.data().status !== LEAVE_STATUS.APPROVED) {
-        return res.status(400).json({ error: "The selected Comp Off source leave is not valid" });
-      }
-      const sourceData = source.data();
-      const holidayDates = await getHolidaySetForRange(sourceData.fromDate, sourceData.toDate);
-      if (![...eachDate(sourceData.fromDate, sourceData.toDate)].some((date) => holidayDates.has(date))) {
-        return res.status(400).json({ error: "Comp Off can only replace leave taken on a company holiday" });
-      }
-    }
-
     const fullDays = await workingDaysForRange(fromDate, toDate);
     const isHalfDay = halfDay === "true" || halfDay === true;
 
@@ -242,7 +402,6 @@ router.post("/requests/self", authenticate, upload.single("medicalCert"), async 
       halfDay: isHalfDay,
       days: Math.max(0, validDays),
       reason: reason || "",
-      ...(isCompOff ? { compOffSourceLeaveId } : {}),
       ...medicalCert,
       status: LEAVE_STATUS.PENDING,
       appliedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -367,7 +526,8 @@ router.put("/requests/:id/cancel", authenticate, async (req, res, next) => {
 
       if (request.status === LEAVE_STATUS.APPROVED && request.leaveType !== LOP && request.leaveType !== HALF_DAY) {
         const lt = leaveTypes.find((l) => l.id === request.leaveType);
-        if (lt) await adjustUsedInTransaction(tx, request.userId, request.balanceYear, lt, -request.days);
+        // Days already given back through an approved Comp Off are not credited twice.
+        if (lt) await adjustUsedInTransaction(tx, request.userId, request.balanceYear, lt, -Math.max(0, round1(request.days - (request.compOffCredit || 0))));
       }
 
       tx.update(ref, {

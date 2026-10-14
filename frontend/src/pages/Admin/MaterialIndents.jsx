@@ -28,6 +28,7 @@ export default function MaterialIndents() {
   useEffect(() => { load(); }, [status]);
 
   async function decide(id, verb) {
+    if (/approve/.test(verb) && !window.confirm("Do you want to confirm this approval?")) return;
     const comment = verb === "reject" ? window.prompt("Reason (optional):") || "" : undefined;
     try {
       await client.put(`/material-indents/${id}/${verb}`, comment !== undefined ? { comment } : {});

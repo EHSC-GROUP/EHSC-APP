@@ -10,7 +10,7 @@ import {
 import { authenticate, requireAdmin, requireSuperAdmin } from "../middleware/auth.js";
 import { haversineMeters, isValidCoordinate } from "../lib/geo.js";
 import { eachDate, weekdayOf } from "../lib/dateUtils.js";
-import { getHolidaySetForRange, getWeeklyOffDays } from "../lib/calendar.js";
+import { getHolidaySetForRange, getWeeklyOffDays, getHolidaysForYear } from "../lib/calendar.js";
 
 const router = Router();
 
@@ -504,7 +504,11 @@ router.get("/my-status", authenticate, async (req, res, next) => {
 router.get("/roster", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const date = req.query.date || new Date().toISOString().slice(0, 10);
-    const employees = await getActiveEmployeeProfiles();
+    const [employees, weeklyOff, holidays] = await Promise.all([getActiveEmployeeProfiles(), getWeeklyOffDays(), getHolidaysForYear(date.slice(0, 4))]);
+    // What kind of day this is, so a day with no record reads "Weekly Off" or
+    // "Holiday" instead of looking like a missing mark.
+    const holiday = holidays.filter((h) => h.date === date).map((h) => h.name).join(" / ");
+    const dayType = holiday ? { type: "HOLIDAY", name: holiday } : weeklyOff.includes(weekdayOf(date)) ? { type: "WEEKLY_OFF", name: "Weekly Off" } : null;
     const refs = employees.map((e) => db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(e.userId, date)));
     const snaps = refs.length ? await db.getAll(...refs) : [];
 
@@ -519,102 +523,7 @@ router.get("/roster", authenticate, requireAdmin, async (req, res, next) => {
         leaveTypeId: record?.leaveTypeId || null,
       };
     });
-    res.json({ date, roster });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Marks PRESENT/BULK for every active employee who has no record yet for
-// this date — never touches anyone who already has an entry (whether
-// present, absent, leave, or half-day), so admins only ever have to
-// manually correct the actual exceptions.
-router.post("/mark-all-present", authenticate, requireSuperAdmin, async (req, res, next) => {
-  try {
-    const { date } = req.body;
-    if (!date) return res.status(400).json({ error: "date is required" });
-
-    const employees = await getActiveEmployeeProfiles();
-    const refs = employees.map((e) => db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(e.userId, date)));
-    const snaps = refs.length ? await db.getAll(...refs) : [];
-
-    const batch = db.batch();
-    let count = 0;
-    employees.forEach((e, i) => {
-      if (snaps[i]?.exists) return; // already has a record — never overwrite
-      batch.set(refs[i], {
-        userId: e.userId,
-        date,
-        status: ATTENDANCE_STATUS_VALUES.PRESENT,
-        note: "",
-        source: ATTENDANCE_SOURCE.BULK,
-        markedAt: new Date().toISOString(),
-        markedBy: req.user.userId,
-      });
-      count++;
-    });
-    if (count > 0) await batch.commit();
-
-    res.json({ ok: true, count });
-  } catch (err) {
-    next(err);
-  }
-});
-
-const MARK_RANGE_MAX_DAYS = 31;
-
-// Same gap-fill guarantee as mark-all-present, but across every date in a
-// range (a week, a month, ...) in one call — still never touches a day that
-// already has a record, whoever or whatever set it. Capped at 31 days so a
-// mistaken date range can't silently touch an unbounded number of records.
-router.post("/mark-all-present-range", authenticate, requireSuperAdmin, async (req, res, next) => {
-  try {
-    const { fromDate, toDate } = req.body;
-    if (!fromDate || !toDate) return res.status(400).json({ error: "fromDate and toDate are required" });
-    if (fromDate > toDate) return res.status(400).json({ error: "fromDate must be on or before toDate" });
-
-    const dates = [...eachDate(fromDate, toDate)];
-    if (dates.length > MARK_RANGE_MAX_DAYS) {
-      return res.status(400).json({ error: `Range too large — pick ${MARK_RANGE_MAX_DAYS} days or fewer at a time` });
-    }
-
-    const employees = await getActiveEmployeeProfiles();
-    const targets = [];
-    for (const e of employees) {
-      for (const date of dates) {
-        targets.push({ userId: e.userId, date, ref: db.collection(COLLECTIONS.ATTENDANCE_STATUS).doc(statusDocId(e.userId, date)) });
-      }
-    }
-
-    const existsByKey = new Map();
-    for (let i = 0; i < targets.length; i += 300) {
-      const chunk = targets.slice(i, i + 300);
-      const snaps = await db.getAll(...chunk.map((t) => t.ref));
-      chunk.forEach((t, j) => existsByKey.set(`${t.userId}_${t.date}`, snaps[j].exists));
-    }
-
-    const toCreate = targets.filter((t) => !existsByKey.get(`${t.userId}_${t.date}`));
-
-    let count = 0;
-    for (let i = 0; i < toCreate.length; i += 450) {
-      const chunk = toCreate.slice(i, i + 450);
-      const batch = db.batch();
-      for (const t of chunk) {
-        batch.set(t.ref, {
-          userId: t.userId,
-          date: t.date,
-          status: ATTENDANCE_STATUS_VALUES.PRESENT,
-          note: "",
-          source: ATTENDANCE_SOURCE.BULK,
-          markedAt: new Date().toISOString(),
-          markedBy: req.user.userId,
-        });
-        count++;
-      }
-      await batch.commit();
-    }
-
-    res.json({ ok: true, count, days: dates.length });
+    res.json({ date, dayType, roster });
   } catch (err) {
     next(err);
   }

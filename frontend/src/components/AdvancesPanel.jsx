@@ -32,6 +32,7 @@ export default function AdvancesPanel({ admin }) {
   useEffect(() => { load(); }, [admin]);
 
   async function act(id, verb) {
+    if (/approve/.test(verb) && !window.confirm("Do you want to confirm this approval?")) return;
     const comment = verb === "reject" ? window.prompt("Reason (optional):") || "" : undefined;
     try {
       await client.put(`/advances/${id}/${verb}`, comment !== undefined ? { comment } : {});

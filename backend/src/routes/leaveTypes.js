@@ -23,7 +23,7 @@ router.get("/", authenticate, async (req, res, next) => {
 
 router.post("/", authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
-    const { name, paidDaysPerYear, carryForward, monthlyCap, accrualPerMonth, id } = req.body;
+    const { name, paidDaysPerYear, carryForward, accrualPerMonth, id } = req.body;
     if (!name || paidDaysPerYear === undefined) {
       return res.status(400).json({ error: "name and paidDaysPerYear are required" });
     }
@@ -41,7 +41,7 @@ router.post("/", authenticate, requireSuperAdmin, async (req, res, next) => {
       name,
       paidDaysPerYear: Number(paidDaysPerYear),
       carryForward: !!carryForward,
-      monthlyCap: monthlyCap === null || monthlyCap === undefined || monthlyCap === "" ? null : Number(monthlyCap),
+      monthlyCap: null, // leave has no monthly limit
       // Days automatically added to every active employee's entitlement on
       // the 1st of each month (see lib/leaveAccrual.js). null/0 = no
       // auto-accrual for this type — entitlement stays whatever's set here
@@ -66,12 +66,12 @@ router.put("/:id", authenticate, requireSuperAdmin, async (req, res, next) => {
     const snap = await ref.get();
     if (!snap.exists) return res.status(404).json({ error: "Not found" });
 
-    const { name, paidDaysPerYear, carryForward, monthlyCap, accrualPerMonth } = req.body;
+    const { name, paidDaysPerYear, carryForward, accrualPerMonth } = req.body;
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp(), updatedBy: req.user.userId };
     if (name !== undefined) updates.name = name;
     if (paidDaysPerYear !== undefined) updates.paidDaysPerYear = Number(paidDaysPerYear);
     if (carryForward !== undefined) updates.carryForward = !!carryForward;
-    if (monthlyCap !== undefined) updates.monthlyCap = monthlyCap === null || monthlyCap === "" ? null : Number(monthlyCap);
+    updates.monthlyCap = null; // leave has no monthly limit
     if (accrualPerMonth !== undefined) updates.accrualPerMonth = accrualPerMonth === null || accrualPerMonth === "" ? null : Number(accrualPerMonth);
 
     await ref.update(updates);

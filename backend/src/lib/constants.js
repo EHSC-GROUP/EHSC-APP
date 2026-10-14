@@ -47,6 +47,7 @@ export const COLLECTIONS = Object.freeze({
   HR_LEAVE_TYPES: "hr_leave_types",
   HR_LEAVE_BALANCES: "hr_leave_balances",
   HR_LEAVE_REQUESTS: "hr_leave_requests",
+  HR_COMP_OFF_REQUESTS: "hr_comp_off_requests",
   HR_REIMBURSEMENTS: "hr_reimbursements",
   HR_PAYSLIPS: "hr_payslips",
   ATTENDANCE_LOGS: "attendance_logs",

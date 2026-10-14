@@ -1,17 +1,18 @@
 import { Router } from "express";
 
 import { db } from "../config/firebase.js";
-import { COLLECTIONS, STAFF_PROFILE_TYPES } from "../lib/constants.js";
+import { COLLECTIONS, STAFF_PROFILE_TYPES, PAYSLIP_STATUS } from "../lib/constants.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { computeGeneratedPayslip } from "../lib/payslipCompute.js";
 import { renderForm22Pdf } from "../lib/form22Pdf.js";
 
 const router = Router();
 
-// Direct download, no on-screen preview. Reuses payslip data where it
-// already exists (so the export reconciles exactly with what was
-// generated/finalized); falls back to a fresh on-the-fly computation
-// otherwise, using the identical computeGeneratedPayslip logic.
+// Direct download, no on-screen preview. A FINALIZED or PUBLISHED payslip is
+// reused as it is (so the export reconciles exactly with what was issued).
+// Anything else - no payslip yet, or only a DRAFT - is computed fresh from the
+// current attendance, keeping any manual edits saved on the draft, so the
+// muster never shows an out-of-date snapshot.
 router.get("/export", authenticate, requireAdmin, async (req, res, next) => {
   try {
     const { period } = req.query;
@@ -36,11 +37,12 @@ router.get("/export", authenticate, requireAdmin, async (req, res, next) => {
     for (let i = 0; i < profiles.length; i++) {
       const profile = profiles[i];
       const existingSnap = payslipSnaps[i];
-      if (existingSnap?.exists) {
-        rows.push(existingSnap.data());
+      const existing = existingSnap?.exists ? existingSnap.data() : null;
+      if (existing && [PAYSLIP_STATUS.FINALIZED, PAYSLIP_STATUS.PUBLISHED].includes(existing.status)) {
+        rows.push(existing);
         continue;
       }
-      const computed = await computeGeneratedPayslip(profile.userId, profile, period, null);
+      const computed = await computeGeneratedPayslip(profile.userId, profile, period, existing);
       if (!computed.skipped) rows.push(computed);
     }
 
