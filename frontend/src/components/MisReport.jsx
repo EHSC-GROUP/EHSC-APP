@@ -3,6 +3,7 @@ import client, { errorMessage } from "../api/client";
 import Modal from "./Modal";
 import { Loading, ErrorText } from "./Misc";
 import { fmtDate } from "../lib/dates";
+import BarChart, { PercentBar, compactINR } from "./BarChart";
 import { openAuthedFile } from "../lib/openFile";
 
 const inr = (n) => (n || n === 0 ? `₹${Number(n).toLocaleString("en-IN")}` : "");
@@ -60,7 +61,7 @@ export default function MisReport({ onClose }) {
       <ErrorText>{error}</ErrorText>
       {!data ? (error ? null : <Loading />) : (
         <>
-          {tab === "Dashboard" && <Dashboard d={data.dashboard} fyLabel={data.fyLabel} />}
+          {tab === "Dashboard" && <Dashboard d={data.dashboard} fyLabel={data.fyLabel} months={data.months} />}
           {tab === "BD MIS" && <BdMis rows={data.mis} months={data.months} fy={data.fy} />}
           {tab === "Proposals" && <Proposals rows={data.proposals.filter(inMonth)} />}
           {tab === "Purchase Orders" && <PurchaseOrders rows={data.pos.filter(inMonth)} />}
@@ -78,12 +79,43 @@ export default function MisReport({ onClose }) {
   );
 }
 
-function Dashboard({ d, fyLabel }) {
+function Dashboard({ d, fyLabel, months }) {
   const c = d.conversion;
   const p = (x) => (x == null ? "-" : `${x}%`);
+  const cats = months.map((m) => m.short);
   return (
     <div>
       <h3 className="mt-0">Business Development Dashboard - FY {fyLabel}</h3>
+      <div className="stat-cards" style={{ marginBottom: 12 }}>
+        <div className="stat-card"><div className="value">{d.totals.proposals}</div><div className="label">Proposals sent</div></div>
+        <div className="stat-card"><div className="value">{d.totals.pos}</div><div className="label">Purchase orders</div></div>
+        <div className="stat-card"><div className="value">{compactINR(d.totals.poValue)}</div><div className="label">PO value</div></div>
+        <div className="stat-card"><div className="value">{compactINR(d.totals.payments)}</div><div className="label">Payments received</div></div>
+      </div>
+      <BarChart
+        title="Proposals sent and purchase orders received, by month"
+        categories={cats}
+        series={[
+          { name: "Proposals", color: "#2563eb", values: d.rows.map((r) => r.proposals) },
+          { name: "Purchase orders", color: "#16a34a", values: d.rows.map((r) => r.pos) },
+        ]}
+      />
+      <BarChart
+        title="Value by month: proposals, purchase orders and payments"
+        categories={cats}
+        format={compactINR}
+        series={[
+          { name: "Proposal value", color: "#2563eb", values: d.rows.map((r) => r.proposalValue) },
+          { name: "PO value", color: "#16a34a", values: d.rows.map((r) => r.poValue) },
+          { name: "Payments received", color: "#d97706", values: d.rows.map((r) => r.payments) },
+        ]}
+      />
+      <div style={{ maxWidth: 560, marginBottom: 14 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Conversion</div>
+        <PercentBar label="Proposals that became POs" detail={`${c.proposalToPoNos.poValue} of ${c.proposalToPoNos.value}`} percent={c.proposalToPoNos.percent} color="#2563eb" />
+        <PercentBar label="Proposal value converted to PO value" detail={`${compactINR(c.proposalToPoValue.poValue)} of ${compactINR(c.proposalToPoValue.value)}`} percent={c.proposalToPoValue.percent} color="#16a34a" />
+        <PercentBar label="PO value collected as payments" detail={`${compactINR(c.poToPayment.value)} of ${compactINR(c.poToPayment.poValue)}`} percent={c.poToPayment.percent} color="#d97706" />
+      </div>
       <div className="table-wrap">
         <table>
           <thead><tr><th>Month</th><th>Proposals Submitted</th><th>Proposal Value</th><th>No of POs</th><th>Purchase Orders Value</th><th>Payments Received</th></tr></thead>
@@ -108,7 +140,7 @@ function Dashboard({ d, fyLabel }) {
           </tbody>
         </table>
       </div>
-      <p className="hint-text">Proposal value is each enquiry's estimated value. A payment counts in the month of its payment received date.</p>
+      <p className="hint-text">Proposal value is each enquiry's estimated value. A payment counts in the month its invoice stage was marked Paid.</p>
     </div>
   );
 }
@@ -188,7 +220,7 @@ function Payments({ rows, months }) {
             const list = rows.filter((r) => r.month === i);
             return [
               <tr key={m.key} style={{ background: "var(--bg)", fontWeight: 600 }}><td colSpan={3}>{m.label}</td></tr>,
-              ...list.map((r) => <tr key={`${m.key}-${r.projectId}`}><td>{r.company}</td><td>{fmtDate(r.date)}</td><td>{inr(r.amount)}</td></tr>),
+              ...list.map((r, k) => <tr key={`${m.key}-${r.projectId}-${r.stage}-${k}`}><td>{r.company}{r.stage ? <span className="hint-text"> · Stage {r.stage}{r.stageName ? ` ${r.stageName}` : ""}</span> : null}</td><td>{fmtDate(r.date)}</td><td>{inr(r.amount)}</td></tr>),
               <tr key={`${m.key}-t`} style={{ fontWeight: 600 }}><td>{m.name.split(" ")[0]} Total</td><td></td><td>{inr(list.reduce((s, r) => s + r.amount, 0))}</td></tr>,
             ];
           })}
