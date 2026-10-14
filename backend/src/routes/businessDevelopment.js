@@ -8,24 +8,27 @@ import { getDropdownLists, listValueError, startingValues } from "../lib/dropdow
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { newProjectDoc } from "../lib/companyProfile.js";
 import { buildPipelineRows, pipelineTotals, buildPipelineWorkbook } from "../lib/pipeline.js";
-import { nextProposalNumber } from "../lib/proposalNumber.js";
 import { buildMis, buildMisWorkbook, currentFY } from "../lib/misReport.js";
 import { emptyBranch } from "./companyProfiles.js";
 
 const router = Router();
 
-// Sequential, human-readable enquiry numbers (001, 002, ...), generated in
-// a transaction against a single counter doc so concurrent creates never
-// collide.
-async function nextEnquiryNo() {
-  const ref = db.collection(COLLECTIONS.HR_SETTINGS).doc("bd_counter");
-  return db.runTransaction(async (tx) => {
+// Enquiry numbers read CATEGORY/SERVICE/SEQUENCE, e.g. CONS/ESG/001 (Training has
+// no service: TRG/001). The sequence counts up separately for each category and
+// service, in a transaction so two enquiries created at once never collide.
+async function nextEnquiryNo({ cat, svc }) {
+  const parts = [cat.code, svc?.code].filter(Boolean);
+  const ref = db.collection(COLLECTIONS.HR_SETTINGS).doc(`enquiry_no_${parts.join("_")}`);
+  const seq = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
-    const seq = (snap.exists ? snap.data().seq : 0) + 1;
-    tx.set(ref, { seq }, { merge: true });
-    return String(seq).padStart(3, "0");
+    const next = (snap.exists ? snap.data().seq : 0) + 1;
+    tx.set(ref, { prefix: parts.join("/"), seq: next });
+    return next;
   });
+  return `${parts.join("/")}/${String(seq).padStart(3, "0")}`;
 }
+
+const createdMs = (e) => (typeof e.createdAt?.toMillis === "function" ? e.createdAt.toMillis() : (e.createdAt?._seconds || 0) * 1000);
 
 // Parent company numbers start at 150 (150, 151, 152, ...) — one per
 // genuinely new company, never reused when a second branch or project is
@@ -57,7 +60,7 @@ router.get("/", authenticate, requireAdmin, async (req, res, next) => {
       const target = req.query.assignedTo.toUpperCase();
       list = list.filter((e) => (e.actions || []).some((a) => a.assignedTo === target));
     }
-    list.sort((a, b) => (a.enquiryNo < b.enquiryNo ? 1 : -1));
+    list.sort((a, b) => createdMs(b) - createdMs(a));
     res.json(list);
   } catch (err) {
     next(err);
@@ -217,7 +220,7 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
       });
     }
 
-    const enquiryNo = await nextEnquiryNo();
+    const enquiryNo = await nextEnquiryNo(classification);
     const projectId = await nextProjectId({ category: projectCategory, service, projectType });
     const id = uuid();
 
@@ -338,14 +341,26 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
 
     await ref.update(updates);
 
-    // The proposal number is generated the first time the enquiry moves past
-    // the Enquiry stage (proposal shared, negotiations, PO). It is kept for good.
+    // The first time the enquiry moves past the Enquiry stage (proposal shared,
+    // negotiations, PO) its proposal number is set to the enquiry number. Once it
+    // reaches Purchase Order the purchase order number is set to the project ID.
+    // Both are kept for good and never overwrite a number already on file.
     if (result && result !== BD_RESULT.IN_PROGRESS && ![BD_RESULT.ENQUIRY_ON_HOLD, BD_RESULT.ENQUIRY_DROPPED].includes(result)) {
+      const enquiryNo = snap.data().enquiryNo;
+      const isPo = ["PURCHASE_ORDER_RECEIVED", "CONTRACT_ACCEPTED"].includes(result);
       const projects = await db.collection(COLLECTIONS.PROJECTS).where("sourceEnquiryId", "==", req.params.id).get();
       for (const p of projects.docs) {
-        if (!p.data().phase2?.proposalNo) {
-          await p.ref.update({ "phase2.proposalNo": await nextProposalNumber(), "phase2.proposalSharedAt": new Date().toISOString().slice(0, 10) });
+        const d = p.data();
+        const fix = {};
+        if (!d.phase2?.proposalNo) {
+          fix["phase2.proposalNo"] = enquiryNo;
+          fix["phase2.proposalSharedAt"] = new Date().toISOString().slice(0, 10);
         }
+        if (isPo) {
+          if (!d.phase2?.workOrderNumber) fix["phase2.workOrderNumber"] = d.projectId;
+          if (!d.phase3?.workOrderNumber) fix["phase3.workOrderNumber"] = d.projectId;
+        }
+        if (Object.keys(fix).length) await p.ref.update(fix);
       }
     }
     res.json({ ok: true });
