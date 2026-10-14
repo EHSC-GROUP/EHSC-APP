@@ -181,8 +181,10 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
         ...emptyInvoiceStages(),
         sourceEnquiryId: null,
         sourceEnquiryNo: null,
-        phase2: emptyPhase2(),
-        phase3: emptyPhase3(),
+        // A project added directly under a company has no enquiry funnel, so its
+        // purchase order number is its project ID from the start.
+        phase2: { ...emptyPhase2(), workOrderNumber: projectId },
+        phase3: { ...emptyPhase3(), workOrderNumber: projectId },
         phase3b: emptyPhase3b(),
         phase4: emptyPhase4(),
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -204,9 +206,9 @@ router.post("/", authenticate, requireAdmin, async (req, res, next) => {
 const PHASE2_FIELDS = [
   "proposalDate", "modeOfSubmission", "submittedTo", "submittedBy",
   "nextFollowUpDueOn", "nextFollowUpDate", "respondedInFavour",
-  "finalProposalAfterNegotiation", "workOrderDate", "workOrderNumber",
+  "finalProposalAfterNegotiation", "workOrderDate",
 ];
-const PHASE3_FIELDS = ["workOrderDate", "workOrderNumber", "workOrderDescription", "deliveryConditions", "paymentTerms"];
+const PHASE3_FIELDS = ["workOrderDate", "workOrderDescription", "deliveryConditions", "paymentTerms"];
 const PHASE4_FIELDS = [
   "deliveryReportSubmitted", "deliveryReportDate", "deliveryReportNotes",
   "invoiceNumber", "invoiceDate", "invoiceAmount", "paymentReceived", "paymentReceivedDate",
@@ -250,12 +252,16 @@ router.put("/:id", authenticate, requireAdmin, async (req, res, next) => {
       }
       updates[key] = num;
     }
-    const percentTotal = INVOICE_STAGE_NUMBERS.reduce((sum, n) => {
-      const v = updates[`invoiceStage${n}Percent`] !== undefined ? updates[`invoiceStage${n}Percent`] : existing[`invoiceStage${n}Percent`];
-      return sum + (Number(v) || 0);
-    }, 0);
-    if (percentTotal > 100.0001) {
-      return res.status(400).json({ error: `The invoice stage percentages add up to ${Math.round(percentTotal * 100) / 100}%, which is more than 100%` });
+    // Stages are all-or-nothing: leave every percentage blank, or fill them in so
+    // they total exactly 100% (not less, not more).
+    if (INVOICE_STAGE_NUMBERS.some((n) => req.body[`invoiceStage${n}Percent`] !== undefined)) {
+      const entered = INVOICE_STAGE_NUMBERS
+        .map((n) => (updates[`invoiceStage${n}Percent`] !== undefined ? updates[`invoiceStage${n}Percent`] : existing[`invoiceStage${n}Percent`]))
+        .filter((v) => v !== null && v !== undefined);
+      const percentTotal = entered.reduce((sum, v) => sum + Number(v), 0);
+      if (entered.length > 0 && Math.abs(percentTotal - 100) > 0.01) {
+        return res.status(400).json({ error: `The invoice stage percentages add up to ${Math.round(percentTotal * 100) / 100}%. They must total exactly 100%, or leave all of them blank.` });
+      }
     }
 
     // Who runs the project and who works on it, plus its status, priority and risk.
@@ -366,6 +372,9 @@ router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req,
       if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
       project = snap.data();
       const wasCompleted = !!project[`invoiceStage${stage}Completed`];
+      if (!completed && project[`invoiceStage${stage}Paid`]) {
+        throw Object.assign(new Error("This stage is marked paid. Undo the payment first."), { status: 400 });
+      }
       shouldNotify = completed && !wasCompleted;
       tx.update(ref, {
         [`invoiceStage${stage}Completed`]: completed,
@@ -383,6 +392,60 @@ router.put("/:id/invoice-stages/:stage", authenticate, requireAdmin, async (req,
     }
 
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Marks one invoice stage as paid (or undoes it). The project's received amount,
+// payment status and last payment date follow from which stages are paid.
+router.put("/:id/invoice-stages/:stage/paid", authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const stage = Number(req.params.stage);
+    if (!isValidStage(stage)) return res.status(400).json({ error: "stage must be 1 to 5" });
+    const paid = !!req.body.paid;
+    const ref = db.collection(COLLECTIONS.PROJECTS).doc(req.params.id);
+    let result;
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw Object.assign(new Error("Not found"), { status: 404 });
+      const p = snap.data();
+      if (p[`invoiceStage${stage}Percent`] == null) throw Object.assign(new Error("Set a percentage for this stage first"), { status: 400 });
+      if (paid && !p[`invoiceStage${stage}Completed`]) throw Object.assign(new Error("A stage can be marked paid once its work is completed"), { status: 400 });
+      const base = p.contractValue ?? p.poValue;
+      if (paid && base == null) throw Object.assign(new Error("Enter the contract value first so the amount can be worked out"), { status: 400 });
+
+      const day = new Date().toISOString().slice(0, 10);
+      const next = { ...p, [`invoiceStage${stage}Paid`]: paid, [`invoiceStage${stage}PaidAt`]: paid ? day : null };
+      let received = 0;
+      let latest = null;
+      let setCount = 0;
+      let paidCount = 0;
+      for (const n of INVOICE_STAGE_NUMBERS) {
+        if (next[`invoiceStage${n}Percent`] == null) continue;
+        setCount++;
+        if (!next[`invoiceStage${n}Paid`]) continue;
+        paidCount++;
+        received += (Number(base) * Number(next[`invoiceStage${n}Percent`])) / 100;
+        const at = next[`invoiceStage${n}PaidAt`];
+        if (at && (!latest || at > latest)) latest = at;
+      }
+      received = Math.round(received * 100) / 100;
+      const allPaid = setCount > 0 && paidCount === setCount;
+      const paymentStatus = allPaid ? "Paid" : paidCount > 0 ? "Partially Paid" : "Invoiced";
+      tx.update(ref, {
+        [`invoiceStage${stage}Paid`]: paid,
+        [`invoiceStage${stage}PaidAt`]: paid ? day : null,
+        receivedAmount: paidCount > 0 ? received : null,
+        paymentStatus,
+        "phase4.paymentReceived": allPaid,
+        "phase4.paymentReceivedDate": latest,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: req.user.userId,
+      });
+      result = { receivedAmount: received, paymentStatus, allPaid };
+    });
+    res.json({ ok: true, ...result });
   } catch (err) {
     next(err);
   }
