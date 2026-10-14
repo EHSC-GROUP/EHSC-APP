@@ -85,6 +85,38 @@ export async function runRenewalReminders({ today = isoToday(), force = false } 
   return { reminded: due.length, email: { sent: email.sent, reason: email.reason, to: alertRecipient(), preview: email.preview } };
 }
 
+// The company's own list (from its Recurring Payments & Renewals sheet) is loaded
+// once, automatically, the first time the app starts against an empty tracker, so
+// it is there from the first day. A marker remembers it has run, so deleting items
+// later never brings them back. "23rd of every month" style items start from the
+// next 23rd.
+export async function ensureRenewalDefaults() {
+  const marker = db.collection(COLLECTIONS.HR_SETTINGS).doc("renewals_defaults_loaded");
+  const today = isoToday();
+  const nextDayOfMonth = (day) => {
+    const [y, m] = today.split("-").map(Number);
+    const pad = (n) => String(n).padStart(2, "0");
+    const thisMonth = `${y}-${pad(m)}-${pad(day)}`;
+    return thisMonth >= today ? thisMonth : addMonthsISO(`${y}-${pad(m)}-01`, 1).slice(0, 8) + pad(day);
+  };
+  const rows = [
+    { name: "Electricity bill", frequency: "MONTHLY", activatedOn: null, nextDueDate: nextDayOfMonth(23), notes: "Activated: 23rd of every month" },
+    { name: "Airtel recharge", frequency: "MONTHLY", activatedOn: null, nextDueDate: nextDayOfMonth(2), notes: "Activated: 2nd of every month" },
+    { name: "Act WiFi", frequency: "HALF_YEARLY", activatedOn: "2026-07-15", nextDueDate: "2027-01-12", notes: "" },
+    { name: "Quick Heal", frequency: "YEARLY", activatedOn: "2026-10-13", nextDueDate: "2027-10-13", notes: "" },
+    { name: "Microsoft 365", frequency: "YEARLY", activatedOn: "2026-10-23", nextDueDate: "2027-10-22", notes: "" },
+    { name: "Rent agreement renewal", frequency: "YEARLY", activatedOn: null, nextDueDate: "2027-10-08", notes: "Activated: August every year" },
+  ];
+  return db.runTransaction(async (tx) => {
+    if ((await tx.get(marker)).exists) return { loaded: 0 };
+    const existing = await tx.get(col().limit(1));
+    tx.set(marker, { at: new Date().toISOString() });
+    if (!existing.empty) return { loaded: 0 };
+    for (const r of rows) tx.set(col().doc(), { remindDaysBefore: 1, active: true, ...r, createdBy: "system" });
+    return { loaded: rows.length };
+  });
+}
+
 export function startRenewalReminderJob() {
   cron.schedule("0 9 * * *", () => {
     runRenewalReminders().catch((err) => console.error("Renewal reminders failed:", err));
