@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { db } from "../config/firebase.js";
-import { COLLECTIONS } from "./constants.js";
+import { COLLECTIONS, INVOICE_STAGE_NUMBERS } from "./constants.js";
 import { financialYearOf, fmtDMY } from "./dateUtils.js";
 import { serviceText, buildPipelineRows, pipelineTotals } from "./pipeline.js";
 
@@ -59,7 +59,8 @@ export async function buildMis(fy = currentFY()) {
   }
   const isNew = new Map();
   for (const list of byCompany.values()) {
-    list.sort((a, b) => String(a.approachDate).localeCompare(String(b.approachDate)) || String(a.enquiryNo).localeCompare(String(b.enquiryNo)));
+    const ms = (e) => (typeof e.createdAt?.toMillis === "function" ? e.createdAt.toMillis() : (e.createdAt?._seconds || 0) * 1000);
+    list.sort((a, b) => String(a.approachDate).localeCompare(String(b.approachDate)) || ms(a) - ms(b));
     list.forEach((e, i) => isNew.set(e.id, i === 0));
   }
   const enqExisting = zero();
@@ -105,10 +106,26 @@ export async function buildMis(fy = currentFY()) {
   let undatedPayments = 0;
   for (const d of projSnap.docs) {
     const p = d.data();
+    // One payment per invoice stage marked Paid.
+    const paidStages = INVOICE_STAGE_NUMBERS.filter((n) => p[`invoiceStage${n}Paid`]);
+    if (paidStages.length > 0) {
+      const base = p.contractValue ?? p.poValue;
+      for (const n of paidStages) {
+        const date = p[`invoiceStage${n}PaidAt`] || null;
+        if (monthOf(date) === undefined) { if (!date) undatedPayments++; continue; }
+        const stageName = p[`invoiceStage${n}Name`];
+        payments.push({
+          date, month: monthOf(date), company: p.clientName, projectId: p.projectId, stage: n, stageName: stageName || "",
+          amount: money((Number(base) * Number(p[`invoiceStage${n}Percent`])) / 100),
+        });
+      }
+      continue;
+    }
+    // Older records: a single typed "received" amount with its date.
     if (!(Number(p.receivedAmount) > 0)) continue;
     const date = p.phase4?.paymentReceivedDate || null;
     if (monthOf(date) === undefined) { if (!date) undatedPayments++; continue; }
-    payments.push({ date, month: monthOf(date), company: p.clientName, projectId: p.projectId, amount: money(p.receivedAmount) });
+    payments.push({ date, month: monthOf(date), company: p.clientName, projectId: p.projectId, stage: 0, stageName: "", amount: money(p.receivedAmount) });
   }
   payments.sort((a, b) => a.date.localeCompare(b.date) || a.company.localeCompare(b.company));
 
