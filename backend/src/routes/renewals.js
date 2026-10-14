@@ -3,7 +3,7 @@ import { db, admin } from "../config/firebase.js";
 import { COLLECTIONS } from "../lib/constants.js";
 import { authenticate, requireSuperAdmin } from "../middleware/auth.js";
 import { mailConfigured } from "../lib/mailer.js";
-import { RENEWAL_FREQUENCIES, FREQUENCY_LABELS, addMonthsISO, advanceDueDate, statusOf, daysUntil, runRenewalReminders, alertRecipient } from "../lib/renewals.js";
+import { RENEWAL_FREQUENCIES, FREQUENCY_LABELS, ensureRenewalDefaults, advanceDueDate, statusOf, daysUntil, runRenewalReminders, alertRecipient } from "../lib/renewals.js";
 
 const router = Router();
 const col = () => db.collection(COLLECTIONS.HR_RENEWALS);
@@ -46,6 +46,7 @@ const view = (d) => ({ id: d.id, ...d.data(), status: statusOf(d.data()), daysLe
 
 router.get("/", async (req, res, next) => {
   try {
+    await ensureRenewalDefaults();
     const snap = await col().get();
     const items = snap.docs.map(view).sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
     res.json({ items, emailConfigured: mailConfigured(), recipient: alertRecipient(), frequencies: FREQUENCY_LABELS });
@@ -59,36 +60,6 @@ router.post("/", async (req, res, next) => {
     const ref = col().doc();
     await ref.set({ remindDaysBefore: 7, active: true, notes: "", activatedOn: null, ...out, createdAt: admin.firestore.FieldValue.serverTimestamp(), createdBy: req.user.userId });
     res.status(201).json({ id: ref.id });
-  } catch (err) { next(err); }
-});
-
-// The company's starting list (from the Recurring Payments & Renewals sheet).
-// "23rd of every month" style items start from the next 23rd. Only loads into an
-// empty tracker, so it can never duplicate or overwrite what is already there.
-router.post("/seed-defaults", async (req, res, next) => {
-  try {
-    if (!(await col().limit(1).get()).empty) return res.status(400).json({ error: "The tracker already has items" });
-    const today = new Date().toISOString().slice(0, 10);
-    const nextDayOfMonth = (day) => {
-      const [y, m] = today.split("-").map(Number);
-      const pad = (n) => String(n).padStart(2, "0");
-      const thisMonth = `${y}-${pad(m)}-${pad(day)}`;
-      return thisMonth >= today ? thisMonth : addMonthsISO(`${y}-${pad(m)}-01`, 1).slice(0, 8) + pad(day);
-    };
-    const rows = [
-      { name: "Electricity bill", frequency: "MONTHLY", activatedOn: null, nextDueDate: nextDayOfMonth(23), notes: "Activated: 23rd of every month" },
-      { name: "Airtel recharge", frequency: "MONTHLY", activatedOn: null, nextDueDate: nextDayOfMonth(2), notes: "Activated: 2nd of every month" },
-      { name: "Act WiFi", frequency: "HALF_YEARLY", activatedOn: "2026-07-15", nextDueDate: "2027-01-12", notes: "" },
-      { name: "Quick Heal", frequency: "YEARLY", activatedOn: "2026-10-13", nextDueDate: "2027-10-13", notes: "" },
-      { name: "Microsoft 365", frequency: "YEARLY", activatedOn: "2026-10-23", nextDueDate: "2027-10-22", notes: "" },
-      { name: "Rent agreement renewal", frequency: "YEARLY", activatedOn: null, nextDueDate: "2027-10-08", notes: "Activated: August every year" },
-    ];
-    const batch = db.batch();
-    for (const r of rows) {
-      batch.set(col().doc(), { remindDaysBefore: 1, active: true, ...r, createdAt: admin.firestore.FieldValue.serverTimestamp(), createdBy: req.user.userId });
-    }
-    await batch.commit();
-    res.status(201).json({ added: rows.length });
   } catch (err) { next(err); }
 });
 
