@@ -49,7 +49,7 @@ export async function buildPipelineRows() {
       value,
     });
   }
-  rows.sort((a, b) => a.company.localeCompare(b.company) || String(a.enquiryNo).localeCompare(String(b.enquiryNo)));
+  rows.sort((a, b) => a.company.localeCompare(b.company) || String(a.enquiryNo).localeCompare(String(b.enquiryNo), undefined, { numeric: true }));
   return rows;
 }
 
@@ -129,7 +129,7 @@ export async function buildInvoiceRows() {
     const p = d.data();
     if (p.paymentStatus === "Paid") continue;
     for (const n of INVOICE_STAGE_NUMBERS) {
-      if (!p[`invoiceStage${n}Completed`]) continue;
+      if (!p[`invoiceStage${n}Completed`] || p[`invoiceStage${n}Paid`]) continue;
       const row = invoiceRowFor(p, n);
       if (row) rows.push(row);
     }
